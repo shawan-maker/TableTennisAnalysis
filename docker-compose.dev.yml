@@ -1,0 +1,60 @@
+# =============================================================================
+# docker-compose.dev.yml — 开发环境（仅 PG + Redis，轻量化）
+# 架构约束：§9.2 部署编排 / 切片 13-infrastructure/docker.md
+# 使用方式：docker compose -f docker-compose.dev.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 15 数据库
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: tta-db-dev
+    privileged: true
+    environment:
+      POSTGRES_DB: tta
+      POSTGRES_USER: tta_user
+      POSTGRES_PASSWORD: tta_pass_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tta_user -d tta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tta-dev-net
+
+  # ---------------------------------------------------------------------------
+  # Redis 7（缓存 + Celery Broker）
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: tta-redis-dev
+    command: redis-server --requirepass redis_dev_pass
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata-dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_dev_pass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tta-dev-net
+
+volumes:
+  pgdata-dev:
+    driver: local
+  redisdata-dev:
+    driver: local
+
+networks:
+  tta-dev-net:
+    driver: bridge

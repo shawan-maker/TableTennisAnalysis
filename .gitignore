@@ -1,0 +1,71 @@
+# =============================================================================
+# .gitignore — 乒乓智能分析平台
+# =============================================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+ENV/
+
+# ---------- Environment ----------
+.env
+.env.*
+!.env.example
+
+# ---------- IDE ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---------- Testing ----------
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.tox/
+
+# ---------- Docker ----------
+docker-compose.override.yml
+
+# ---------- Database / Migrations ----------
+*.db
+*.sqlite3
+alembic/versions/__pycache__/
+
+# ---------- Logs ----------
+logs/
+*.log
+
+# ---------- Temp ----------
+tmp/
+*.tmp
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+
+# ---------- Node / Frontend ----------
+node_modules/
+frontend/dist/
+frontend/.taro/
+.cache/
+
+# ---------- Models / Data ----------
+models/*.pt
+models/*.onnx
+models/*.pth
+*.h5
