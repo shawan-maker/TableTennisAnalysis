@@ -31,7 +31,7 @@ def event_loop():
 async def db_setup():
     """
     创建数据库表（测试前）+ 清理（测试后）。
-
+    同时清理 Redis 缓存，确保 S2 scoring 模块的 Redis INCR 序号不跨测试污染。
     使用真实的 PostgreSQL 数据库（通过 Docker Compose 启动）。
     """
     # 创建所有表
@@ -39,11 +39,32 @@ async def db_setup():
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
+    # 清理 Redis（scoring 模块在测试间残留的序号/比分等）
+    try:
+        redis = await get_redis()
+        # 删除所有 scoring:match:* 和 ws:* 相关的 key
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*"]:
+            keys = await redis.keys(pattern)
+            if keys:
+                await redis.delete(*keys)
+    except Exception:
+        pass  # Redis 未连接时不影响测试
+
     yield
 
     # 清理
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+    # 清理 Redis
+    try:
+        redis = await get_redis()
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*"]:
+            keys = await redis.keys(pattern)
+            if keys:
+                await redis.delete(*keys)
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture(scope="function")

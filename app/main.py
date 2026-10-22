@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
+from app.api.v1.ws import router as ws_router
 from app.core.config import settings
 from app.core.exceptions import (
     AppException,
@@ -20,6 +21,7 @@ from app.core.exceptions import (
 )
 from app.core.limiter import RateLimitExceeded, limiter, rate_limit_exceeded_handler
 from app.core.redis import close_redis, get_redis
+from app.core.websocket import manager as ws_manager
 
 
 @asynccontextmanager
@@ -33,10 +35,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[WARNING] Redis connection failed: {e}")
 
+    # 启动 WS Redis 中继
+    await ws_manager.start_relay()
+
     # 确保 models 被导入（Alembic 需要）
     import app.models  # noqa: F401
 
     yield
+
+    # 关闭时：停止 WS 中继
+    await ws_manager.stop_relay()
 
     # 关闭时：清理 Redis 连接
     await close_redis()
@@ -53,12 +61,13 @@ app = FastAPI(
 
 ### 当前 Sprint
 - **S1**：基础认证（微信登录 + 用户档案 + 免费额度）
+- **S2**：记分牌 + 比赛数据 + WebSocket
 
 ### 认证方式
 - JWT Bearer Token（Authorization: Bearer {token}）
 - H5 临时 Token（一次性，5 分钟有效）
     """,
-    version="0.1.0",
+    version="0.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -91,6 +100,7 @@ app.add_exception_handler(Exception, generic_exception_handler)
 # =================================================================
 
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(ws_router)  # WebSocket 端点挂载在根路径 /ws
 
 
 # =================================================================
