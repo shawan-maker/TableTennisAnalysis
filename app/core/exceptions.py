@@ -65,6 +65,7 @@ ERR_REPORT_NOT_FOUND = 40412    # 分析报告不存在
 ERR_RECORD_NOT_FOUND = 40413    # 比赛记录不存在
 ERR_SHARE_TOKEN_INVALID = 40414  # 分享 Token 无效或已过期
 ERR_MATCH_STATE_CONFLICT = 40910  # 比赛不在进行中
+ERR_CONFLICT = 40900               # 资源冲突（重复创建/状态冲突）
 ERR_RECORD_LINKED = 40911        # 比赛记录已关联记分牌
 ERR_SCORE_INVALID = 42210       # 比分不符合赛制规则
 ERR_QUOTA_EXHAUSTED = 42910     # 免费分析额度耗尽

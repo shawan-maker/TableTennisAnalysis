@@ -6,11 +6,22 @@ app/core/pagination.py — 分页工具
 响应格式：{total, page, page_size, items}
 """
 
-from typing import Any, Optional
+from typing import Any, Generic, Optional, TypeVar
 
 from fastapi import Query
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+T = TypeVar("T")
+
+
+class Paginated(BaseModel, Generic[T]):
+    """分页响应泛型包装"""
+    total: int
+    page: int
+    page_size: int
+    items: list[T]
 
 
 class PaginationParams:

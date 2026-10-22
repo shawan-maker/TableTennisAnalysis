@@ -18,6 +18,8 @@ from app.api.v1.progress.router import router as progress_router
 from app.api.v1.training.router import router as training_router
 from app.api.v1.membership.router import router as membership_router
 from app.api.v1.payment.router import router as payment_router
+from app.api.v1.notification.router import router as notification_router
+from app.api.v1.admin.router import router as admin_router
 
 api_router = APIRouter()
 
@@ -33,3 +35,5 @@ api_router.include_router(progress_router)
 api_router.include_router(training_router)
 api_router.include_router(membership_router)
 api_router.include_router(payment_router)
+api_router.include_router(notification_router)
+api_router.include_router(admin_router)

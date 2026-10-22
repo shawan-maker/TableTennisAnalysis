@@ -87,5 +87,58 @@ async def get_current_admin(
     return user
 
 
+async def get_admin_session(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    """
+    Admin 独立认证 — 基于 Redis session 的管理员认证。
+    与用户 JWT 认证完全独立，使用 admin_user 表 + Redis session（admin:session:{token}）。
+    """
+    from app.services.admin_service import AdminService, ADMIN_SESSION_PREFIX
+
+    if credentials is None:
+        raise AppException("管理员请先登录", 401, code=ERR_UNAUTHORIZED)
+
+    token = credentials.credentials
+    session = await AdminService.get_session(token)
+    if not session:
+        raise AppException("管理员会话已过期，请重新登录", 401, code=ERR_UNAUTHORIZED)
+
+    # 刷新 session TTL
+    await AdminService.refresh_session(token)
+    return session
+
+
+async def require_super_admin(
+    session: dict = Depends(get_admin_session),
+):
+    """超级管理员权限守卫"""
+    if session.get("role") != "super_admin":
+        raise AppException("需要超级管理员权限", 403, code=ERR_FORBIDDEN)
+    return session
+
+
+async def require_content_admin(
+    session: dict = Depends(get_admin_session),
+):
+    """内容管理员权限守卫（super_admin 也通过）"""
+    if session.get("role") not in ("super_admin", "content_admin"):
+        raise AppException("需要内容管理员权限", 403, code=ERR_FORBIDDEN)
+    return session
+
+
+async def require_model_admin(
+    session: dict = Depends(get_admin_session),
+):
+    """模型管理员权限守卫（super_admin 也通过）"""
+    if session.get("role") not in ("super_admin", "model_admin"):
+        raise AppException("需要模型管理员权限", 403, code=ERR_FORBIDDEN)
+    return session
+
+
 # 便捷导出
-__all__ = ["get_current_user", "get_current_admin", "get_db", "get_redis", "bearer_scheme"]
+__all__ = [
+    "get_current_user", "get_current_admin", "get_admin_session",
+    "require_super_admin", "require_content_admin", "require_model_admin",
+    "get_db", "get_redis", "bearer_scheme",
+]

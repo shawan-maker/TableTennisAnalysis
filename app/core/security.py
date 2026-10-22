@@ -11,9 +11,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ERR_TOKEN_EXPIRED, ERR_UNAUTHORIZED
+
+# 密码哈希工具（pbkdf2_sha256 — 不依赖 bcrypt）
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 def create_access_token(payload: dict[str, Any]) -> str:

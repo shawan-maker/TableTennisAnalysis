@@ -66,7 +66,7 @@ app = FastAPI(
 - **S4**：训练建议 + 进度分析 + 游戏化 + 知识库
 - **S5**：付费闭环（会员订阅 + 微信支付）
     """,
-    version="0.5.0",
+    version="0.6.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
