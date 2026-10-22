@@ -1,0 +1,52 @@
+# =============================================================================
+# docker-compose.vm.yml — 虚拟机上的 Docker Compose 配置
+# 
+# 部署位置：虚拟机 /root/tta-dev/docker-compose.yml
+# 使用方式：cd /root/tta-dev && docker compose up -d
+#
+# 注意事项：
+#   1. CentOS 7 必须设置 privileged: true（SELinux + overlay2 兼容性）
+#   2. 使用 bind mount 而非 named volume（避免 SELinux 标签问题）
+#   3. 生产环境请修改密码和移除 privileged（改用 security_opt）
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 15 数据库
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: tta-db-dev
+    privileged: true                    # CentOS 7 必须，否则 PG 无法写入数据卷
+    environment:
+      POSTGRES_DB: tta
+      POSTGRES_USER: tta_user
+      POSTGRES_PASSWORD: tta_pass_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data   # bind mount，不用 named volume
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tta_user -d tta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis 7（缓存 + Celery Broker）
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: tta-redis-dev
+    command: redis-server --requirepass redis_dev_pass
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redisdata:/data                 # bind mount
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_dev_pass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
