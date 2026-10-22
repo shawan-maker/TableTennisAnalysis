@@ -16,6 +16,8 @@ from app.api.v1.dashboard.router import router as dashboard_router
 from app.api.v1.gamification.router import router as gamification_router
 from app.api.v1.progress.router import router as progress_router
 from app.api.v1.training.router import router as training_router
+from app.api.v1.membership.router import router as membership_router
+from app.api.v1.payment.router import router as payment_router
 
 api_router = APIRouter()
 
@@ -29,8 +31,5 @@ api_router.include_router(dashboard_router)
 api_router.include_router(gamification_router)
 api_router.include_router(progress_router)
 api_router.include_router(training_router)
-
-# Sprint 4+ 新增模块路由在此追加：
-# api_router.include_router(training_advice_router)
-# api_router.include_router(dashboard_router)
-# ...
+api_router.include_router(membership_router)
+api_router.include_router(payment_router)

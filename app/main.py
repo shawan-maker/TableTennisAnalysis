@@ -64,8 +64,9 @@ app = FastAPI(
 - **S2**：记分牌 + 比赛数据 + WebSocket
 - **S3**：视频分析 + Celery AI 流水线 + 分析报告 + 数据看板
 - **S4**：训练建议 + 进度分析 + 游戏化 + 知识库
+- **S5**：付费闭环（会员订阅 + 微信支付）
     """,
-    version="0.4.0",
+    version="0.5.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

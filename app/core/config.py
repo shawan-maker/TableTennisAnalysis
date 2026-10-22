@@ -55,6 +55,17 @@ class Settings(BaseSettings):
     WECHAT_APPID: str = ""
     WECHAT_APP_SECRET: str = ""
 
+    # ---------- WeChat Pay ----------
+    WECHAT_PAY_MOCK: bool = True  # 开发模式：跳过真实微信支付 API 调用
+    WECHAT_MCH_ID: str = ""
+    WECHAT_API_V3_KEY: str = ""
+    WECHAT_CERT_SERIAL: str = ""
+    WECHAT_PRIVATE_KEY: str = ""  # PEM 格式私钥（多行字符串）
+    WECHAT_NOTIFY_URL: str = "https://example.com/api/v1/payment/notify"
+
+    # ---------- Admin ----------
+    ADMIN_USER_IDS: str = ""  # 逗号分隔的管理员用户 ID 列表（测试时动态设置）
+
     # ---------- Celery ----------
     CELERY_BROKER_URL: str = "redis://:redis_dev_pass@localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://:redis_dev_pass@localhost:6379/2"

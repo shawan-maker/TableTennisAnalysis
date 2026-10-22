@@ -43,7 +43,7 @@ async def db_setup():
     try:
         redis = await get_redis()
         # 删除所有 scoring:match:* 和 ws:* 相关的 key
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*"]:
             keys = await redis.keys(pattern)
             if keys:
                 await redis.delete(*keys)
@@ -59,7 +59,7 @@ async def db_setup():
     # 清理 Redis
     try:
         redis = await get_redis()
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*"]:
             keys = await redis.keys(pattern)
             if keys:
                 await redis.delete(*keys)
@@ -122,3 +122,79 @@ async def auth_user(test_user) -> dict:
 async def auth_headers(auth_user) -> dict:
     """认证请求头"""
     return {"Authorization": f"Bearer {auth_user['access_token']}"}
+
+
+@pytest_asyncio.fixture(scope="function")
+async def admin_user(db_session) -> User:
+    """创建管理员测试用户"""
+    from app.core.config import settings
+    user = User(
+        openid="test_admin_openid",
+        nickname="管理员",
+        status="active",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    # 动态将管理员 ID 加入配置
+    settings.ADMIN_USER_IDS = str(user.id)
+    return user
+
+
+@pytest_asyncio.fixture(scope="function")
+async def admin_auth(admin_user) -> dict:
+    """管理员认证信息"""
+    access_token = create_access_token(
+        {"sub": str(admin_user.id), "jti": generate_jti()})
+    return {
+        "access_token": access_token,
+        "user_id": admin_user.id,
+        "user": admin_user,
+    }
+
+
+@pytest_asyncio.fixture(scope="function")
+async def admin_headers(admin_auth) -> dict:
+    """管理员认证请求头"""
+    return {"Authorization": f"Bearer {admin_auth['access_token']}"}
+
+
+@pytest_asyncio.fixture(scope="function")
+async def seed_tiers(db_session):
+    """预置会员等级配置数据"""
+    from app.models.membership import MembershipTierConfig
+
+    tiers = [
+        MembershipTierConfig(
+            tier="free", name="免费",
+            price_monthly_cents=0, price_quarterly_cents=0, price_yearly_cents=0,
+            benefits=["每日3次分析", "记分牌", "数据看板", "社区浏览"],
+            quota_config={"daily_analysis_limit": 3},
+            sort_order=0,
+        ),
+        MembershipTierConfig(
+            tier="member", name="会员",
+            price_monthly_cents=1900, price_quarterly_cents=4900, price_yearly_cents=16800,
+            benefits=["无限分析", "训练方案", "训练单", "3D教学", "历史对比"],
+            quota_config={"daily_analysis_limit": -1},
+            sort_order=1,
+        ),
+        MembershipTierConfig(
+            tier="pro", name="专业",
+            price_monthly_cents=3900, price_quarterly_cents=9900, price_yearly_cents=35800,
+            benefits=["无限分析", "高级分析", "对手建模", "月度报告", "训练方案"],
+            quota_config={"daily_analysis_limit": -1},
+            sort_order=2,
+        ),
+        MembershipTierConfig(
+            tier="coach", name="教练",
+            price_monthly_cents=9900, price_quarterly_cents=26900, price_yearly_cents=89900,
+            benefits=["学员管理", "批量分析", "教练工具", "专业版全部权益"],
+            quota_config={"daily_analysis_limit": -1},
+            sort_order=3,
+        ),
+    ]
+    for t in tiers:
+        db_session.add(t)
+    await db_session.commit()
+    return tiers

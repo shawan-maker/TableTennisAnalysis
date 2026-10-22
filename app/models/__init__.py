@@ -36,6 +36,9 @@ from app.models.gamification import (
     UserPoints,
 )
 from app.models.training import PlanAdjustment, TrainingPlan
+from app.models.membership import MembershipTierConfig, Subscription
+from app.models.payment import Order, PaymentRecord, RefundRecord
+from app.models.admin import AuditLog
 
 __all__ = [
     "User",
@@ -66,5 +69,11 @@ __all__ = [
     "UserPoints",
     "TrainingPlan",
     "PlanAdjustment",
+    "MembershipTierConfig",
+    "Subscription",
+    "Order",
+    "PaymentRecord",
+    "RefundRecord",
+    "AuditLog",
     "Base",
 ]

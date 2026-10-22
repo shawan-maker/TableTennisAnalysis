@@ -69,5 +69,23 @@ async def get_current_user(
     return user
 
 
+async def get_current_admin(
+    user: "User" = Depends(get_current_user),
+):
+    """
+    管理员权限守卫 — 在 get_current_user 基础上检查管理员身份。
+
+    当前实现：通过 config.ADMIN_USER_IDS 配置管理员用户 ID 列表。
+    S6 将替换为 admin_user 表查询。
+    """
+    from app.core.config import settings
+
+    admin_ids = [int(x.strip()) for x in settings.ADMIN_USER_IDS.split(",") if x.strip()]
+    if user.id not in admin_ids:
+        raise AppException("管理员权限不足", 403, code=ERR_FORBIDDEN)
+
+    return user
+
+
 # 便捷导出
-__all__ = ["get_current_user", "get_db", "get_redis", "bearer_scheme"]
+__all__ = ["get_current_user", "get_current_admin", "get_db", "get_redis", "bearer_scheme"]
