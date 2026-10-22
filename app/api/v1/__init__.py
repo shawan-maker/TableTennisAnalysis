@@ -12,6 +12,7 @@ from app.api.v1.users.router import router as users_router
 from app.api.v1.scoring.router import router as scoring_router
 from app.api.v1.match_data.router import router as match_data_router
 from app.api.v1.video_analysis.router import router as video_analysis_router
+from app.api.v1.dashboard.router import router as dashboard_router
 
 api_router = APIRouter()
 
@@ -21,6 +22,7 @@ api_router.include_router(users_router)
 api_router.include_router(scoring_router)
 api_router.include_router(match_data_router)
 api_router.include_router(video_analysis_router)
+api_router.include_router(dashboard_router)
 
 # Sprint 4+ 新增模块路由在此追加：
 # api_router.include_router(training_advice_router)

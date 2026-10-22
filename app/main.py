@@ -62,9 +62,9 @@ app = FastAPI(
 ### 当前 Sprint
 - **S1**：基础认证（微信登录 + 用户档案 + 免费额度）
 - **S2**：记分牌 + 比赛数据 + WebSocket
-- **S3**：视频分析 + Celery AI 流水线 + 分析报告
+- **S3**：视频分析 + Celery AI 流水线 + 分析报告 + 数据看板
     """,
-    version="0.3.0",
+    version="0.3.1",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

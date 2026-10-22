@@ -123,7 +123,14 @@ class ReportGenerator:
             "video_info": video_info,
             "rally_analysis": rally,
             "landing_points": landing,
+            "landing_heatmap": {"nine_grid": landing.get("nine_grid", [])},
             "technique_stats": technique,
+            "technique_distribution": technique,  # dashboard 兼容字段
+            "metrics": {  # dashboard 兼容字段
+                "landing_forehand_pct": landing.get("distribution", {}).get("forehand", 0),
+                "landing_backhand_pct": landing.get("distribution", {}).get("backhand", 0),
+                "landing_middle_pct": landing.get("distribution", {}).get("middle", 0),
+            },
             "ball_speed": ball_speed,
             "score_analysis": score_analysis,
         }
