@@ -212,8 +212,10 @@ class ShareRecord(Base):
     __tablename__ = "share_record"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    # S2 阶段: report_id 不设 FK（analysis_report 表 S3 才创建）
-    report_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # S3: report_id FK 指向 analysis_report（S3 迁移补充）
+    report_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("analysis_report.id", ondelete="CASCADE"), nullable=False
+    )
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )

@@ -62,12 +62,9 @@ app = FastAPI(
 ### 当前 Sprint
 - **S1**：基础认证（微信登录 + 用户档案 + 免费额度）
 - **S2**：记分牌 + 比赛数据 + WebSocket
-
-### 认证方式
-- JWT Bearer Token（Authorization: Bearer {token}）
-- H5 临时 Token（一次性，5 分钟有效）
+- **S3**：视频分析 + Celery AI 流水线 + 分析报告
     """,
-    version="0.2.0",
+    version="0.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

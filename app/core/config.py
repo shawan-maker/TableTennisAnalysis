@@ -59,6 +59,33 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://:redis_dev_pass@localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://:redis_dev_pass@localhost:6379/2"
 
+    # ---------- File Storage (OSS) ----------
+    FILE_STORAGE_MOCK: bool = True
+    OSS_ACCESS_KEY_ID: str = ""
+    OSS_ACCESS_KEY_SECRET: str = ""
+    OSS_BUCKET_NAME: str = ""
+    OSS_ENDPOINT: str = "oss-cn-hangzhou.aliyuncs.com"
+    OSS_CDN_DOMAIN: str = ""
+    LOCAL_UPLOAD_DIR: str = "./tmp/uploads"
+
+    # ---------- AI Inference ----------
+    AI_INFERENCE_MOCK: bool = True
+    INFERENCE_BASE_URL: str = "http://localhost:8501"
+    INFERENCE_TIMEOUT: int = 300
+
+    # ---------- LLM ----------
+    LLM_ENABLED: bool = False
+    LLM_API_URL: str = ""
+
+    # ---------- Video Analysis ----------
+    MAX_FILE_SIZE: int = 524288000  # 500MB
+    MIN_FILE_SIZE: int = 1048576    # 1MB
+    MIN_VIDEO_DURATION: int = 5
+    MAX_VIDEO_DURATION: int = 600
+    FREE_DAILY_ANALYSIS_LIMIT: int = 3
+    SHARE_DAILY_LIMIT: int = 5
+    SHARE_EXPIRE_DAYS: int = 7
+
     # ---------- SMS ----------
     SMS_MOCK: bool = True
 

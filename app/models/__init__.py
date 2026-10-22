@@ -14,6 +14,13 @@ from app.models.match import (
     ShareRecord,
 )
 from app.models.notification import NotificationRecord
+from app.models.video_analysis import (
+    AnalysisReport,
+    FeedbackRecord,
+    FileRecord,
+    PipelineStep,
+    VideoTask,
+)
 
 __all__ = [
     "User",
@@ -26,5 +33,10 @@ __all__ = [
     "ManualScoreDetail",
     "ShareRecord",
     "NotificationRecord",
+    "FileRecord",
+    "VideoTask",
+    "PipelineStep",
+    "AnalysisReport",
+    "FeedbackRecord",
     "Base",
 ]
