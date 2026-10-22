@@ -278,3 +278,100 @@ async def test_match_data_unauthorized(client):
     """未认证返回 401"""
     resp = await client.get("/api/v1/match-data/records")
     assert resp.status_code == 401
+
+
+# =================================================================
+# 边界场景补充
+# =================================================================
+
+@pytest.mark.asyncio
+async def test_update_record_linked(client, auth_headers):
+    """关联记分牌的比赛记录不可编辑 → 409"""
+    # 1. 创建记分牌比赛并结束 → 级联创建 MatchRecord
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "级联对手"},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/score",
+        headers=auth_headers,
+        json={"scorer": "user", "score_method": "serve_point"},
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/finish", headers=auth_headers
+    )
+
+    # 2. 查询 match-data 列表，找到关联记录
+    resp2 = await client.get("/api/v1/match-data/records", headers=auth_headers)
+    assert resp2.status_code == 200
+    items = resp2.json()["data"]["items"]
+    linked = None
+    for item in items:
+        if item["opponent_name"] == "级联对手":
+            linked = item
+            break
+    assert linked is not None, "未找到级联创建的比赛记录"
+
+    # 3. 获取详情确认 match_id 不为空
+    resp3 = await client.get(
+        f"/api/v1/match-data/records/{linked['id']}", headers=auth_headers
+    )
+    assert resp3.status_code == 200
+    assert resp3.json()["data"]["match_id"] is not None
+
+    # 4. 尝试编辑 → 409
+    resp4 = await client.patch(
+        f"/api/v1/match-data/records/{linked['id']}",
+        headers=auth_headers,
+        json={"opponent_name": "改名"},
+    )
+    assert resp4.status_code == 409
+    assert "关联" in resp4.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_update_empty_body(client, auth_headers):
+    """空更新体 → 422"""
+    resp1 = await client.post(
+        "/api/v1/match-data/records",
+        headers=auth_headers,
+        json={"opponent_name": "空更新对手", "my_score": 3, "opponent_score": 1, "format": "bo5"},
+    )
+    record_id = resp1.json()["data"]["id"]
+
+    resp2 = await client.patch(
+        f"/api/v1/match-data/records/{record_id}",
+        headers=auth_headers,
+        json={},
+    )
+    assert resp2.status_code == 422
+    assert "更新字段" in resp2.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_list_records_filter_lose(client, auth_headers):
+    """列表过滤负场"""
+    # 创建一条胜场
+    await client.post(
+        "/api/v1/match-data/records",
+        headers=auth_headers,
+        json={"opponent_name": "win_opp_2", "my_score": 3, "opponent_score": 1, "format": "bo5"},
+    )
+    # 创建一条负场
+    await client.post(
+        "/api/v1/match-data/records",
+        headers=auth_headers,
+        json={"opponent_name": "lose_opp_2", "my_score": 1, "opponent_score": 3, "format": "bo5"},
+    )
+
+    resp = await client.get(
+        "/api/v1/match-data/records?result=lose", headers=auth_headers
+    )
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    assert all(item["is_win"] is False for item in items)

@@ -345,3 +345,223 @@ async def test_scoring_unauthorized(client):
     """未认证返回 401"""
     resp = await client.get("/api/v1/scoring/matches")
     assert resp.status_code == 401
+
+
+# =================================================================
+# 边界场景补充
+# =================================================================
+
+@pytest.mark.asyncio
+async def test_finish_without_scores(client, auth_headers):
+    """无记分直接结束比赛 — 0:0"""
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "对手_无分结束"},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+
+    # 直接结束
+    resp2 = await client.post(
+        f"/api/v1/scoring/matches/{match_id}/finish", headers=auth_headers
+    )
+    assert resp2.status_code == 200
+    data = resp2.json()["data"]
+    assert data["final_score"] == "0:0"
+    assert data["is_win"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_matches_filter_by_status(client, auth_headers):
+    """按状态过滤比赛列表"""
+    # 创建 setup 状态的比赛
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "setup_match"},
+    )
+    # 创建 in_progress 比赛
+    resp2 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "in_progress_match"},
+    )
+    mid2 = resp2.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{mid2}/start", headers=auth_headers
+    )
+    # 创建 finished 比赛
+    resp3 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "finished_match"},
+    )
+    mid3 = resp3.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{mid3}/start", headers=auth_headers
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{mid3}/score",
+        headers=auth_headers,
+        json={"scorer": "user", "score_method": "serve_point"},
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{mid3}/finish", headers=auth_headers
+    )
+
+    # 过滤 setup
+    resp = await client.get(
+        "/api/v1/scoring/matches?status=setup", headers=auth_headers
+    )
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    assert all(i["status"] == "setup" for i in items)
+
+    # 过滤 in_progress
+    resp = await client.get(
+        "/api/v1/scoring/matches?status=in_progress", headers=auth_headers
+    )
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    assert all(i["status"] == "in_progress" for i in items)
+
+    # 过滤 finished
+    resp = await client.get(
+        "/api/v1/scoring/matches?status=finished", headers=auth_headers
+    )
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    assert all(i["status"] == "finished" for i in items)
+
+
+@pytest.mark.asyncio
+async def test_undo_with_expected_seq_mismatch(client, auth_headers):
+    """乐观并发：expected_seq 不匹配返回 409"""
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "对手_并发"},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+    # 记 2 分
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/score",
+        headers=auth_headers,
+        json={"scorer": "user", "score_method": "serve_point"},
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/score",
+        headers=auth_headers,
+        json={"scorer": "user", "score_method": "rally_point"},
+    )
+
+    # 撤销但 expected_seq=1（实际 max_seq=2）
+    resp2 = await client.post(
+        f"/api/v1/scoring/matches/{match_id}/undo",
+        headers=auth_headers,
+        json={"expected_seq": 1},
+    )
+    assert resp2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_resume_expired(client, auth_headers, db_session):
+    """放弃超过 24h → 恢复返回 400"""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import update
+    from app.models.match import Match
+
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "对手_过期"},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/abandon", headers=auth_headers
+    )
+
+    # 手动设置 abandoned_at 为 25h 前
+    expired = datetime.now(timezone.utc) - timedelta(hours=25)
+    await db_session.execute(
+        update(Match).where(Match.id == match_id).values(abandoned_at=expired)
+    )
+    await db_session.commit()
+
+    # 恢复 → 400
+    resp2 = await client.post(
+        f"/api/v1/scoring/matches/{match_id}/resume", headers=auth_headers
+    )
+    assert resp2.status_code == 400
+    assert "24h" in resp2.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_start_already_started(client, auth_headers):
+    """重复开始比赛 → 400"""
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "对手_重复开始"},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+
+    resp2 = await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+    assert resp2.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_finish_already_finished(client, auth_headers):
+    """重复结束比赛 → 409"""
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "对手_重复结束"},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/score",
+        headers=auth_headers,
+        json={"scorer": "user", "score_method": "serve_point"},
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/finish", headers=auth_headers
+    )
+
+    resp2 = await client.post(
+        f"/api/v1/scoring/matches/{match_id}/finish", headers=auth_headers
+    )
+    assert resp2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_resume_not_abandoned(client, auth_headers):
+    """恢复非放弃状态的比赛 → 400"""
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "对手_非放弃恢复"},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    # setup 状态恢复 → 400
+    resp2 = await client.post(
+        f"/api/v1/scoring/matches/{match_id}/resume", headers=auth_headers
+    )
+    assert resp2.status_code == 400
