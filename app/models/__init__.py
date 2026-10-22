@@ -21,6 +21,21 @@ from app.models.video_analysis import (
     PipelineStep,
     VideoTask,
 )
+from app.models.knowledge_base import (
+    KnowledgeCategory,
+    KnowledgeEntry,
+    RuleDefinition,
+    TrainingTemplate,
+)
+from app.models.progress import ProgressSnapshot, TechniqueTrend
+from app.models.gamification import (
+    BadgeDefinition,
+    BadgeProgress,
+    CheckInRecord,
+    UserBadge,
+    UserPoints,
+)
+from app.models.training import PlanAdjustment, TrainingPlan
 
 __all__ = [
     "User",
@@ -38,5 +53,18 @@ __all__ = [
     "PipelineStep",
     "AnalysisReport",
     "FeedbackRecord",
+    "KnowledgeCategory",
+    "KnowledgeEntry",
+    "RuleDefinition",
+    "TrainingTemplate",
+    "ProgressSnapshot",
+    "TechniqueTrend",
+    "BadgeDefinition",
+    "BadgeProgress",
+    "CheckInRecord",
+    "UserBadge",
+    "UserPoints",
+    "TrainingPlan",
+    "PlanAdjustment",
     "Base",
 ]
