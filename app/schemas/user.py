@@ -27,7 +27,7 @@ class ProfileUpdateRequest(BaseModel):
     avatar_url: Optional[str] = Field(default=None, max_length=512, description="头像 URL")
 
 
-class UpdateRatingRequest(BaseModel):
+class RatingUpdateRequest(BaseModel):
     """更新积分请求"""
 
     rating: int = Field(..., ge=500, le=3000, description="积分值")
@@ -64,7 +64,7 @@ class ProfileUpdateResponse(BaseModel):
     updated_fields: list[str]
 
 
-class UpdateRatingResponse(BaseModel):
+class RatingUpdateResponse(BaseModel):
     """更新积分响应"""
 
     old_rating: Optional[int]

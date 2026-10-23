@@ -62,7 +62,7 @@ class User(Base):
     )
 
     # --- 关系 ---
-    rating_history: Mapped[list["RatingHistory"]] = relationship(
+    rating_histories: Mapped[list["RatingHistory"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
     consent_logs: Mapped[list["ConsentLog"]] = relationship(
@@ -100,7 +100,7 @@ class RatingHistory(Base):
     )
 
     # --- 关系 ---
-    user: Mapped["User"] = relationship(back_populates="rating_history")
+    user: Mapped["User"] = relationship(back_populates="rating_histories")
 
     __table_args__ = (
         Index("idx_rating_user_recorded", "user_id", "recorded_at"),

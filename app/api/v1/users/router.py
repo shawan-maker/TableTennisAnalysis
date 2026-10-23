@@ -18,7 +18,7 @@ from app.models.user import User
 from app.schemas.user import (
     AccountDeletionRequest,
     ProfileUpdateRequest,
-    UpdateRatingRequest,
+    RatingUpdateRequest,
 )
 from app.services.user_service import UserService
 
@@ -64,7 +64,7 @@ async def get_quota(
 @limiter.limit(RateLimits.DEFAULT)
 @router.patch("/rating", summary="更新开球网积分")
 async def update_rating(
-    body: UpdateRatingRequest,
+    body: RatingUpdateRequest,
     request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

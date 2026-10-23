@@ -27,8 +27,8 @@ from app.schemas.user import (
     RatingHistoryItem,
     ProfileUpdateRequest,
     ProfileUpdateResponse,
-    UpdateRatingRequest,
-    UpdateRatingResponse,
+    RatingUpdateRequest,
+    RatingUpdateResponse,
 )
 
 # 应填字段（用于计算档案完整度）
@@ -148,8 +148,8 @@ class UserService:
 
     @staticmethod
     async def update_rating(
-        user: User, req: UpdateRatingRequest, db: AsyncSession
-    ) -> UpdateRatingResponse:
+        user: User, req: RatingUpdateRequest, db: AsyncSession
+    ) -> RatingUpdateResponse:
         """更新开球网积分，旧积分自动写入历史记录"""
         if req.rating < 500 or req.rating > 3000:
             raise AppException("积分值应在 500-3000 合理范围内", 400, code=ERR_BAD_REQUEST)
@@ -173,7 +173,7 @@ class UserService:
         await db.commit()
         await db.refresh(user)
 
-        return UpdateRatingResponse(
+        return RatingUpdateResponse(
             old_rating=old_rating,
             new_rating=req.rating,
             history_id=history_id,
