@@ -22,7 +22,7 @@ router = APIRouter(prefix="/training", tags=["训练建议"])
 @router.get("/advice/contextual", summary="综合训练建议")
 async def get_contextual_advice(
     request: Request,
-    user: User = Depends(require_membership),
+    user: User = Depends(get_current_user),
 ):
     data = await TrainingAdviceService.get_contextual_advice(user.id)
     return success(data=data)
@@ -33,7 +33,7 @@ async def get_contextual_advice(
 async def get_advice_by_report(
     request: Request,
     report_id: int,
-    user: User = Depends(require_membership),
+    user: User = Depends(get_current_user),
 ):
     data = await TrainingAdviceService.get_advice_by_report(user.id, report_id)
     return success(data=data)
@@ -46,7 +46,7 @@ async def get_templates(
     problem_id: str = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.get_templates(problem_id=problem_id, page=page, page_size=page_size)
     return success(data=data)
@@ -57,7 +57,7 @@ async def get_templates(
 async def get_template_detail(
     request: Request,
     template_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.get_template_detail(template_id)
     if not data:

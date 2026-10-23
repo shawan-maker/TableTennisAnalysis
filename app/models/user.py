@@ -103,7 +103,7 @@ class RatingHistory(Base):
     user: Mapped["User"] = relationship(back_populates="rating_histories")
 
     __table_args__ = (
-        Index("idx_rating_user_recorded", "user_id", "recorded_at"),
+        Index("idx_rating_history_user_date", "user_id", "recorded_at"),
     )
 
     def __repr__(self) -> str:

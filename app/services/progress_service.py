@@ -87,7 +87,7 @@ class ProgressService:
     def _extract_metrics(result_data: dict) -> dict:
         """从 result_data JSONB 提取 18 项指标 — 直接从 technique_stats 读取比率值"""
         if not result_data:
-            return {k: 0.0 for k in METRIC_DEFINITIONS}
+            return {k: None for k in METRIC_DEFINITIONS}
 
         tech = result_data.get("technique_stats") or result_data.get("technique_distribution") or {}
         landing = result_data.get("landing_points") or result_data.get("landing_heatmap") or {}
@@ -98,29 +98,29 @@ class ProgressService:
 
         return {
             # 技术统计比率 — 直接从 technique_stats 读取
-            "backhand_ratio":         tech.get("backhand_ratio", tech.get("backhand_drive", 0) or 0),
-            "forehand_ratio":         tech.get("forehand_ratio", tech.get("forehand_drive", 0) or 0),
-            "serve_ratio":            tech.get("serve_ratio", tech.get("serve", 0) or 0),
+            "backhand_ratio":         tech.get("backhand_ratio"),
+            "forehand_ratio":         tech.get("forehand_ratio"),
+            "serve_ratio":            tech.get("serve_ratio"),
             # 落点分布
-            "landing_forehand_pct":   dist.get("forehand", 0) or 0,
-            "landing_backhand_pct":   dist.get("backhand", 0) or 0,
-            "landing_middle_pct":     dist.get("middle", 0) or 0,
-            "landing_dispersion":     landing.get("dispersion", 2.0),
+            "landing_forehand_pct":   dist.get("forehand"),
+            "landing_backhand_pct":   dist.get("backhand"),
+            "landing_middle_pct":     dist.get("middle"),
+            "landing_dispersion":     landing.get("dispersion"),
             # 回合分析
-            "avg_rally_length":       rally.get("avg_rally_length", 0) or 0,
-            "max_rally_length":       rally.get("max_rally_length", 0) or 0,
-            "rally_frequency":        rally.get("rally_frequency", 0) or 0,
+            "avg_rally_length":       rally.get("avg_rally_length"),
+            "max_rally_length":       rally.get("max_rally_length"),
+            "rally_frequency":        rally.get("rally_frequency"),
             # 球速
-            "avg_ball_speed":         speed.get("avg_speed_mps", 0) or 0,
-            "max_ball_speed":         speed.get("max_speed_mps", 0) or 0,
+            "avg_ball_speed":         speed.get("avg_speed_mps"),
+            "max_ball_speed":         speed.get("max_speed_mps"),
             # 得分分析
-            "score_win_rate":         score.get("win_rate", 0) or 0,
-            "key_point_win_rate":     score.get("key_point_win_rate", 0) or 0,
-            "serve_point_win_rate":   score.get("serve_point_win_rate", 0) or 0,
-            "receive_point_win_rate": score.get("receive_point_win_rate", 0) or 0,
+            "score_win_rate":         score.get("win_rate"),
+            "key_point_win_rate":     score.get("key_point_win_rate"),
+            "serve_point_win_rate":   score.get("serve_point_win_rate"),
+            "receive_point_win_rate": score.get("receive_point_win_rate"),
             # 其他
-            "attack_transition_rate": result_data.get("attack_transition_rate", 0) or 0,
-            "error_rate":             result_data.get("error_rate", 0) or 0,
+            "attack_transition_rate": result_data.get("attack_transition_rate"),
+            "error_rate":             result_data.get("error_rate"),
         }
 
     @staticmethod
@@ -207,7 +207,7 @@ class ProgressService:
             # 设计要求：len(history)>=4 且 change_rate<5% 才判定为停滞
             if len(history) >= 4 and persistence >= 3:
                 return {"trend": "stagnant", "persistence_count": persistence}
-            return {"trend": "stable", "persistence_count": persistence}
+            return {"trend": "stagnant", "persistence_count": persistence}
         else:
             persistence = current_persistence + 1
             return {"trend": "declining", "persistence_count": persistence}
@@ -270,7 +270,11 @@ class ProgressService:
             defn = METRIC_DEFINITIONS.get(t.metric_name, {})
             target = t.target_value or defn.get("target")
             current = t.current_value or 0
-            target_progress = min(100, int(current / target * 100)) if target and target > 0 else 0
+            direction = defn.get("direction", "up")
+            if direction == "down":
+                target_progress = min(100, int(target / current * 100)) if current and current > 0 else 0
+            else:
+                target_progress = min(100, int(current / target * 100)) if target and target > 0 else 0
 
             metrics.append({
                 "metric": t.metric_name,
@@ -308,7 +312,11 @@ class ProgressService:
             defn = METRIC_DEFINITIONS.get(metric, {})
             target = t.target_value or defn.get("target", 0)
             current = t.current_value or 0
-            target_progress = min(100, int(current / target * 100)) if target > 0 else 0
+            direction = defn.get("direction", "up")
+            if direction == "down":
+                target_progress = min(100, int(target / current * 100)) if current and current > 0 else 0
+            else:
+                target_progress = min(100, int(current / target * 100)) if target > 0 else 0
 
             result = {
                 "metric": metric,
@@ -331,8 +339,12 @@ class ProgressService:
             return None
 
         async with async_session_factory() as db:
-            ra = await db.scalar(select(AnalysisReport).where(AnalysisReport.id == report_a))
-            rb = await db.scalar(select(AnalysisReport).where(AnalysisReport.id == report_b))
+            ra = await db.scalar(select(AnalysisReport).where(
+                AnalysisReport.id == report_a, AnalysisReport.user_id == user_id
+            ))
+            rb = await db.scalar(select(AnalysisReport).where(
+                AnalysisReport.id == report_b, AnalysisReport.user_id == user_id
+            ))
             if not ra or not rb:
                 return None
 
@@ -428,7 +440,11 @@ class ProgressService:
                 defn = METRIC_DEFINITIONS.get(t.metric_name, {})
                 target = t.target_value or defn.get("target", 0)
                 current = t.current_value or 0
-                target_progress = min(100, int(current / target * 100)) if target and target > 0 else 0
+                direction = defn.get("direction", "up")
+                if direction == "down":
+                    target_progress = min(100, int(target / current * 100)) if current and current > 0 else 0
+                else:
+                    target_progress = min(100, int(current / target * 100)) if target and target > 0 else 0
                 metric_trends.append({
                     "metric": t.metric_name,
                     "metric_name": defn.get("name", t.metric_name),
@@ -453,17 +469,21 @@ class ProgressService:
                 .limit(1)
             )
             training_plan_status = {
-                "plan_id": plan.id,
+                "plan_id": str(plan.id),
                 "status": plan.status,
                 "version": plan.version,
             } if plan else None
 
         result = {
-            "summary_period": "all",
+            "summary_period": "no_data" if total <= 0 else "recent" if total <= 3 else "last_3_months",
             "total_analyses": total,
             "overall_progress": overall,
             "metric_trends": metric_trends,
-            "problem_changes": problem_changes,
+            "problem_changes": {
+                "new": [p.get("problem_name", str(p)) if isinstance(p, dict) else str(p) for p in problem_changes.get("new", [])],
+                "resolved": [p.get("problem_name", str(p)) if isinstance(p, dict) else str(p) for p in problem_changes.get("resolved", [])],
+                "persistent": [p.get("problem_name", str(p)) if isinstance(p, dict) else str(p) for p in problem_changes.get("persistent", [])],
+            },
             "training_plan_status": training_plan_status,
             "forecast": forecast,
         }
@@ -631,7 +651,7 @@ class ProgressService:
 
     @staticmethod
     async def _linear_regression_forecast(db: AsyncSession, user_id: int) -> dict:
-        """线性回归预测 — 基于 TechniqueTrend.time_series 预测未来 7 天指标趋势"""
+        """线性回归预测 — 基于 TechniqueTrend.time_series 预测到达目标周数"""
         trends = await db.execute(
             select(TechniqueTrend).where(TechniqueTrend.user_id == user_id)
         )
@@ -653,36 +673,44 @@ class ProgressService:
             if len(y_vals) < 2:
                 continue
 
-            sum_x = sum(x_vals[:len(y_vals)])
+            m = len(y_vals)
+            sum_x = sum(x_vals[:m])
             sum_y = sum(y_vals)
-            sum_xy = sum(x * y for x, y in zip(x_vals[:len(y_vals)], y_vals))
-            sum_x2 = sum(x * x for x in x_vals[:len(y_vals)])
+            sum_xy = sum(x * y for x, y in zip(x_vals[:m], y_vals))
+            sum_x2 = sum(x * x for x in x_vals[:m])
 
-            denominator = n * sum_x2 - sum_x * sum_x
+            denominator = m * sum_x2 - sum_x * sum_x
             if denominator == 0:
                 continue
 
-            slope = (n * sum_xy - sum_x * sum_y) / denominator
-            intercept = (sum_y - slope * sum_x) / n
+            slope = (m * sum_xy - sum_x * sum_y) / denominator
+            intercept = (sum_y - slope * sum_x) / m
 
-            # 预测未来 7 个时间点
-            forecast_x = n + 7
-            predicted = slope * forecast_x + intercept
+            # 计算 R²
+            y_mean = sum_y / m
+            ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
+            ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(x_vals[:m], y_vals))
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
-            # 趋势方向判断
-            if slope > 0.01:
-                direction = "improving"
-            elif slope < -0.01:
-                direction = "declining"
-            else:
-                direction = "stable"
+            # R² 阈值过滤：低质量数据不预测
+            if r_squared < 0.4:
+                continue
+
+            # 预测到达目标的周数
+            target = t.target_value
+            predicted_weeks = None
+            if target and slope != 0:
+                # y = slope * x + intercept → x = (target - intercept) / slope
+                weeks_to_target = (target - intercept) / slope
+                if weeks_to_target > 0:
+                    predicted_weeks = int(weeks_to_target)
+
+            confidence = "high" if r_squared > 0.7 else "medium"
 
             forecast[t.metric_name] = {
-                "current": t.current_value,
-                "predicted_7d": round(predicted, 2),
-                "slope": round(slope, 4),
-                "direction": direction,
-                "confidence": "low" if len(y_vals) < 5 else "medium" if len(y_vals) < 10 else "high",
+                "predicted_weeks_to_target": predicted_weeks,
+                "confidence": confidence,
+                "r_squared": round(r_squared, 4),
             }
 
         return forecast

@@ -138,6 +138,7 @@ class UserService:
         await db.commit()
 
         return ProfileUpdateResponse(
+            id=user.id,
             profile_completeness=completeness,
             updated_fields=updated_fields,
         )
@@ -170,10 +171,13 @@ class UserService:
 
         # 更新积分
         user.kqs_rating = req.rating
+        if req.kqs_username:
+            user.kqs_username = req.kqs_username
         await db.commit()
         await db.refresh(user)
 
         return RatingUpdateResponse(
+            id=user.id,
             old_rating=old_rating,
             new_rating=req.rating,
             history_id=history_id,

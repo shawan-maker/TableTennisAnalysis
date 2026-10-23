@@ -15,6 +15,7 @@ from sqlalchemy import select, desc, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
+from app.core.exceptions import AppException
 from app.core.redis import get_redis
 from app.core.pagination import paginate, PaginationParams
 from app.models.notification import NotificationRecord
@@ -186,14 +187,16 @@ class NotificationService:
             updated_ids = result.scalars().all()
             await db.commit()
 
-        # 更新 Redis 未读计数
+        # 更新 Redis 未读计数（原子递减）
         if updated_ids:
             try:
                 redis = await get_redis()
-                current = await redis.get(f"notif:unread:{user_id}")
-                current_val = int(current) if current else 0
-                new_val = max(0, current_val - len(updated_ids))
-                await redis.set(f"notif:unread:{user_id}", new_val)
+                key = f"notif:unread:{user_id}"
+                await redis.decrby(key, len(updated_ids))
+                # 检查负数修正
+                v = await redis.get(key)
+                if v and int(v) < 0:
+                    await redis.set(key, 0)
             except Exception as e:
                 logger.warning("decr unread count failed: %s", e)
 
@@ -238,16 +241,18 @@ class NotificationService:
     ) -> SubscribeResponse:
         """微信订阅消息授权"""
         valid_templates = {"analysis_complete", "payment_success", "training_reminder"}
-        filtered = [t for t in template_ids if t in valid_templates]
+        invalid = [t for t in template_ids if t not in valid_templates]
+        if invalid:
+            raise AppException(f"订阅模板 ID 不合法: {invalid}", 422, code=40004)
 
         redis = await get_redis()
         key = f"notif:subscribed:{user_id}"
         # 清除旧订阅，设置新订阅
         await redis.delete(key)
-        if filtered:
-            await redis.sadd(key, *filtered)
+        if template_ids:
+            await redis.sadd(key, *template_ids)
 
-        return SubscribeResponse(subscribed_templates=filtered)
+        return SubscribeResponse(subscribed_templates=template_ids)
 
     # ==================== 训练提醒 ====================
 

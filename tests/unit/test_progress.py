@@ -18,12 +18,14 @@ async def _create_report(db, user_id, idx=0, result_data=None):
     """创建分析报告"""
     if result_data is None:
         result_data = {
-            "technique_stats": {"forehand_drive": 50 + idx * 5, "backhand_drive": 20, "serve": 10},
-            "landing_points": {"distribution": {"forehand": 0.68, "backhand": 0.25, "middle": 0.07}},
+            "technique_stats": {"forehand_ratio": 0.50 + idx * 0.05, "backhand_ratio": 0.20, "serve_ratio": 0.10},
+            "landing_points": {"distribution": {"forehand": 0.68, "backhand": 0.25, "middle": 0.07}, "dispersion": 2.0},
             "metrics": {"landing_forehand_pct": 0.68, "landing_backhand_pct": 0.25, "landing_middle_pct": 0.07},
-            "rally_analysis": {"avg_rally_length": 5.5, "max_rally_length": 12},
+            "rally_analysis": {"avg_rally_length": 5.5, "max_rally_length": 12, "rally_frequency": 1.2},
             "ball_speed": {"avg_speed_mps": 18.5, "max_speed_mps": 24.0},
-            "score_analysis": {"win_rate": 0.55, "key_point_win_rate": 0.50},
+            "score_analysis": {"win_rate": 0.55, "key_point_win_rate": 0.50, "serve_point_win_rate": 0.58, "receive_point_win_rate": 0.45},
+            "attack_transition_rate": 0.35,
+            "error_rate": 0.12,
         }
 
     file_record = FileRecord(
@@ -121,12 +123,14 @@ async def test_trend_after_two_snapshots(client, auth_headers, auth_user, db_ses
 
     # 第二次报告（指标变化）
     data2 = {
-        "technique_stats": {"forehand_drive": 55, "backhand_drive": 25, "serve": 10},
-        "landing_points": {"distribution": {"forehand": 0.65, "backhand": 0.28, "middle": 0.07}},
+        "technique_stats": {"forehand_ratio": 0.55, "backhand_ratio": 0.25, "serve_ratio": 0.10},
+        "landing_points": {"distribution": {"forehand": 0.65, "backhand": 0.28, "middle": 0.07}, "dispersion": 1.8},
         "metrics": {"landing_forehand_pct": 0.65, "landing_backhand_pct": 0.28, "landing_middle_pct": 0.07},
-        "rally_analysis": {"avg_rally_length": 6.0, "max_rally_length": 14},
+        "rally_analysis": {"avg_rally_length": 6.0, "max_rally_length": 14, "rally_frequency": 1.3},
         "ball_speed": {"avg_speed_mps": 19.5, "max_speed_mps": 25.0},
-        "score_analysis": {"win_rate": 0.60, "key_point_win_rate": 0.55},
+        "score_analysis": {"win_rate": 0.60, "key_point_win_rate": 0.55, "serve_point_win_rate": 0.60, "receive_point_win_rate": 0.48},
+        "attack_transition_rate": 0.38,
+        "error_rate": 0.10,
     }
     report2 = await _create_report(db_session, auth_user["user_id"], idx=1, result_data=data2)
     await db_session.commit()

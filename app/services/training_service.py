@@ -194,10 +194,11 @@ class TrainingAdviceService:
                 .where(PlanAdjustment.training_plan_id == plan_id)
                 .order_by(PlanAdjustment.created_at.desc())
             )
+            all_rows = rows.scalars().all()
             adjustments = [
                 {
                     "id": r.id,
-                    "version": 0,
+                    "version": plan.version if i == 0 else r.id,
                     "action": r.adjustment_action,
                     "reason": r.adjustment_reason,
                     "trigger_report_id": r.trigger_report_id,
@@ -206,7 +207,7 @@ class TrainingAdviceService:
                         r.old_plan_snapshot, r.new_plan_snapshot
                     ),
                 }
-                for r in rows.scalars().all()
+                for i, r in enumerate(all_rows)
             ]
 
         return {"plan_id": plan_id, "current_version": plan.version, "adjustments": adjustments}
@@ -275,11 +276,11 @@ class TrainingAdviceService:
         achieved = [t for t in trends if t.trend == "achieved"]
         stagnant = [t for t in trends if t.trend == "stagnant" and t.persistence_count >= STAGNANT_THRESHOLD]
 
-        if achieved:
+        if len(achieved) == len(trends):
             return "new_goal", "已有指标达成目标，建议设定新目标"
         if declining:
             return "escalate", "指标下降趋势，建议升级训练强度"
-        if stagnant:
+        if len(stagnant) == len(trends):
             return "adjust", "连续多次无改善，建议调整方案"
         return "maintain", "指标改善中，保持当前方案"
 
@@ -362,21 +363,21 @@ class TrainingAdviceService:
             plan_data = copy.deepcopy(plan.plan_data or {})
             sessions = plan_data.get("sessions", [])
 
-            if session_id < 1 or session_id > len(sessions):
+            session = next((s for s in sessions if s.get("id") == session_id), None)
+            if session is None:
                 raise AppException("训练单不存在", 404, code=40422)
 
-            session = sessions[session_id - 1]
-            if not isinstance(session, dict):
-                raise AppException("训练单不存在", 404, code=40422)
-
-            if session.get("is_completed"):
+            if session.get("status") == "completed":
                 raise AppException("已完成", 409, code=40902)
 
-            session["is_completed"] = True
+            session["status"] = "completed"
             session["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-            completed = sum(1 for s in sessions if isinstance(s, dict) and s.get("is_completed"))
+            completed = sum(1 for s in sessions if isinstance(s, dict) and s.get("status") == "completed")
             progress = int(completed / len(sessions) * 100) if sessions else 0
+
+            if progress >= 100:
+                plan.status = "completed"
 
             plan.plan_data = plan_data
             flag_modified(plan, "plan_data")

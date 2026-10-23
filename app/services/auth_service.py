@@ -157,7 +157,7 @@ class AuthService:
         else:
             await AuthService._send_aliyun_sms(req.phone, code)
 
-        return {"sent": True, "ttl": AuthService.SMS_CODE_TTL}
+        return {"expire_seconds": AuthService.SMS_CODE_TTL}
 
     @staticmethod
     async def _send_aliyun_sms(phone: str, code: str) -> None:

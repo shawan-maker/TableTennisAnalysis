@@ -60,6 +60,7 @@ class UserProfileResponse(BaseModel):
 class ProfileUpdateResponse(BaseModel):
     """更新档案响应"""
 
+    id: int
     profile_completeness: int
     updated_fields: list[str]
 
@@ -67,6 +68,7 @@ class ProfileUpdateResponse(BaseModel):
 class RatingUpdateResponse(BaseModel):
     """更新积分响应"""
 
+    id: int
     old_rating: Optional[int]
     new_rating: int
     history_id: int

@@ -103,6 +103,7 @@ class MatchRecordDetail(MatchRecordBrief):
 
     match_id: Optional[int] = None
     is_detailed: bool = False
+    notes: Optional[str] = None
     details: list[ManualScoreDetailItem] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

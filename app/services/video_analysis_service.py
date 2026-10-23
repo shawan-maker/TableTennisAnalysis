@@ -40,6 +40,7 @@ from app.schemas.video_analysis import (
     UploadTokenRequest,
 )
 from app.services.file_service import FileService
+from app.services.membership_service import MembershipService
 
 logger = logging.getLogger(__name__)
 
@@ -156,8 +157,14 @@ class VideoAnalysisService:
             if record.status != "uploaded":
                 raise AppException("文件尚未上传完成", 400, code=ERR_FILE_NOT_UPLOADED)
 
-            # 免费配额检查（会员跳过 — S5 实现）
-            await VideoAnalysisService._check_free_quota(user_id)
+            # oss_key 二次校验
+            if req.oss_key != record.oss_key:
+                raise AppException("oss_key 与文件记录不匹配", 400, code=ERR_BAD_REQUEST)
+
+            # 会员状态检查 + 免费配额检查（会员跳过）
+            membership = await MembershipService.check_membership(db, user_id)
+            if not membership.is_member:
+                await VideoAnalysisService._check_free_quota(user_id)
 
             # 创建 VideoTask
             task_uuid = str(uuid.uuid4())
@@ -426,6 +433,48 @@ class VideoAnalysisService:
                 "is_correct": req.is_correct,
                 "data_flywheel_action": "archived" if req.is_correct else "manual_review",
             }
+
+    @staticmethod
+    async def list_feedbacks(user_id: int, report_id: int) -> dict:
+        """获取报告的反馈历史"""
+        async with async_session_factory() as db:
+            # 验证报告存在且属于当前用户
+            report_result = await db.execute(
+                select(AnalysisReport).where(
+                    AnalysisReport.id == report_id,
+                    AnalysisReport.user_id == user_id,
+                )
+            )
+            report = report_result.scalar_one_or_none()
+            if report is None:
+                raise AppException("分析报告不存在", 404, code=ERR_REPORT_NOT_FOUND)
+
+            # 查询反馈记录
+            fb_result = await db.execute(
+                select(FeedbackRecord)
+                .where(FeedbackRecord.report_id == report_id)
+                .order_by(FeedbackRecord.created_at.desc())
+            )
+            feedbacks = fb_result.scalars().all()
+
+            # 获取报告标题
+            report_text = report.report_text or {}
+            report_title = report_text.get("summary", "") if isinstance(report_text, dict) else ""
+
+            items = [
+                {
+                    "id": fb.id,
+                    "report_id": fb.report_id,
+                    "report_title": report_title,
+                    "is_correct": fb.is_correct,
+                    "comment": fb.comment,
+                    "status": fb.status,
+                    "created_at": fb.created_at.isoformat() if fb.created_at else None,
+                }
+                for fb in feedbacks
+            ]
+
+            return {"items": items}
 
     # =================================================================
     # 标注视频

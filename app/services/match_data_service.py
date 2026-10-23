@@ -300,6 +300,7 @@ class MatchDataService:
                 "match_date": record.match_date.isoformat() if record.match_date else None,
                 "match_id": record.match_id,
                 "is_detailed": record.is_detailed,
+                "notes": record.notes,
                 "details": [
                     {
                         "sequence": d.sequence,

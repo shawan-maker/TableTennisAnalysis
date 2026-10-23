@@ -269,6 +269,34 @@ async def test_update_record_not_found(client, auth_headers):
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_update_record_notes(client, auth_headers):
+    """编辑 notes 字段 — 验证 P0 修复 R2-Match-1"""
+    resp1 = await client.post(
+        "/api/v1/match-data/records",
+        headers=auth_headers,
+        json={"opponent_name": "notes对手", "my_score": 3, "opponent_score": 1, "format": "bo5"},
+    )
+    record_id = resp1.json()["data"]["id"]
+
+    # PATCH notes
+    resp2 = await client.patch(
+        f"/api/v1/match-data/records/{record_id}",
+        headers=auth_headers,
+        json={"notes": "这是一条备注"},
+    )
+    assert resp2.status_code == 200
+
+    # 验证 notes 已保存
+    resp3 = await client.get(
+        f"/api/v1/match-data/records/{record_id}",
+        headers=auth_headers,
+    )
+    assert resp3.status_code == 200
+    data = resp3.json()["data"]
+    assert data["notes"] == "这是一条备注"
+
+
 # =================================================================
 # 认证
 # =================================================================

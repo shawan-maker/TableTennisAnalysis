@@ -29,6 +29,7 @@ class UploadCompleteRequest(BaseModel):
 class CreateTaskRequest(BaseModel):
     """创建分析任务请求"""
     file_id: int = Field(..., ge=1, description="文件 ID")
+    oss_key: str = Field(..., min_length=1, description="OSS 对象键")
 
 
 class FeedbackRequest(BaseModel):
@@ -140,6 +141,19 @@ class FeedbackResponse(BaseModel):
     feedback_id: int
     is_correct: bool
     data_flywheel_action: str  # archived/manual_review
+
+
+class FeedbackHistoryItem(BaseModel):
+    """反馈历史项"""
+    id: int
+    report_id: int
+    report_title: Optional[str] = None
+    is_correct: bool
+    comment: Optional[str] = None
+    status: str
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
 
 
 class AnnotatedVideoResponse(BaseModel):

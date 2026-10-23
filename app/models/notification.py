@@ -48,7 +48,7 @@ class NotificationRecord(Base):
     )
 
     __table_args__ = (
-        Index("idx_notif_user_read_created", "user_id", "is_read", "created_at"),
+        Index("idx_notif_user_unread", "user_id", "is_read", "created_at"),
     )
 
     def __repr__(self) -> str:

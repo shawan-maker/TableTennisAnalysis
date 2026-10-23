@@ -286,10 +286,11 @@ class MembershipService:
         )
 
         # 2. 标注视频保留 30 天后清理
+        cleanup_at = datetime.now(timezone.utc) + timedelta(days=30)
         await redis.setex(
             f"downgrade:video:cleanup:{user_id}",
             int(30 * 24 * 3600),
-            json.dumps({"retain_days": 30}),
+            json.dumps({"retain_days": 30, "cleanup_at": cleanup_at.isoformat()}),
         )
 
         # 3-5. 3D 教学/进度分析/数据看板：前端根据 tier 判断
@@ -300,6 +301,13 @@ class MembershipService:
                 "user_id": user_id,
                 "old_tier": subscription.tier,
                 "new_tier": "free",
+                "downgrade_policy": {
+                    "report_readonly": True,
+                    "video_cleanup_days": 30,
+                    "hide_3d_teaching": True,
+                    "hide_progress_analysis": True,
+                    "dashboard_simplified": True,
+                },
             })
         except Exception as e:
             logger.warning("push downgrade ws failed: %s", e)

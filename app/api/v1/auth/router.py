@@ -36,7 +36,7 @@ async def wechat_login(body: WechatLoginRequest, request: Request):
     return success(data=data.model_dump(), message="登录成功")
 
 
-@limiter.limit(RateLimits.DEFAULT)
+@limiter.limit(RateLimits.SEND_SMS)
 @router.post("/send-sms", summary="发送短信验证码")
 async def send_sms(body: SendSmsRequest, request: Request):
     """发送短信验证码（5 分钟有效，60 秒防刷）"""
@@ -44,7 +44,7 @@ async def send_sms(body: SendSmsRequest, request: Request):
     return success(data=data, message="验证码已发送")
 
 
-@limiter.limit(RateLimits.WECHAT_LOGIN)
+@limiter.limit(RateLimits.PHONE_LOGIN)
 @router.post("/phone-login", summary="手机号验证码登录")
 async def phone_login(body: PhoneLoginRequest, request: Request):
     """手机号验证码登录（验证码 → JWT）"""

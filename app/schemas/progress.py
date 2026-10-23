@@ -81,12 +81,18 @@ class ComparisonResponse(BaseModel):
 
 class ForecastItem(BaseModel):
     predicted_weeks_to_target: Optional[int] = None
-    confidence: str = "low"
-    r_squared: float = 0.0
+    confidence: str
+    r_squared: float
+
+
+class ProblemChanges(BaseModel):
+    new: list[str] = []
+    resolved: list[str] = []
+    persistent: list[str] = []
 
 
 class TrainingPlanStatus(BaseModel):
-    current_plan_id: Optional[int] = None
+    current_plan_id: Optional[str] = None
     plan_version: Optional[int] = None
     last_adjustment: Optional[str] = None
     adjustment_reason: Optional[str] = None

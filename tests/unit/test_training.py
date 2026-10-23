@@ -138,8 +138,8 @@ async def _create_plan(db, user_id):
         plan_data={
             "goal": {"backhand_ratio": 0.35},
             "sessions": [
-                {"name": "反手推球", "reps": 50, "is_completed": False},
-                {"name": "反手拉球", "reps": 30, "is_completed": False},
+                {"id": 1, "name": "反手推球", "reps": 50, "status": "pending"},
+                {"id": 2, "name": "反手拉球", "reps": 30, "status": "pending"},
             ],
         },
         goal_metrics={"backhand_ratio": 0.35},
@@ -202,7 +202,7 @@ async def test_get_contextual_advice_no_report(client, auth_headers, member_sub)
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_get_templates(client, auth_headers, auth_user, db_session):
+async def test_get_templates(client, auth_headers, auth_user, db_session, member_sub):
     """模板列表"""
     await _seed_knowledge_base(db_session)
     await db_session.commit()
@@ -215,7 +215,7 @@ async def test_get_templates(client, auth_headers, auth_user, db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_templates_by_problem(client, auth_headers, auth_user, db_session):
+async def test_get_templates_by_problem(client, auth_headers, auth_user, db_session, member_sub):
     """按问题 ID 过滤模板"""
     await _seed_knowledge_base(db_session)
     await db_session.commit()
@@ -230,7 +230,7 @@ async def test_get_templates_by_problem(client, auth_headers, auth_user, db_sess
 
 
 @pytest.mark.asyncio
-async def test_get_template_detail(client, auth_headers, auth_user, db_session):
+async def test_get_template_detail(client, auth_headers, auth_user, db_session, member_sub):
     """模板详情"""
     seeds = await _seed_knowledge_base(db_session)
     await db_session.commit()
@@ -245,7 +245,7 @@ async def test_get_template_detail(client, auth_headers, auth_user, db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_template_detail_not_found(client, auth_headers):
+async def test_get_template_detail_not_found(client, auth_headers, member_sub):
     """不存在的模板返回 404"""
     resp = await client.get("/api/v1/training/templates/99999", headers=auth_headers)
     assert resp.status_code == 404

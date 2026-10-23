@@ -156,7 +156,7 @@ async def test_create_task_and_pipeline(client, auth_headers):
     # 创建任务（eager 模式下流水线同步执行完毕）
     resp = await client.post(
         "/api/v1/video-analysis/tasks",
-        json={"file_id": file_id},
+        json={"file_id": file_id, "oss_key": oss_key},
         headers=auth_headers,
     )
     assert resp.status_code == 200
@@ -209,13 +209,13 @@ async def test_create_task_and_pipeline(client, auth_headers):
 @pytest.mark.asyncio
 async def test_list_tasks(client, auth_headers):
     """任务列表 — 分页 + 状态过滤"""
-    file_id, _ = await _create_and_upload_file(client, auth_headers)
+    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
 
     # 创建 2 个任务
     for _ in range(2):
         resp = await client.post(
             "/api/v1/video-analysis/tasks",
-            json={"file_id": file_id},
+            json={"file_id": file_id, "oss_key": oss_key},
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -244,10 +244,10 @@ async def test_list_tasks(client, auth_headers):
 @pytest.mark.asyncio
 async def test_task_detail(client, auth_headers):
     """任务详情"""
-    file_id, _ = await _create_and_upload_file(client, auth_headers)
+    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
     resp = await client.post(
         "/api/v1/video-analysis/tasks",
-        json={"file_id": file_id},
+        json={"file_id": file_id, "oss_key": oss_key},
         headers=auth_headers,
     )
     task_id = resp.json()["data"]["task_id"]
@@ -279,10 +279,10 @@ async def test_task_detail(client, auth_headers):
 @pytest.mark.asyncio
 async def test_report_list_and_detail(client, auth_headers):
     """报告列表 + 详情"""
-    file_id, _ = await _create_and_upload_file(client, auth_headers)
+    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
     resp = await client.post(
         "/api/v1/video-analysis/tasks",
-        json={"file_id": file_id},
+        json={"file_id": file_id, "oss_key": oss_key},
         headers=auth_headers,
     )
     task_id = resp.json()["data"]["task_id"]
@@ -332,10 +332,10 @@ async def test_report_list_and_detail(client, auth_headers):
 @pytest.mark.asyncio
 async def test_feedback_create_and_update(client, auth_headers):
     """反馈 — 创建 + 覆盖更新"""
-    file_id, _ = await _create_and_upload_file(client, auth_headers)
+    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
     resp = await client.post(
         "/api/v1/video-analysis/tasks",
-        json={"file_id": file_id},
+        json={"file_id": file_id, "oss_key": oss_key},
         headers=auth_headers,
     )
     task_id = resp.json()["data"]["task_id"]
@@ -380,6 +380,55 @@ async def test_feedback_create_and_update(client, auth_headers):
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_list_feedbacks(client, auth_headers):
+    """反馈历史列表"""
+    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
+    resp = await client.post(
+        "/api/v1/video-analysis/tasks",
+        json={"file_id": file_id, "oss_key": oss_key},
+        headers=auth_headers,
+    )
+    task_id = resp.json()["data"]["task_id"]
+
+    resp = await client.get(
+        f"/api/v1/video-analysis/tasks/{task_id}",
+        headers=auth_headers,
+    )
+    report_id = resp.json()["data"]["report_id"]
+
+    # 提交反馈
+    await client.post(
+        f"/api/v1/video-analysis/reports/{report_id}/feedback",
+        json={"is_correct": True, "comment": "很准"},
+        headers=auth_headers,
+    )
+
+    # 查询反馈历史
+    resp = await client.get(
+        f"/api/v1/video-analysis/reports/{report_id}/feedbacks",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    item = data["items"][0]
+    assert item["report_id"] == report_id
+    assert item["is_correct"] is True
+    assert item["comment"] == "很准"
+    assert "report_title" in item
+    assert "status" in item
+    assert "created_at" in item
+
+    # 404 — 报告不存在
+    resp = await client.get(
+        "/api/v1/video-analysis/reports/99999/feedbacks",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
 # =============================================================================
 # 标注视频测试
 # =============================================================================
@@ -387,10 +436,10 @@ async def test_feedback_create_and_update(client, auth_headers):
 @pytest.mark.asyncio
 async def test_annotated_video(client, auth_headers):
     """获取标注视频 URL"""
-    file_id, _ = await _create_and_upload_file(client, auth_headers)
+    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
     resp = await client.post(
         "/api/v1/video-analysis/tasks",
-        json={"file_id": file_id},
+        json={"file_id": file_id, "oss_key": oss_key},
         headers=auth_headers,
     )
     task_id = resp.json()["data"]["task_id"]
@@ -418,10 +467,10 @@ async def test_annotated_video(client, auth_headers):
 @pytest.mark.asyncio
 async def test_share_create_and_access(client, auth_headers):
     """分享 — 创建 + 公开访问"""
-    file_id, _ = await _create_and_upload_file(client, auth_headers)
+    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
     resp = await client.post(
         "/api/v1/video-analysis/tasks",
-        json={"file_id": file_id},
+        json={"file_id": file_id, "oss_key": oss_key},
         headers=auth_headers,
     )
     task_id = resp.json()["data"]["task_id"]
@@ -501,7 +550,7 @@ async def test_quota_limit(client, auth_headers):
     # 第 4 次创建任务应该被拒
     resp = await client.post(
         "/api/v1/video-analysis/tasks",
-        json={"file_id": file_id},
+        json={"file_id": file_id, "oss_key": oss_key},
         headers=auth_headers,
     )
     assert resp.status_code == 429

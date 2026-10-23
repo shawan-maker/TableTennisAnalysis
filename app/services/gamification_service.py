@@ -156,9 +156,9 @@ class GamificationService:
             logger.warning("badge_check_after_checkin_failed", extra={"error": str(e)})
 
         return {
-            "points_earned": points,
+            "points_earned": POINTS_RULES["checkin"],
             "current_streak": streak,
-            "bonus": bonus if bonus > 0 else None,
+            "bonus_points": bonus,
         }
 
     @staticmethod
@@ -246,10 +246,7 @@ class GamificationService:
         # 持久化连续签到天数
         await GamificationService._auto_update_streak(db, user_id, streak)
 
-        try:
-            await BadgeService.check_badges(db, user_id)
-        except Exception as e:
-            logger.warning("badge_check_after_auto_checkin_failed", extra={"error": str(e)})
+        # R2-Gam-3: 不在此处调用 check_badges，避免与 add_points 中的调用重复执行
 
     @staticmethod
     async def _update_streak(user_id: int) -> int:

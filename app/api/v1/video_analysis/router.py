@@ -139,6 +139,18 @@ async def submit_feedback(
 
 
 @limiter.limit(RateLimits.DEFAULT)
+@router.get("/reports/{report_id}/feedbacks", summary="反馈历史")
+async def list_feedbacks(
+    request: Request,
+    report_id: int,
+    user: User = Depends(get_current_user),
+):
+    """获取报告的反馈历史列表"""
+    data = await VideoAnalysisService.list_feedbacks(user.id, report_id)
+    return success(data=data)
+
+
+@limiter.limit(RateLimits.DEFAULT)
 @router.get("/reports/{report_id}/annotated-video", summary="标注视频 URL")
 async def get_annotated_video(
     request: Request,

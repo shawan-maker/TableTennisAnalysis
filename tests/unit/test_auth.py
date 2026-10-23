@@ -153,7 +153,7 @@ async def test_send_sms_success(client):
         json={"phone": "13800138000"},
     )
     assert resp.status_code == 200
-    assert resp.json()["data"]["sent"] is True
+    assert resp.json()["data"]["expire_seconds"] == 300
 
 
 @pytest.mark.asyncio

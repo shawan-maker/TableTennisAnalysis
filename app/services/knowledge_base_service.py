@@ -223,7 +223,8 @@ class KnowledgeBaseService:
         cond = rule.condition or {}
         metrics = ctx.get("metrics", {})
         trends = ctx.get("trends", {})
-        rule_type = rule.rule_type
+        # R2-KB-1: 从 condition JSONB 的 aggregation 键读取规则类型，而非 rule.rule_type 列
+        rule_type = cond.get("aggregation", "single")
         suggestion_params: dict[str, Any] = {}
 
         if rule_type == "single":
@@ -234,7 +235,8 @@ class KnowledgeBaseService:
             if value is None:
                 return None
             if KnowledgeBaseService._compare(value, operator, threshold):
-                suggestion_params.update({"metric": metric, "value": value, "threshold": threshold})
+                # R2-KB-2: 使用 {current_value} 占位符（而非 {value}）
+                suggestion_params.update({"metric": metric, "current_value": value, "threshold": threshold})
                 return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
             return None
 
