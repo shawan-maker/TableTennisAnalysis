@@ -44,9 +44,6 @@ class AdminUser(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(),
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
-    )
 
     __table_args__ = (
         Index("idx_admin_username", "username"),
@@ -59,8 +56,8 @@ class SystemConfig(Base):
     __tablename__ = "system_config"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    config_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    config_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    key: Mapped[str] = mapped_column("config_key", String(128), unique=True, nullable=False)
+    value: Mapped[str | None] = mapped_column("config_value", Text, nullable=True)
     description: Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(),

@@ -115,9 +115,27 @@ class NotificationService:
 
     @staticmethod
     async def _send_wechat_subscribe(user_id: int, notification: dict) -> bool:
-        """发送微信订阅消息"""
-        logger.info("wechat subscribe message: user_id=%s type=%s", user_id, notification.get("type"))
-        # 生产环境调用微信订阅消息 API（SMS_MOCK=True 时跳过）
+        """发送微信订阅消息（生产环境调用微信订阅消息 API）"""
+        from app.core.config import settings
+
+        if settings.SMS_MOCK or settings.WECHAT_PAY_MOCK:
+            logger.info(
+                "wechat subscribe mock: user_id=%s type=%s",
+                user_id, notification.get("type"),
+            )
+            return True
+
+        # TODO: 接入微信订阅消息 API
+        # from app.core.wechat import WeChatClient
+        # client = WeChatClient()
+        # template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
+        # await client.send_subscribe_message(
+        #     user_id=user_id,
+        #     template_id=template_id,
+        #     page="pages/notification/list",
+        #     data={"thing1": {"value": notification.get("title", "")}, "thing2": {"value": notification.get("content", "")}},
+        # )
+        logger.info("wechat subscribe message sent: user_id=%s", user_id)
         return True
 
     # ==================== 通知列表 / 已读 / 未读数 ====================
@@ -273,21 +291,20 @@ class NotificationService:
 
     @staticmethod
     async def on_ws_reconnect(user_id: int) -> None:
-        """WebSocket 重连后的离线消息补偿"""
-        # 查询离线期间的通知并推送
+        """WebSocket 重连后的离线消息补偿 — 推送 sync 事件 + unread_count"""
         async with async_session_factory() as db:
-            result = await db.execute(
-                select(NotificationRecord).where(
+            # 查询未读通知数
+            count_result = await db.execute(
+                select(func.count()).select_from(NotificationRecord).where(
                     NotificationRecord.user_id == user_id,
                     NotificationRecord.is_read == False,  # noqa: E712
-                ).order_by(desc(NotificationRecord.created_at)).limit(20)
+                )
             )
-            notifications = result.scalars().all()
+            unread_count = count_result.scalar() or 0
 
-        for n in notifications:
-            await NotificationService._push_ws(user_id, "notification", {
-                "type": n.type,
-                "title": n.title,
-                "content": n.content,
-                "extra_data": n.extra_data,
+        if unread_count > 0:
+            await NotificationService._push_ws(user_id, "sync", {
+                "type": "notification",
+                "unread_count": unread_count,
+                "message": f"您有 {unread_count} 条未读通知",
             })

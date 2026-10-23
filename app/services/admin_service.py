@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_factory
 from app.core.redis import get_redis
 from app.core.pagination import paginate, PaginationParams
-from app.core.exceptions import AppException, ERR_NOT_FOUND, ERR_FORBIDDEN, ERR_CONFLICT
+from app.core.exceptions import AppException, ERR_NOT_FOUND, ERR_FORBIDDEN, ERR_CONFLICT, ERR_ADMIN_INVALID_CREDENTIALS
 from app.core.security import pwd_context
 from app.models.admin import AdminUser, SystemConfig, AuditLog
 from app.models.user import User
@@ -49,7 +49,7 @@ class AdminService:
             admin = result.scalar_one_or_none()
 
             if not admin or not pwd_context.verify(password, admin.password_hash):
-                raise AppException("用户名或密码错误", 401, code="ERR_ADMIN_INVALID_CREDENTIALS")
+                raise AppException("用户名或密码错误", 401, code=ERR_ADMIN_INVALID_CREDENTIALS)
 
             if not admin.is_active:
                 raise AppException("管理员账号已禁用", 403, code=ERR_FORBIDDEN)
@@ -192,7 +192,7 @@ class AdminService:
     async def list_configs() -> list[ConfigBrief]:
         """配置列表"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).order_by(SystemConfig.config_key))
+            result = await db.execute(select(SystemConfig).order_by(SystemConfig.key))
             configs = result.scalars().all()
             return [ConfigBrief.model_validate(c) for c in configs]
 
@@ -200,7 +200,7 @@ class AdminService:
     async def get_config(key: str) -> ConfigBrief:
         """获取单个配置"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
+            result = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
             config = result.scalar_one_or_none()
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)
@@ -210,11 +210,11 @@ class AdminService:
     async def create_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
         """创建配置"""
         async with async_session_factory() as db:
-            existing = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
+            existing = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
             if existing.scalar_one_or_none():
                 raise AppException("配置已存在", 409, code=ERR_CONFLICT)
 
-            config = SystemConfig(config_key=key, value=value, description=description)
+            config = SystemConfig(key=key, value=value, description=description)
             db.add(config)
             await AdminService._write_audit_log(
                 db, admin_id, "create_config", "system_config", detail={"key": key}
@@ -227,12 +227,12 @@ class AdminService:
     async def update_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
         """更新配置"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
+            result = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
             config = result.scalar_one_or_none()
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)
 
-            config.config_value = value
+            config.value = value
             if description is not None:
                 config.description = description
             await AdminService._write_audit_log(
@@ -246,7 +246,7 @@ class AdminService:
     async def delete_config(key: str, admin_id: int) -> None:
         """删除配置"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
+            result = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
             config = result.scalar_one_or_none()
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)

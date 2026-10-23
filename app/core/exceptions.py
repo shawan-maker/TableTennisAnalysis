@@ -69,6 +69,7 @@ ERR_CONFLICT = 40900               # 资源冲突（重复创建/状态冲突）
 ERR_RECORD_LINKED = 40911        # 比赛记录已关联记分牌
 ERR_SCORE_INVALID = 42210       # 比分不符合赛制规则
 ERR_QUOTA_EXHAUSTED = 42910     # 免费分析额度耗尽
+ERR_ADMIN_INVALID_CREDENTIALS = 40110  # 管理员凭证无效
 
 
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:

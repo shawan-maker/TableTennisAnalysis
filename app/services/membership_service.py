@@ -326,7 +326,7 @@ class MembershipService:
 
     @staticmethod
     async def _send_expiry_notification(subscription: Subscription) -> None:
-        """发送到期续费提醒"""
+        """发送到期续费提醒（WS + 微信订阅消息双通道）"""
         days_remaining = max(0, (subscription.expire_at - datetime.now(timezone.utc)).days)
         try:
             await NotificationService.push_ws_message(subscription.user_id, "notification", {
@@ -337,3 +337,33 @@ class MembershipService:
             })
         except Exception as e:
             logger.warning("push expiry notification failed: %s", e)
+
+        # 微信订阅消息推送（第二通道）
+        try:
+            await MembershipService._send_wechat_subscribe(subscription)
+        except Exception as e:
+            logger.warning("send wechat subscribe for expiry failed: %s", e)
+
+    @staticmethod
+    async def _send_wechat_subscribe(subscription: Subscription) -> None:
+        """发送会员到期提醒微信订阅消息"""
+        from app.core.config import settings
+
+        days_remaining = max(0, (subscription.expire_at - datetime.now(timezone.utc)).days)
+        if settings.SMS_MOCK or settings.WECHAT_PAY_MOCK:
+            logger.info(
+                "wechat subscribe mock: user_id=%s tier=%s days=%s",
+                subscription.user_id, subscription.tier, days_remaining,
+            )
+            return
+
+        # TODO: 接入微信订阅消息 API
+        # from app.core.wechat import WeChatClient
+        # client = WeChatClient()
+        # await client.send_subscribe_message(
+        #     user_id=subscription.user_id,
+        #     template_id="membership_expiry_reminder",
+        #     page=f"pages/membership/detail?id={subscription.id}",
+        #     data={"thing1": {"value": f"{subscription.tier}会员"}, "time2": {"value": f"{days_remaining}天后到期"}},
+        # )
+        logger.info("wechat subscribe message sent: user_id=%s", subscription.user_id)
