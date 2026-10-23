@@ -137,9 +137,23 @@ async def require_model_admin(
     return session
 
 
+async def require_membership(
+    user: "User" = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """会员权限守卫 — 检查用户是否为付费会员（member/pro/analytics_pro）"""
+    from app.services.membership_service import MembershipService
+
+    result = await MembershipService.check_membership(db, user.id)
+    if not result.is_member:
+        raise AppException("此功能需要会员", 403, code=ERR_FORBIDDEN)
+    return user
+
+
 # 便捷导出
 __all__ = [
     "get_current_user", "get_current_admin", "get_admin_session",
     "require_super_admin", "require_content_admin", "require_model_admin",
+    "require_membership",
     "get_db", "get_redis", "bearer_scheme",
 ]

@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_DIR: str = "./logs"
 
+    # ---------- Sentry ----------
+    SENTRY_DSN: str = ""
+
+    # ---------- Prometheus ----------
+    METRICS_ENABLED: bool = True
+
     # ---------- CORS ----------
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
 

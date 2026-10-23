@@ -205,6 +205,7 @@ class GamificationService:
 
     @staticmethod
     async def _auto_checkin(db: AsyncSession, user_id: int, source: str) -> None:
+        """自动签到 — 分析/比赛/记录事件触发，逻辑与手动签到一致"""
         today = date.today()
         existing = await db.scalar(
             select(CheckInRecord).where(
@@ -213,10 +214,32 @@ class GamificationService:
         )
         if existing:
             return
+
+        # 更新连续签到天数（Redis）
+        streak = await GamificationService._update_streak(user_id)
+
+        # 计算奖励
+        bonus = 20 if streak == 7 else 100 if streak == 30 else 0
+        points = POINTS_RULES["checkin"] + bonus
+
+        # 插入签到记录
         record = CheckInRecord(
-            user_id=user_id, checkin_date=today, checkin_type=source, points_earned=0
+            user_id=user_id,
+            checkin_date=today,
+            checkin_type=source,
+            points_earned=POINTS_RULES["checkin"],
+            bonus_points=bonus,
         )
         db.add(record)
+        await GamificationService._add_points(db, user_id, "checkin", points, None)
+
+        # 持久化连续签到天数
+        await GamificationService._auto_update_streak(db, user_id, streak)
+
+        try:
+            await BadgeService.check_badges(db, user_id)
+        except Exception as e:
+            logger.warning("badge_check_after_auto_checkin_failed", extra={"error": str(e)})
 
     @staticmethod
     async def _update_streak(user_id: int) -> int:

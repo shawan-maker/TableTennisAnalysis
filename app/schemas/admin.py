@@ -77,18 +77,20 @@ class UserBrief(BaseModel):
 
 class ConfigBrief(BaseModel):
     id: int
-    key: str
-    value: str
+    config_key: str
+    config_value: Optional[dict] = None
     description: Optional[str] = None
     model_config = {"from_attributes": True}
 
 
 class AuditLogBrief(BaseModel):
     id: int
+    admin_id: Optional[int] = None
     user_id: Optional[int] = None
     action: str
     target_type: Optional[str] = None
     target_id: Optional[int] = None
+    changes: Optional[dict] = None
     detail: Optional[str] = None
     ip_address: Optional[str] = None
     created_at: datetime

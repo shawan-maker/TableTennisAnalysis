@@ -122,6 +122,14 @@ class VideoAnalysisService:
             # 获取视频时长
             duration_sec = FileService.get_video_duration(record.oss_key)
 
+            # 时长校验（5s ~ 600s）
+            if duration_sec and (duration_sec < settings.MIN_VIDEO_DURATION or duration_sec > settings.MAX_VIDEO_DURATION):
+                raise AppException(
+                    f"视频时长需在 {settings.MIN_VIDEO_DURATION}s ~ {settings.MAX_VIDEO_DURATION}s 之间",
+                    422,
+                    code=ERR_BAD_REQUEST,
+                )
+
             # 更新 file_record
             record.status = "uploaded"
             record.oss_etag = head["etag"]

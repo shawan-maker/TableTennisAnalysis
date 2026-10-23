@@ -8,7 +8,7 @@ app/api/v1/training/router.py - 训练建议 API 路由
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_membership
 from app.core.exceptions import AppException
 from app.core.limiter import limiter
 from app.core.response import success
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/training", tags=["训练建议"])
 @router.get("/advice/contextual", summary="综合训练建议")
 async def get_contextual_advice(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.get_contextual_advice(user.id)
     return success(data=data)
@@ -33,7 +33,7 @@ async def get_contextual_advice(
 async def get_advice_by_report(
     request: Request,
     report_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.get_advice_by_report(user.id, report_id)
     return success(data=data)
@@ -70,7 +70,7 @@ async def get_template_detail(
 async def get_plan_adjustments(
     request: Request,
     plan_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.get_plan_adjustments(user.id, plan_id)
     return success(data=data)
@@ -81,7 +81,7 @@ async def get_plan_adjustments(
 async def re_evaluate_plan(
     request: Request,
     plan_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.re_evaluate_plan(user.id, plan_id)
     return success(data=data)
@@ -94,7 +94,7 @@ async def get_training_sessions(
     plan_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.list_training_sessions(user.id, plan_id, page=page, page_size=page_size)
     return success(data=data)
@@ -106,7 +106,7 @@ async def complete_training_session(
     request: Request,
     plan_id: int,
     session_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_membership),
 ):
     data = await TrainingAdviceService.complete_training_session(user.id, plan_id, session_id)
     return success(data=data)

@@ -107,15 +107,14 @@ class AdminService:
         detail: dict | None = None,
         ip_address: str | None = None,
     ) -> None:
-        """写审计日志（内部方法）。admin_id 存入 detail，user_id 为 None（admin 非普通用户）。"""
-        # admin_id 放入 detail，user_id 设为 None（audit_log.user_id FK → user.id）
-        enriched_detail = {"admin_id": admin_id, **(detail or {})}
+        """写审计日志（内部方法）。admin_id 存入 admin_id 列，变更内容存入 changes JSONB。"""
         log = AuditLog(
+            admin_id=admin_id,
             user_id=None,  # admin 操作不关联 user 表
             action=action,
             target_type=target_type,
             target_id=target_id,
-            detail=json.dumps(enriched_detail, ensure_ascii=False) if enriched_detail else None,
+            changes=detail or {},
             ip_address=ip_address,
         )
         db.add(log)
@@ -193,7 +192,7 @@ class AdminService:
     async def list_configs() -> list[ConfigBrief]:
         """配置列表"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).order_by(SystemConfig.key))
+            result = await db.execute(select(SystemConfig).order_by(SystemConfig.config_key))
             configs = result.scalars().all()
             return [ConfigBrief.model_validate(c) for c in configs]
 
@@ -201,7 +200,7 @@ class AdminService:
     async def get_config(key: str) -> ConfigBrief:
         """获取单个配置"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
+            result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
             config = result.scalar_one_or_none()
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)
@@ -211,11 +210,11 @@ class AdminService:
     async def create_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
         """创建配置"""
         async with async_session_factory() as db:
-            existing = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
+            existing = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
             if existing.scalar_one_or_none():
                 raise AppException("配置已存在", 409, code=ERR_CONFLICT)
 
-            config = SystemConfig(key=key, value=value, description=description)
+            config = SystemConfig(config_key=key, value=value, description=description)
             db.add(config)
             await AdminService._write_audit_log(
                 db, admin_id, "create_config", "system_config", detail={"key": key}
@@ -228,12 +227,12 @@ class AdminService:
     async def update_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
         """更新配置"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
+            result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
             config = result.scalar_one_or_none()
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)
 
-            config.value = value
+            config.config_value = value
             if description is not None:
                 config.description = description
             await AdminService._write_audit_log(
@@ -247,7 +246,7 @@ class AdminService:
     async def delete_config(key: str, admin_id: int) -> None:
         """删除配置"""
         async with async_session_factory() as db:
-            result = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
+            result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == key))
             config = result.scalar_one_or_none()
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)

@@ -396,6 +396,7 @@ class ProgressService:
                 })
 
             problem_changes = await ProgressService._get_problem_changes(db, user_id)
+            forecast = await ProgressService._linear_regression_forecast(db, user_id)
 
         result = {
             "summary_period": "all",
@@ -404,7 +405,7 @@ class ProgressService:
             "metric_trends": metric_trends,
             "problem_changes": problem_changes,
             "training_plan_status": None,
-            "forecast": {},
+            "forecast": forecast,
         }
 
         await redis.setex(cache_key, CACHE_TTL_SUMMARY, json.dumps(result))
@@ -456,3 +457,61 @@ class ProgressService:
             "resolved": list(resolved_ids),
             "persistent": list(persistent_ids),
         }
+
+    @staticmethod
+    async def _linear_regression_forecast(db: AsyncSession, user_id: int) -> dict:
+        """线性回归预测 — 基于 TechniqueTrend.time_series 预测未来 7 天指标趋势"""
+        trends = await db.execute(
+            select(TechniqueTrend).where(TechniqueTrend.user_id == user_id)
+        )
+        rows = trends.scalars().all()
+        if not rows:
+            return {}
+
+        forecast = {}
+        for t in rows:
+            series = t.time_series or []
+            if len(series) < 2:
+                continue
+
+            # 简单线性回归: y = slope * x + intercept
+            n = len(series)
+            x_vals = list(range(n))
+            y_vals = [float(v) for v in series if v is not None]
+
+            if len(y_vals) < 2:
+                continue
+
+            sum_x = sum(x_vals[:len(y_vals)])
+            sum_y = sum(y_vals)
+            sum_xy = sum(x * y for x, y in zip(x_vals[:len(y_vals)], y_vals))
+            sum_x2 = sum(x * x for x in x_vals[:len(y_vals)])
+
+            denominator = n * sum_x2 - sum_x * sum_x
+            if denominator == 0:
+                continue
+
+            slope = (n * sum_xy - sum_x * sum_y) / denominator
+            intercept = (sum_y - slope * sum_x) / n
+
+            # 预测未来 7 个时间点
+            forecast_x = n + 7
+            predicted = slope * forecast_x + intercept
+
+            # 趋势方向判断
+            if slope > 0.01:
+                direction = "improving"
+            elif slope < -0.01:
+                direction = "declining"
+            else:
+                direction = "stable"
+
+            forecast[t.metric_name] = {
+                "current": t.current_value,
+                "predicted_7d": round(predicted, 2),
+                "slope": round(slope, 4),
+                "direction": direction,
+                "confidence": "low" if len(y_vals) < 5 else "medium" if len(y_vals) < 10 else "high",
+            }
+
+        return forecast

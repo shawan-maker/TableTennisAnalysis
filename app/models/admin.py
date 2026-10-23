@@ -19,6 +19,7 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -58,8 +59,8 @@ class SystemConfig(Base):
     __tablename__ = "system_config"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    value: Mapped[str] = mapped_column(Text, nullable=False)
+    config_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    config_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     description: Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(),
@@ -75,9 +76,13 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    admin_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True,
+        comment="操作管理员 ID",
+    )
     user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True,
-        comment="操作者 ID（系统操作可为空）",
+        comment="操作者 ID（用户侧操作时记录）",
     )
     action: Mapped[str] = mapped_column(
         String(64), nullable=False, comment="操作类型",
@@ -88,8 +93,11 @@ class AuditLog(Base):
     target_id: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True, comment="目标对象 ID",
     )
+    changes: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="变更详情 JSON",
+    )
     detail: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="操作详情 JSON 字符串",
+        Text, nullable=True, comment="补充说明文本",
     )
     ip_address: Mapped[str | None] = mapped_column(
         String(45), nullable=True, comment="操作者 IP 地址",
@@ -99,6 +107,7 @@ class AuditLog(Base):
     )
 
     __table_args__ = (
+        Index("idx_audit_admin_created", "admin_id", "created_at"),
         Index("idx_audit_user_created", "user_id", "created_at"),
         Index("idx_audit_action", "action"),
         Index("idx_audit_target", "target_type", "target_id"),

@@ -104,3 +104,77 @@ def decode_access_token(token: str) -> dict[str, Any]:
 def generate_jti() -> str:
     """生成 JWT 唯一标识符"""
     return str(uuid.uuid4())
+
+
+# ============================================================================
+# RSA 加密工具（密码等敏感数据传输加密）
+# ============================================================================
+
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+
+
+def rsa_encrypt(plaintext: str, public_key_pem: str) -> str:
+    """
+    RSA 公钥加密（PKCS1 v1.5 padding）。
+    返回 base64 编码的密文。
+    """
+    import base64
+
+    public_key = serialization.load_pem_public_key(public_key_pem.encode())
+    ciphertext = public_key.encrypt(
+        plaintext.encode(),
+        padding.PKCS1v15(),
+    )
+    return base64.b64encode(ciphertext).decode()
+
+
+def rsa_decrypt(ciphertext_b64: str, private_key_pem: str) -> str:
+    """
+    RSA 私钥解密（PKCS1 v1.5 padding）。
+    输入 base64 编码的密文，返回明文。
+    """
+    import base64
+
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode(), password=None
+    )
+    ciphertext = base64.b64decode(ciphertext_b64)
+    plaintext = private_key.decrypt(
+        ciphertext,
+        padding.PKCS1v15(),
+    )
+    return plaintext.decode()
+
+
+def generate_rsa_keypair() -> tuple[str, str]:
+    """
+    生成 RSA 密钥对（2048 位）。
+    返回 (private_key_pem, public_key_pem)。
+    """
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+    return private_pem, public_pem
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """验证密码"""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def hash_password(password: str) -> str:
+    """哈希密码"""
+    return pwd_context.hash(password)
