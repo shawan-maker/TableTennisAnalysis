@@ -143,6 +143,7 @@ class MatchRecord(Base):
         BigInteger, ForeignKey("match.id", ondelete="SET NULL"), nullable=True
     )
     opponent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    opponent_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     opponent_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     my_score: Mapped[int] = mapped_column(Integer, nullable=False)
     opponent_score: Mapped[int] = mapped_column(Integer, nullable=False)

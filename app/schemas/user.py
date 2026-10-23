@@ -34,6 +34,13 @@ class UpdateRatingRequest(BaseModel):
     source: str = Field(default="manual", max_length=20, description="来源")
 
 
+class AccountDeletionRequest(BaseModel):
+    """用户注销请求"""
+
+    reason: Optional[str] = Field(default=None, max_length=500, description="注销原因")
+    confirmation: str = Field(..., description="必须为 'DELETE_ACCOUNT_CONFIRM'")
+
+
 # =============================================================================
 # 响应 Schema
 # =============================================================================
@@ -89,3 +96,49 @@ class QuotaResponse(BaseModel):
     used_today: int = 0
     remaining: int = 3
     reset_at: Optional[str] = None  # 下次重置时间
+
+
+class BigDataResponse(BaseModel):
+    """乒乓大数据（趣味统计）响应"""
+
+    highest_win_rating: Optional[int] = None
+    win_streak: int = 0
+    match_cities: int = 0
+    total_opponents: int = 0
+    indirect_wins: list[str] = []
+    total_matches: int = 0
+    win_rate: float = 0.0
+    favorite_shot: Optional[str] = None
+
+
+class AccountDeletionResponse(BaseModel):
+    """注销申请响应"""
+
+    scheduled_deletion_at: datetime
+    can_cancel_before: datetime
+
+
+class ExportCreateResponse(BaseModel):
+    """导出任务创建响应"""
+
+    task_id: str
+    status: str  # pending
+
+
+class ExportStatusResponse(BaseModel):
+    """导出任务状态响应"""
+
+    task_id: str
+    status: str  # pending/processing/completed/failed
+    download_url: Optional[str] = None
+    expire_at: Optional[datetime] = None
+    file_size: Optional[int] = None
+
+
+class PaginatedRatingHistory(BaseModel):
+    """积分历史分页响应"""
+
+    total: int
+    page: int
+    page_size: int
+    items: list[RatingHistoryItem]

@@ -68,6 +68,9 @@ class User(Base):
     consent_logs: Mapped[list["ConsentLog"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    export_tasks: Mapped[list["ExportTask"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         # 部分唯一索引：openid 非空时唯一
@@ -137,3 +140,37 @@ class ConsentLog(Base):
 
     def __repr__(self) -> str:
         return f"<ConsentLog(id={self.id}, user_id={self.user_id}, type={self.consent_type!r})>"
+
+
+class ExportTask(Base):
+    """个人数据导出任务 — PIPL 数据可携带权。DB §2.33"""
+
+    __tablename__ = "export_task"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    task_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/processing/completed/failed
+    download_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    expire_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # --- 关系 ---
+    user: Mapped["User"] = relationship(back_populates="export_tasks")
+
+    __table_args__ = (
+        Index("idx_export_user_created", "user_id", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ExportTask(id={self.id}, task_id={self.task_id!r}, status={self.status!r})>"

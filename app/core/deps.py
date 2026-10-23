@@ -52,9 +52,10 @@ async def get_current_user(
     if user is None:
         raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
 
-    # 用户状态检查（PIPL 合规：非 active 状态拒绝业务操作）
-    if user.status == "pending_deletion":
-        raise AppException("您的账号正在注销中，请先撤销注销", 403, code=ERR_FORBIDDEN)
+    # 用户状态检查（PIPL 合规：deleted/banned 状态拒绝业务操作）
+    # pending_deletion 允许通过，以便用户撤销注销（72h 冷静期）
+    if user.status == "deleted":
+        raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
     if user.status == "banned":
         raise AppException("您的账号已被封禁", 403, code=ERR_FORBIDDEN)
 

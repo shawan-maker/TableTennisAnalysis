@@ -43,10 +43,10 @@ async def db_setup():
     try:
         redis = await get_redis()
         # 删除所有 scoring:match:* 和 ws:* 相关的 key
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*"]:
-            keys = await redis.keys(pattern)
-            if keys:
-                await redis.delete(*keys)
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*"]:
+                keys = await redis.keys(pattern)
+                if keys:
+                    await redis.delete(*keys)
     except Exception:
         pass  # Redis 未连接时不影响测试
 
@@ -59,7 +59,7 @@ async def db_setup():
     # 清理 Redis
     try:
         redis = await get_redis()
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*"]:
             keys = await redis.keys(pattern)
             if keys:
                 await redis.delete(*keys)
