@@ -469,9 +469,8 @@ class ProgressService:
                 .limit(1)
             )
             training_plan_status = {
-                "plan_id": str(plan.id),
-                "status": plan.status,
-                "version": plan.version,
+                "current_plan_id": str(plan.id),
+                "plan_version": plan.version,
             } if plan else None
 
         result = {
@@ -668,7 +667,7 @@ class ProgressService:
             # 简单线性回归: y = slope * x + intercept
             n = len(series)
             x_vals = list(range(n))
-            y_vals = [float(v) for v in series if v is not None]
+            y_vals = [float(v["value"]) for v in series if isinstance(v, dict) and v.get("value") is not None]
 
             if len(y_vals) < 2:
                 continue
