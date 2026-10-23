@@ -202,12 +202,36 @@ class TrainingAdviceService:
                     "reason": r.adjustment_reason,
                     "trigger_report_id": r.trigger_report_id,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
-                    "changes_summary": "",
+                    "changes_summary": TrainingAdviceService._diff_snapshot(
+                        r.old_plan_snapshot, r.new_plan_snapshot
+                    ),
                 }
                 for r in rows.scalars().all()
             ]
 
         return {"plan_id": plan_id, "current_version": plan.version, "adjustments": adjustments}
+
+    @staticmethod
+    def _diff_snapshot(old: dict | None, new: dict) -> str:
+        """计算 old/new 快照 diff 摘要"""
+        if not old:
+            return "初始方案创建"
+
+        changes = []
+        # 对比 version
+        if old.get("version") != new.get("version"):
+            changes.append(f"版本 {old.get('version', 1)} → {new.get('version', 2)}")
+
+        # 对比 goal
+        old_goal = old.get("goal", {})
+        new_goal = new.get("goal", {})
+        for key in set(list(old_goal.keys()) + list(new_goal.keys())):
+            old_val = old_goal.get(key)
+            new_val = new_goal.get(key)
+            if old_val != new_val and old_val is not None and new_val is not None:
+                changes.append(f"{key}: {old_val} → {new_val}")
+
+        return "; ".join(changes) if changes else "无变化"
 
     @staticmethod
     async def re_evaluate_plan(user_id: int, plan_id: int) -> dict:
@@ -308,14 +332,15 @@ class TrainingAdviceService:
             items = []
             for i, s in enumerate(page_sessions):
                 if isinstance(s, dict):
+                    # 字段映射：title→name, status→is_completed（对齐 API §8.7）
                     items.append({
-                        "id": offset + i + 1,
+                        "id": s.get("id", offset + i + 1),
                         "plan_id": plan_id,
-                        "name": s.get("name", f"训练单{i+1}"),
-                        "is_completed": s.get("is_completed", False),
+                        "name": s.get("title", s.get("name", f"训练单 {i+1}")),
+                        "is_completed": s.get("status") == "completed" or s.get("is_completed", False),
                         "scheduled_date": s.get("scheduled_date"),
                         "completed_at": s.get("completed_at"),
-                        "session_index": offset + i,
+                        "session_index": s.get("session_index", offset + i),
                         "reps": s.get("reps", 0),
                     })
 

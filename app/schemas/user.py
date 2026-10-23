@@ -30,7 +30,7 @@ class UpdateProfileRequest(BaseModel):
 class UpdateRatingRequest(BaseModel):
     """更新积分请求"""
 
-    rating: int = Field(..., ge=0, le=3000, description="积分值")
+    rating: int = Field(..., ge=500, le=3000, description="积分值")
     source: str = Field(default="manual", max_length=20, description="来源")
 
 

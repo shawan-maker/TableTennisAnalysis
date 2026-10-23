@@ -9,7 +9,7 @@ app/api/v1/payment/router.py — 支付模块 API 路由
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.core.deps import get_current_user, get_admin_session
+from app.core.deps import get_current_user, get_current_admin
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
@@ -98,14 +98,14 @@ async def refund_order(
     order_id: int,
     body: RefundRequest,
     request: Request,
-    session: dict = Depends(get_admin_session),
+    user: User = Depends(get_current_admin),
 ):
-    """申请退款（管理员操作 — Redis session 认证）"""
+    """申请退款（管理员操作 — JWT 认证）"""
     data = await PaymentService.refund(
         order_id=order_id,
         refund_amount_cents=body.refund_amount_cents,
         reason=body.reason,
-        operator_id=session.get("admin_id"),
+        operator_id=user.id,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )

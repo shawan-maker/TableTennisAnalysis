@@ -7,7 +7,14 @@ app/services/gamification_service.py - 游戏化业务逻辑层
 """
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
+
+CST = timezone(timedelta(hours=8))
+
+
+def _cst_today() -> date:
+    """获取 CST（UTC+8）当前日期，避免跨日打卡边界错误"""
+    return datetime.now(CST).date()
 from typing import Optional
 
 from sqlalchemy import and_, func, select
@@ -114,7 +121,7 @@ class GamificationService:
 
     @staticmethod
     async def checkin(db: AsyncSession, user_id: int) -> dict:
-        today = date.today()
+        today = _cst_today()
         existing = await db.scalar(
             select(CheckInRecord).where(
                 and_(CheckInRecord.user_id == user_id, CheckInRecord.checkin_date == today)
@@ -206,7 +213,7 @@ class GamificationService:
     @staticmethod
     async def _auto_checkin(db: AsyncSession, user_id: int, source: str) -> None:
         """自动签到 — 分析/比赛/记录事件触发，逻辑与手动签到一致"""
-        today = date.today()
+        today = _cst_today()
         existing = await db.scalar(
             select(CheckInRecord).where(
                 and_(CheckInRecord.user_id == user_id, CheckInRecord.checkin_date == today)
@@ -247,7 +254,7 @@ class GamificationService:
         streak_key = f"gamification:streak:user:{user_id}"
         last_key = f"gamification:streak:last_date:{user_id}"
         last_date_str = await redis.get(last_key)
-        today = date.today()
+        today = _cst_today()
 
         if last_date_str:
             last_date = date.fromisoformat(last_date_str)
@@ -274,7 +281,7 @@ class GamificationService:
             db.add(up)
             await db.flush()
         up.current_streak = streak
-        up.last_checkin_date = date.today()
+        up.last_checkin_date = _cst_today()
 
 
 class BadgeService:

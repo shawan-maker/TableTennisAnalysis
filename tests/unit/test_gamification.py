@@ -206,10 +206,10 @@ async def test_add_points_analysis(client, auth_headers, auth_user, db_session):
     async with async_session_factory() as db:
         points = await GamificationService.add_points(db, auth_user["user_id"], "analysis")
         await db.commit()
-    assert points == 10
+    assert points == 10  # analysis 事件本身返回 10 分
 
     resp = await client.get("/api/v1/gamification/points", headers=auth_headers)
-    assert resp.json()["data"]["total_points"] == 10
+    assert resp.json()["data"]["total_points"] == 12  # 10 analysis + 2 auto_checkin
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,7 @@ from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
 from app.core.database import Base, async_session_factory, engine
 from app.core.redis import get_redis
@@ -34,9 +35,10 @@ async def db_setup():
     同时清理 Redis 缓存，确保 S2 scoring 模块的 Redis INCR 序号不跨测试污染。
     使用真实的 PostgreSQL 数据库（通过 Docker Compose 启动）。
     """
-    # 创建所有表
+    # 创建所有表（先清理 schema 以避免 PostgreSQL 复合类型残留）
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
         await conn.run_sync(Base.metadata.create_all)
 
     # 清理 Redis（scoring 模块在测试间残留的序号/比分等）
@@ -54,7 +56,8 @@ async def db_setup():
 
     # 清理
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
 
     # 清理 Redis
     try:

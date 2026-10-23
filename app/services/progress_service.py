@@ -85,38 +85,42 @@ class ProgressService:
 
     @staticmethod
     def _extract_metrics(result_data: dict) -> dict:
-        """从 result_data JSONB 提取 18 项指标"""
+        """从 result_data JSONB 提取 18 项指标 — 直接从 technique_stats 读取比率值"""
         if not result_data:
             return {k: 0.0 for k in METRIC_DEFINITIONS}
 
-        technique = result_data.get("technique_stats") or result_data.get("technique_distribution") or {}
-        total_tech = sum(technique.values()) or 1
+        tech = result_data.get("technique_stats") or result_data.get("technique_distribution") or {}
         landing = result_data.get("landing_points") or result_data.get("landing_heatmap") or {}
         dist = landing.get("distribution", {})
-        metrics_data = result_data.get("metrics", {})
         rally = result_data.get("rally_analysis", {})
-        ball_speed = result_data.get("ball_speed", {})
+        speed = result_data.get("ball_speed", {})
         score = result_data.get("score_analysis", {})
 
         return {
-            "backhand_ratio": round(technique.get("backhand_drive", 0) / total_tech, 4) if total_tech else 0.0,
-            "forehand_ratio": round(technique.get("forehand_drive", 0) / total_tech, 4) if total_tech else 0.0,
-            "serve_ratio": round(technique.get("serve", 0) / total_tech, 4) if total_tech else 0.0,
-            "landing_forehand_pct": dist.get("forehand", metrics_data.get("landing_forehand_pct", 0)) or 0,
-            "landing_backhand_pct": dist.get("backhand", metrics_data.get("landing_backhand_pct", 0)) or 0,
-            "landing_middle_pct": dist.get("middle", metrics_data.get("landing_middle_pct", 0)) or 0,
-            "landing_dispersion": metrics_data.get("landing_dispersion", 2.0),
-            "avg_rally_length": rally.get("avg_rally_length", 0) or 0,
-            "max_rally_length": rally.get("max_rally_length", 0) or 0,
-            "rally_frequency": rally.get("rally_frequency", metrics_data.get("rally_frequency", 0)) or 0,
-            "avg_ball_speed": ball_speed.get("avg_speed_mps", 0) or 0,
-            "max_ball_speed": ball_speed.get("max_speed_mps", 0) or 0,
-            "score_win_rate": score.get("win_rate", metrics_data.get("score_win_rate", 0)) or 0,
-            "key_point_win_rate": score.get("key_point_win_rate", metrics_data.get("key_point_win_rate", 0)) or 0,
-            "serve_point_win_rate": score.get("serve_point_win_rate", metrics_data.get("serve_point_win_rate", 0)) or 0,
-            "receive_point_win_rate": score.get("receive_point_win_rate", metrics_data.get("receive_point_win_rate", 0)) or 0,
-            "attack_transition_rate": metrics_data.get("attack_transition_rate", 0) or 0,
-            "error_rate": metrics_data.get("error_rate", 0) or 0,
+            # 技术统计比率 — 直接从 technique_stats 读取
+            "backhand_ratio":         tech.get("backhand_ratio", tech.get("backhand_drive", 0) or 0),
+            "forehand_ratio":         tech.get("forehand_ratio", tech.get("forehand_drive", 0) or 0),
+            "serve_ratio":            tech.get("serve_ratio", tech.get("serve", 0) or 0),
+            # 落点分布
+            "landing_forehand_pct":   dist.get("forehand", 0) or 0,
+            "landing_backhand_pct":   dist.get("backhand", 0) or 0,
+            "landing_middle_pct":     dist.get("middle", 0) or 0,
+            "landing_dispersion":     landing.get("dispersion", 2.0),
+            # 回合分析
+            "avg_rally_length":       rally.get("avg_rally_length", 0) or 0,
+            "max_rally_length":       rally.get("max_rally_length", 0) or 0,
+            "rally_frequency":        rally.get("rally_frequency", 0) or 0,
+            # 球速
+            "avg_ball_speed":         speed.get("avg_speed_mps", 0) or 0,
+            "max_ball_speed":         speed.get("max_speed_mps", 0) or 0,
+            # 得分分析
+            "score_win_rate":         score.get("win_rate", 0) or 0,
+            "key_point_win_rate":     score.get("key_point_win_rate", 0) or 0,
+            "serve_point_win_rate":   score.get("serve_point_win_rate", 0) or 0,
+            "receive_point_win_rate": score.get("receive_point_win_rate", 0) or 0,
+            # 其他
+            "attack_transition_rate": result_data.get("attack_transition_rate", 0) or 0,
+            "error_rate":             result_data.get("error_rate", 0) or 0,
         }
 
     @staticmethod
@@ -200,9 +204,10 @@ class ProgressService:
             return {"trend": "improving", "persistence_count": persistence}
         elif not is_significant:
             persistence = current_persistence + 1
-            if persistence >= 3:
+            # 设计要求：len(history)>=4 且 change_rate<5% 才判定为停滞
+            if len(history) >= 4 and persistence >= 3:
                 return {"trend": "stagnant", "persistence_count": persistence}
-            return {"trend": "stagnant", "persistence_count": persistence}
+            return {"trend": "stable", "persistence_count": persistence}
         else:
             persistence = current_persistence + 1
             return {"trend": "declining", "persistence_count": persistence}
@@ -328,29 +333,58 @@ class ProgressService:
             metrics_a = sa.metrics_snapshot if sa else ProgressService._extract_metrics(ra.result_data or {})
             metrics_b = sb.metrics_snapshot if sb else ProgressService._extract_metrics(rb.result_data or {})
 
-            technique_stats = {}
-            for k in metrics_a:
-                va = metrics_a.get(k, 0)
-                vb = metrics_b.get(k, 0)
-                change = round(vb - va, 4) if isinstance(va, (int, float)) and isinstance(vb, (int, float)) else None
-                technique_stats[k] = {"a": va, "b": vb, "change": change}
+            def _dim(keys: list[str]) -> dict:
+                """生成单维度对比"""
+                result = {}
+                for k in keys:
+                    va = metrics_a.get(k, 0)
+                    vb = metrics_b.get(k, 0)
+                    change = round(vb - va, 4) if isinstance(va, (int, float)) and isinstance(vb, (int, float)) else None
+                    result[k] = {"a": va, "b": vb, "change": change}
+                return result
 
-            problems_a = (ra.report_text or {}).get("issues", [])
-            problems_b = (rb.report_text or {}).get("issues", [])
-            problems_a_ids = {p.get("problem_id", p) if isinstance(p, dict) else p for p in problems_a}
-            problems_b_ids = {p.get("problem_id", p) if isinstance(p, dict) else p for p in problems_b}
-
-            new = list(problems_b_ids - problems_a_ids)
-            resolved = list(problems_a_ids - problems_b_ids)
-            persistent = list(problems_a_ids & problems_b_ids)
+            # 6 维度对比（对齐设计文档）
+            comparisons = {
+                # 维度 1: 技术统计
+                "technique_stats": _dim(["forehand_ratio", "backhand_ratio", "serve_ratio"]),
+                # 维度 2: 落点分布
+                "landing": _dim(["landing_forehand_pct", "landing_backhand_pct", "landing_middle_pct"]),
+                # 维度 3: 回合分析
+                "rally": {
+                    "avg_length_a": metrics_a.get("avg_rally_length"),
+                    "avg_length_b": metrics_b.get("avg_rally_length"),
+                    "max_length_a": metrics_a.get("max_rally_length"),
+                    "max_length_b": metrics_b.get("max_rally_length"),
+                    "change": round(
+                        (metrics_b.get("avg_rally_length", 0) - metrics_a.get("avg_rally_length", 0)), 2
+                    ) if metrics_a.get("avg_rally_length") is not None and metrics_b.get("avg_rally_length") is not None else None,
+                },
+                # 维度 4: 球速
+                "ball_speed": {
+                    "avg_a": metrics_a.get("avg_ball_speed"),
+                    "avg_b": metrics_b.get("avg_ball_speed"),
+                    "max_a": metrics_a.get("max_ball_speed"),
+                    "max_b": metrics_b.get("max_ball_speed"),
+                    "change": round(
+                        (metrics_b.get("avg_ball_speed", 0) - metrics_a.get("avg_ball_speed", 0)), 2
+                    ) if metrics_a.get("avg_ball_speed") is not None and metrics_b.get("avg_ball_speed") is not None else None,
+                },
+                # 维度 5: 得分分析
+                "score_analysis": {
+                    "win_rate_a": metrics_a.get("score_win_rate"),
+                    "win_rate_b": metrics_b.get("score_win_rate"),
+                    "change": round(
+                        (metrics_b.get("score_win_rate", 0) - metrics_a.get("score_win_rate", 0)), 4
+                    ) if metrics_a.get("score_win_rate") is not None and metrics_b.get("score_win_rate") is not None else None,
+                },
+                # 维度 6: 问题变化
+                "problem_changes": await ProgressService._compute_problem_changes(db, user_id, ra, rb),
+            }
 
         return {
             "report_a": {"id": report_a, "created_at": ra.created_at.isoformat() if ra.created_at else None},
             "report_b": {"id": report_b, "created_at": rb.created_at.isoformat() if rb.created_at else None},
-            "comparisons": {
-                "technique_stats": technique_stats,
-                "problem_changes": {"new": new, "resolved": resolved, "persistent": persistent},
-            },
+            "comparisons": comparisons,
         }
 
     @staticmethod
@@ -427,35 +461,146 @@ class ProgressService:
 
     @staticmethod
     async def _get_problem_changes(db: AsyncSession, user_id: int) -> dict:
+        """计算问题变化 — 返回 ProblemChangeItem 结构化对象"""
         reports = await db.execute(
             select(AnalysisReport)
             .where(AnalysisReport.user_id == user_id)
             .order_by(AnalysisReport.created_at.desc())
-            .limit(20)
+            .limit(10)
         )
         all_reports = reports.scalars().all()
         if not all_reports:
             return {"new": [], "resolved": [], "persistent": []}
 
-        latest_issues = set()
-        older_issues = set()
+        # 提取每份报告的问题列表
+        all_issues = []
+        for r in all_reports:
+            report_text = r.report_text or {}
+            if isinstance(report_text, str):
+                try:
+                    report_text = json.loads(report_text)
+                except (json.JSONDecodeError, TypeError):
+                    report_text = {}
+            raw_issues = report_text.get("issues", []) if report_text else []
+            # 提取问题标识（处理 dict 和 str 两种情况）
+            issue_items = []
+            for p in raw_issues:
+                if isinstance(p, dict):
+                    issue_items.append({
+                        "id": p.get("problem_id", str(p.get("problem_name", p))),
+                        "name": str(p.get("problem_name", p.get("problem_id", p))),
+                    })
+                else:
+                    issue_items.append({"id": str(p), "name": str(p)})
+            all_issues.append({
+                "report_id": r.id,
+                "created_at": r.created_at,
+                "issues": issue_items,
+            })
 
-        for i, r in enumerate(all_reports):
-            issues = (r.report_text or {}).get("issues", [])
-            issue_ids = {p.get("problem_id", p) if isinstance(p, dict) else p for p in issues}
-            if i < 2:
-                latest_issues |= issue_ids
-            else:
-                older_issues |= issue_ids
+        # 只有 1 份报告时，所有问题视为首次出现
+        if len(all_issues) == 1:
+            first_report = all_issues[0]
+            new_items = [
+                {
+                    "problem_id": f"PROBLEM_NEW_{i}",
+                    "problem_name": item["name"],
+                    "first_seen": first_report["created_at"].strftime("%Y-%m-%d") if first_report["created_at"] else None,
+                    "last_seen": None,
+                    "persistence_count": None,
+                }
+                for i, item in enumerate(first_report["issues"])
+            ]
+            return {"new": new_items, "resolved": [], "persistent": []}
 
-        new_ids = latest_issues - older_issues
-        resolved_ids = older_issues - latest_issues
-        persistent_ids = latest_issues & older_issues
+        # 2+ 份报告：最新 vs 历史对比
+        latest_issue_ids = set(i["id"] for i in all_issues[0]["issues"])
+        previous_issue_ids = set()
+        for a in all_issues[1:]:
+            previous_issue_ids.update(i["id"] for i in a["issues"])
+
+        new_ids = latest_issue_ids - previous_issue_ids
+        resolved_ids = previous_issue_ids - latest_issue_ids
+        persistent_ids = latest_issue_ids & previous_issue_ids
+
+        # 构建 name 映射
+        id_to_name = {}
+        for a in all_issues:
+            for i in a["issues"]:
+                if i["id"] not in id_to_name:
+                    id_to_name[i["id"]] = i["name"]
+
+        # 构建 ProblemChangeItem 结构化对象
+        new_items = [
+            {
+                "problem_id": f"PROBLEM_NEW_{i}",
+                "problem_name": id_to_name.get(pid, str(pid)),
+                "first_seen": all_issues[0]["created_at"].strftime("%Y-%m-%d") if all_issues[0]["created_at"] else None,
+                "last_seen": None,
+                "persistence_count": None,
+            }
+            for i, pid in enumerate(new_ids)
+        ]
+        resolved_items = [
+            {
+                "problem_id": f"PROBLEM_RESOLVED_{i}",
+                "problem_name": id_to_name.get(pid, str(pid)),
+                "first_seen": None,
+                "last_seen": all_issues[1]["created_at"].strftime("%Y-%m-%d") if len(all_issues) > 1 and all_issues[1]["created_at"] else None,
+                "persistence_count": None,
+            }
+            for i, pid in enumerate(resolved_ids)
+        ]
+        persistent_items = [
+            {
+                "problem_id": f"PROBLEM_PERSIST_{i}",
+                "problem_name": id_to_name.get(pid, str(pid)),
+                "first_seen": None,
+                "last_seen": all_issues[0]["created_at"].strftime("%Y-%m-%d") if all_issues[0]["created_at"] else None,
+                "persistence_count": sum(1 for a in all_issues if pid in set(i["id"] for i in a["issues"])),
+            }
+            for i, pid in enumerate(persistent_ids)
+        ]
 
         return {
-            "new": list(new_ids),
-            "resolved": list(resolved_ids),
-            "persistent": list(persistent_ids),
+            "new": new_items,
+            "resolved": resolved_items,
+            "persistent": persistent_items,
+        }
+
+    @staticmethod
+    async def _compute_problem_changes(
+        db: AsyncSession, user_id: int, report_a: AnalysisReport, report_b: AnalysisReport
+    ) -> dict:
+        """两次报告对比的问题变化（get_comparison 维度 6）"""
+        def _extract_issues(report: AnalysisReport) -> set:
+            rt = report.report_text or {}
+            if isinstance(rt, str):
+                try:
+                    rt = json.loads(rt)
+                except (json.JSONDecodeError, TypeError):
+                    rt = {}
+            raw_issues = rt.get("issues", []) if rt else []
+            # 处理 issues 为 dict 或 str 的情况
+            ids = set()
+            for p in raw_issues:
+                if isinstance(p, dict):
+                    ids.add(p.get("problem_id", str(p.get("problem_name", p))))
+                else:
+                    ids.add(str(p))
+            return ids
+
+        issues_a = _extract_issues(report_a)
+        issues_b = _extract_issues(report_b)
+
+        new_ids = issues_b - issues_a
+        resolved_ids = issues_a - issues_b
+        persistent_ids = issues_a & issues_b
+
+        return {
+            "new": [{"problem_id": f"NEW_{i}", "problem_name": str(p)} for i, p in enumerate(new_ids)],
+            "resolved": [{"problem_id": f"RESOLVED_{i}", "problem_name": str(p)} for i, p in enumerate(resolved_ids)],
+            "persistent": [{"problem_id": f"PERSIST_{i}", "problem_name": str(p)} for i, p in enumerate(persistent_ids)],
         }
 
     @staticmethod

@@ -77,8 +77,8 @@ class UserBrief(BaseModel):
 
 class ConfigBrief(BaseModel):
     id: int
-    config_key: str
-    config_value: Optional[dict] = None
+    key: str
+    value: Optional[str] = None
     description: Optional[str] = None
     model_config = {"from_attributes": True}
 

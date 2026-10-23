@@ -84,15 +84,17 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
 ):
     """获取当前登录用户信息（含会员状态）"""
-    # TODO S5: 集成 MembershipService.get_current_membership 获取会员信息
+    from app.services.membership_service import MembershipService
+
+    membership = await MembershipService.get_current_membership(db, user.id)
     return success(
         data={
             "id": user.id,
             "nickname": user.nickname,
             "avatar_url": user.avatar_url,
             "has_profile": user.kqs_rating is not None,
-            "membership_tier": None,  # S5 补充
-            "membership_expire_at": None,  # S5 补充
+            "membership_tier": membership.tier if membership else None,
+            "membership_expire_at": membership.expire_at if membership else None,
         }
     )
 

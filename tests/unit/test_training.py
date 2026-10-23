@@ -5,14 +5,31 @@ tests/unit/test_training.py - 训练建议模块单元测试
 """
 
 import pytest
-from datetime import datetime, timezone
+import pytest_asyncio
+from datetime import datetime, timezone, timedelta
 
 from app.core.database import async_session_factory
 from app.models.knowledge_base import KnowledgeCategory, KnowledgeEntry, RuleDefinition, TrainingTemplate
+from app.models.membership import Subscription
 from app.models.training import TrainingPlan
 from app.models.user import User
 from app.models.video_analysis import AnalysisReport, VideoTask, FileRecord
 from app.services.training_service import TrainingAdviceService
+
+
+@pytest_asyncio.fixture(scope="function")
+async def member_sub(db_session, auth_user):
+    """为测试用户创建有效会员订阅（训练端点需要 require_membership）"""
+    sub = Subscription(
+        user_id=auth_user["user_id"],
+        tier="member",
+        status="active",
+        start_at=datetime.now(timezone.utc),
+        expire_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    db_session.add(sub)
+    await db_session.commit()
+    return sub
 
 
 async def _seed_knowledge_base(db):
@@ -137,7 +154,7 @@ async def _create_plan(db, user_id):
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_get_advice_by_report(client, auth_headers, auth_user, db_session):
+async def test_get_advice_by_report(client, auth_headers, auth_user, db_session, member_sub):
     """基于报告的训练建议"""
     await _seed_knowledge_base(db_session)
     report = await _create_report(db_session, auth_user["user_id"])
@@ -154,14 +171,14 @@ async def test_get_advice_by_report(client, auth_headers, auth_user, db_session)
 
 
 @pytest.mark.asyncio
-async def test_get_advice_report_not_found(client, auth_headers):
+async def test_get_advice_report_not_found(client, auth_headers, member_sub):
     """不存在的报告返回 404"""
     resp = await client.get("/api/v1/training/advice/99999", headers=auth_headers)
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_get_contextual_advice(client, auth_headers, auth_user, db_session):
+async def test_get_contextual_advice(client, auth_headers, auth_user, db_session, member_sub):
     """综合训练建议（自动使用最新报告）"""
     await _seed_knowledge_base(db_session)
     report = await _create_report(db_session, auth_user["user_id"])
@@ -174,7 +191,7 @@ async def test_get_contextual_advice(client, auth_headers, auth_user, db_session
 
 
 @pytest.mark.asyncio
-async def test_get_contextual_advice_no_report(client, auth_headers):
+async def test_get_contextual_advice_no_report(client, auth_headers, member_sub):
     """无报告时返回 404"""
     resp = await client.get("/api/v1/training/advice/contextual", headers=auth_headers)
     assert resp.status_code == 404
@@ -239,7 +256,7 @@ async def test_get_template_detail_not_found(client, auth_headers):
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_get_plan_adjustments_empty(client, auth_headers, auth_user, db_session):
+async def test_get_plan_adjustments_empty(client, auth_headers, auth_user, db_session, member_sub):
     """空调整历史"""
     plan = await _create_plan(db_session, auth_user["user_id"])
     await db_session.commit()
@@ -253,7 +270,7 @@ async def test_get_plan_adjustments_empty(client, auth_headers, auth_user, db_se
 
 
 @pytest.mark.asyncio
-async def test_get_plan_adjustments_not_found(client, auth_headers):
+async def test_get_plan_adjustments_not_found(client, auth_headers, member_sub):
     """不存在的方案返回 404"""
     resp = await client.get("/api/v1/training/plans/99999/adjustments", headers=auth_headers)
     assert resp.status_code == 404
@@ -264,7 +281,7 @@ async def test_get_plan_adjustments_not_found(client, auth_headers):
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_re_evaluate_plan(client, auth_headers, auth_user, db_session):
+async def test_re_evaluate_plan(client, auth_headers, auth_user, db_session, member_sub):
     """重新评估方案"""
     plan = await _create_plan(db_session, auth_user["user_id"])
     await db_session.commit()
@@ -278,7 +295,7 @@ async def test_re_evaluate_plan(client, auth_headers, auth_user, db_session):
 
 
 @pytest.mark.asyncio
-async def test_re_evaluate_plan_not_found(client, auth_headers):
+async def test_re_evaluate_plan_not_found(client, auth_headers, member_sub):
     """不存在的方案返回 404"""
     resp = await client.post("/api/v1/training/plans/99999/re-evaluate", headers=auth_headers)
     assert resp.status_code == 404
@@ -289,7 +306,7 @@ async def test_re_evaluate_plan_not_found(client, auth_headers):
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_list_training_sessions(client, auth_headers, auth_user, db_session):
+async def test_list_training_sessions(client, auth_headers, auth_user, db_session, member_sub):
     """训练单列表"""
     plan = await _create_plan(db_session, auth_user["user_id"])
     await db_session.commit()
@@ -306,7 +323,7 @@ async def test_list_training_sessions(client, auth_headers, auth_user, db_sessio
 
 
 @pytest.mark.asyncio
-async def test_list_training_sessions_not_found(client, auth_headers):
+async def test_list_training_sessions_not_found(client, auth_headers, member_sub):
     """不存在的方案返回 404"""
     resp = await client.get("/api/v1/training/plans/99999/sessions", headers=auth_headers)
     assert resp.status_code == 404
@@ -317,7 +334,7 @@ async def test_list_training_sessions_not_found(client, auth_headers):
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_complete_training_session(client, auth_headers, auth_user, db_session):
+async def test_complete_training_session(client, auth_headers, auth_user, db_session, member_sub):
     """完成训练单"""
     plan = await _create_plan(db_session, auth_user["user_id"])
     await db_session.commit()
@@ -334,7 +351,7 @@ async def test_complete_training_session(client, auth_headers, auth_user, db_ses
 
 
 @pytest.mark.asyncio
-async def test_complete_training_session_duplicate(client, auth_headers, auth_user, db_session):
+async def test_complete_training_session_duplicate(client, auth_headers, auth_user, db_session, member_sub):
     """重复完成训练单返回 409"""
     plan = await _create_plan(db_session, auth_user["user_id"])
     await db_session.commit()
@@ -351,7 +368,7 @@ async def test_complete_training_session_duplicate(client, auth_headers, auth_us
 
 
 @pytest.mark.asyncio
-async def test_complete_all_sessions(client, auth_headers, auth_user, db_session):
+async def test_complete_all_sessions(client, auth_headers, auth_user, db_session, member_sub):
     """完成所有训练单进度 100%"""
     plan = await _create_plan(db_session, auth_user["user_id"])
     await db_session.commit()

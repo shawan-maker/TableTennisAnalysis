@@ -18,6 +18,7 @@ from sqlalchemy import update
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.models.video_analysis import AnalysisReport, PipelineStep, VideoTask
+from app.ai_pipeline.circuit_breaker import AICircuitBreaker
 from app.ai_pipeline.progress import ProgressTracker
 from app.ai_pipeline.report_generator import ReportGenerator
 
@@ -133,11 +134,29 @@ async def _mark_task_failed(task_id: int, error: str):
 
 
 async def _exec_step(task_id: int, step: int, step_name: str, mock_fn, step_results: dict):
-    """执行单步：更新状态 -> 执行 -> 记录结果"""
+    """执行单步：更新状态 -> 熔断器检查 -> 执行 -> 记录结果"""
     start = time.time()
 
     async with async_session_factory() as db:
         await ProgressTracker.on_step_start(task_id, step, db)
+
+    # AI 熔断器：包裹每个 AI 步骤调用
+    cb = AICircuitBreaker(step_name)
+    allowed = await cb.allow_request()
+
+    if not allowed:
+        # 熔断中，走降级逻辑（使用 mock 数据）
+        logger.warning("circuit_breaker_tripped", extra={
+            "task_id": task_id, "step": step, "service": step_name,
+        })
+        if mock_fn:
+            result = mock_fn()
+        else:
+            result = {}
+        step_results[step] = result
+        duration_ms = int((time.time() - start) * 1000)
+        await ProgressTracker.on_step_complete(task_id, step, result, duration_ms)
+        return
 
     try:
         if mock_fn:
@@ -145,7 +164,9 @@ async def _exec_step(task_id: int, step: int, step_name: str, mock_fn, step_resu
         else:
             result = {}
         step_results[step] = result
+        await cb.record_success()
     except Exception as e:
+        await cb.record_failure()
         await ProgressTracker.on_step_failed(task_id, step, str(e))
         raise
 
