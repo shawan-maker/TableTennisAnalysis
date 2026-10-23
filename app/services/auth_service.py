@@ -26,10 +26,11 @@ from app.schemas.auth import (
     ConsentResponse,
     H5ExchangeRequest,
     LoginResponse,
+    PhoneLoginRequest,
     RefreshResponse,
+    SendSmsRequest,
     UserBrief,
     WechatLoginRequest,
-    PhoneLoginRequest,
 )
 
 
@@ -103,6 +104,127 @@ class AuthService:
             refresh_token = create_refresh_token({"sub": str(user.id), "jti": generate_jti()})
 
             # 5. PIPL-001：检查用户是否已同意当前版本隐私政策
+            consent = await AuthService.check_consent(user.id)
+            requires_consent = not consent["consented"]
+
+            return LoginResponse(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_in=AuthService.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                user=UserBrief(
+                    id=user.id,
+                    nickname=user.nickname,
+                    avatar_url=user.avatar_url,
+                    has_profile=user.kqs_rating is not None,
+                ),
+                requires_consent=requires_consent,
+            )
+
+    # =================================================================
+    # 手机号验证码登录
+    # =================================================================
+
+    @staticmethod
+    async def send_sms(req: SendSmsRequest) -> dict:
+        """发送短信验证码（5 分钟有效）"""
+        import random
+
+        redis = await get_redis()
+
+        # 防刷限制：同一手机号 60 秒内只能发一次
+        rate_key = f"sms:rate:{req.phone}"
+        rate = await redis.get(rate_key)
+        if rate:
+            raise AppException("验证码发送过于频繁，请 60 秒后重试", 429)
+
+        # 生成 6 位验证码
+        code = f"{random.randint(0, 999999):06d}"
+
+        # 存入 Redis，5 分钟有效
+        code_key = f"sms:code:{req.phone}"
+        await redis.setex(code_key, AuthService.SMS_CODE_TTL, code)
+
+        # 设置防刷标记，60 秒
+        await redis.setex(rate_key, 60, "1")
+
+        # 发送短信
+        if settings.SMS_MOCK:
+            # Mock 模式：日志输出验证码（开发环境）
+            import logging
+            logging.getLogger(__name__).info(
+                "SMS mock mode: phone=%s code=%s", req.phone, code
+            )
+        else:
+            await AuthService._send_aliyun_sms(req.phone, code)
+
+        return {"sent": True, "ttl": AuthService.SMS_CODE_TTL}
+
+    @staticmethod
+    async def _send_aliyun_sms(phone: str, code: str) -> None:
+        """调用阿里云短信 API 发送验证码"""
+        # 阿里云 SMS API 调用（生产环境使用）
+        # 当前为框架代码，实际接入时替换为阿里云 SDK 调用
+        import logging
+        logging.getLogger(__name__).warning(
+            "Aliyun SMS not configured. phone=%s code=%s", phone, code
+        )
+        # TODO: 接入阿里云 SMS SDK
+        # from aliyunsdkcore.client import AcsClient
+        # from aliyunsdkcore.request import CommonRequest
+        # client = AcsClient(settings.ALIYUN_SMS_ACCESS_KEY, settings.ALIYUN_SMS_SECRET, "cn-hangzhou")
+        # request = CommonRequest()
+        # request.set_method("POST")
+        # request.set_domain("dysmsapi.aliyuncs.com")
+        # request.set_version("2017-05-25")
+        # request.set_action_name("SendSms")
+        # request.add_query_param("PhoneNumbers", phone)
+        # request.add_query_param("SignName", settings.ALIYUN_SMS_SIGN_NAME)
+        # request.add_query_param("TemplateCode", settings.ALIYUN_SMS_TEMPLATE_CODE)
+        # request.add_query_param("TemplateParam", json.dumps({"code": code}))
+        # response = client.do_action_with_exception(request)
+        # if response["Code"] != "OK":
+        #     raise AppException("短信发送失败", 502, code=ERR_THIRD_PARTY)
+
+    @staticmethod
+    async def phone_login(req: PhoneLoginRequest) -> LoginResponse:
+        """手机号验证码登录"""
+        redis = await get_redis()
+
+        # 验证码校验
+        code_key = f"sms:code:{req.phone}"
+        stored_code = await redis.get(code_key)
+        if not stored_code:
+            raise AppException("验证码已过期，请重新获取", 400, code=ERR_BAD_REQUEST)
+        if stored_code != req.code:
+            raise AppException("验证码错误", 400, code=ERR_BAD_REQUEST)
+
+        # 验证通过，删除验证码（一次性使用）
+        await redis.delete(code_key)
+
+        # 查询或创建用户
+        async with async_session_factory() as db:
+            result = await db.execute(select(User).where(User.phone == req.phone))
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                # 新用户注册
+                user = User(
+                    phone=req.phone,
+                    nickname=f"球友{req.phone[-4:]}",
+                )
+                db.add(user)
+                await db.commit()
+                await db.refresh(user)
+            elif user.status == "pending_deletion":
+                raise AppException("您的账号正在注销中，请先撤销注销", 403)
+            elif user.status == "banned":
+                raise AppException("您的账号已被封禁", 403)
+
+            # 签发 JWT
+            access_token = create_access_token({"sub": str(user.id), "jti": generate_jti()})
+            refresh_token = create_refresh_token({"sub": str(user.id), "jti": generate_jti()})
+
+            # PIPL-001：检查用户是否已同意当前版本隐私政策
             consent = await AuthService.check_consent(user.id)
             requires_consent = not consent["consented"]
 

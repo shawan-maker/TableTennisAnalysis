@@ -99,6 +99,10 @@ class Settings(BaseSettings):
 
     # ---------- SMS ----------
     SMS_MOCK: bool = True
+    ALIYUN_SMS_ACCESS_KEY: str = ""
+    ALIYUN_SMS_SECRET: str = ""
+    ALIYUN_SMS_SIGN_NAME: str = ""
+    ALIYUN_SMS_TEMPLATE_CODE: str = ""
 
     # ---------- Logging ----------
     LOG_LEVEL: str = "INFO"

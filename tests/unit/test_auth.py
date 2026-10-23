@@ -139,3 +139,99 @@ async def test_consent_flow(client, auth_headers):
     resp3 = await client.get("/api/v1/auth/consent-status", headers=auth_headers)
     assert resp3.status_code == 200
     assert resp3.json()["data"]["consented"] is True
+
+
+# =================================================================
+# 手机号验证码登录测试
+# =================================================================
+
+@pytest.mark.asyncio
+async def test_send_sms_success(client):
+    """发送短信验证码成功"""
+    resp = await client.post(
+        "/api/v1/auth/send-sms",
+        json={"phone": "13800138000"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_sms_rate_limit(client):
+    """60 秒内重复发送返回 429"""
+    resp1 = await client.post(
+        "/api/v1/auth/send-sms",
+        json={"phone": "13900139000"},
+    )
+    assert resp1.status_code == 200
+
+    resp2 = await client.post(
+        "/api/v1/auth/send-sms",
+        json={"phone": "13900139000"},
+    )
+    assert resp2.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_send_sms_invalid_phone(client):
+    """非法手机号返回 422"""
+    resp = await client.post(
+        "/api/v1/auth/send-sms",
+        json={"phone": "12345"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_phone_login_success(client, db_session):
+    """手机号验证码登录成功（新用户自动注册）"""
+    # 先发送验证码
+    await client.post(
+        "/api/v1/auth/send-sms",
+        json={"phone": "13700137000"},
+    )
+
+    # 从 Redis 读取验证码（测试环境 SMS_MOCK=true）
+    from app.core.redis import get_redis
+    redis = await get_redis()
+    code = await redis.get("sms:code:13700137000")
+    assert code is not None
+
+    # 使用验证码登录
+    resp = await client.post(
+        "/api/v1/auth/phone-login",
+        json={"phone": "13700137000", "code": code},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert "access_token" in data
+    assert "refresh_token" in data
+    assert data["user"]["nickname"].startswith("球友")
+
+
+@pytest.mark.asyncio
+async def test_phone_login_wrong_code(client):
+    """验证码错误返回 400"""
+    # 先发送验证码
+    await client.post(
+        "/api/v1/auth/send-sms",
+        json={"phone": "13600136000"},
+    )
+
+    # 使用错误验证码登录
+    resp = await client.post(
+        "/api/v1/auth/phone-login",
+        json={"phone": "13600136000", "code": "000000"},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_phone_login_expired_code(client):
+    """验证码过期返回 400"""
+    # 未发送验证码直接登录
+    resp = await client.post(
+        "/api/v1/auth/phone-login",
+        json={"phone": "13500135000", "code": "123456"},
+    )
+    assert resp.status_code == 400
