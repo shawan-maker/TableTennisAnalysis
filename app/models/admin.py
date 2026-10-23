@@ -56,14 +56,15 @@ class SystemConfig(Base):
     __tablename__ = "system_config"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    key: Mapped[str] = mapped_column("config_key", String(128), unique=True, nullable=False)
-    value: Mapped[str | None] = mapped_column("config_value", Text, nullable=True)
-    description: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    key: Mapped[str] = mapped_column("config_key", String(64), unique=True, nullable=False)
+    value: Mapped[dict | str] = mapped_column("config_value", JSONB, nullable=False, comment="配置值 JSONB")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(),
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -73,8 +74,8 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    admin_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True,
+    admin_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("admin_user.id", ondelete="RESTRICT"), nullable=False,
         comment="操作管理员 ID",
     )
     user_id: Mapped[int | None] = mapped_column(
@@ -106,6 +107,5 @@ class AuditLog(Base):
     __table_args__ = (
         Index("idx_audit_admin_created", "admin_id", "created_at"),
         Index("idx_audit_user_created", "user_id", "created_at"),
-        Index("idx_audit_action", "action"),
         Index("idx_audit_target", "target_type", "target_id"),
     )

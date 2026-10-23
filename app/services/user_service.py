@@ -22,11 +22,11 @@ from app.schemas.user import (
     ExportCreateResponse,
     ExportStatusResponse,
     PaginatedRatingHistory,
-    ProfileResponse,
+    UserProfileResponse,
     QuotaResponse,
     RatingHistoryItem,
-    UpdateProfileRequest,
-    UpdateProfileResponse,
+    ProfileUpdateRequest,
+    ProfileUpdateResponse,
     UpdateRatingRequest,
     UpdateRatingResponse,
 )
@@ -67,17 +67,28 @@ class UserService:
     # =================================================================
 
     @staticmethod
-    async def get_profile(user: User, db: AsyncSession) -> ProfileResponse:
-        """获取个人档案"""
-        # 确保 profile_completeness 是最新计算的
+    async def get_profile(user: User, db: AsyncSession) -> UserProfileResponse:
+        """获取个人档案 — 返回嵌套结构"""
         user.profile_completeness = UserService._calculate_completeness(user)
 
-        return ProfileResponse.model_validate(user)
+        return UserProfileResponse(
+            id=user.id,
+            nickname=user.nickname,
+            avatar_url=user.avatar_url,
+            profile={
+                "kqs_rating": user.kqs_rating,
+                "kqs_username": user.kqs_username,
+                "playing_style": user.playing_style,
+                "self_assessed_level": user.self_assessed_level,
+                "equipment_config": user.equipment_config,
+                "profile_completeness": user.profile_completeness,
+            },
+        )
 
     @staticmethod
     async def update_profile(
-        user: User, req: UpdateProfileRequest, db: AsyncSession
-    ) -> UpdateProfileResponse:
+        user: User, req: ProfileUpdateRequest, db: AsyncSession
+    ) -> ProfileUpdateResponse:
         """更新个人档案（PATCH 语义，仅更新传入字段）"""
         updated_fields: list[str] = []
 
@@ -126,7 +137,7 @@ class UserService:
         user.profile_completeness = completeness
         await db.commit()
 
-        return UpdateProfileResponse(
+        return ProfileUpdateResponse(
             profile_completeness=completeness,
             updated_fields=updated_fields,
         )

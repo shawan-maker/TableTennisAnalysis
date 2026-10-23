@@ -17,13 +17,13 @@ class AdminLoginRequest(BaseModel):
 
 
 class ConfigCreateRequest(BaseModel):
-    key: str = Field(..., max_length=128)
-    value: str = Field(...)
+    key: str = Field(..., max_length=64)
+    value: str | dict = Field(..., description="配置值（字符串或 JSON 对象）")
     description: Optional[str] = None
 
 
 class ConfigUpdateRequest(BaseModel):
-    value: str = Field(...)
+    value: str | dict = Field(..., description="配置值（字符串或 JSON 对象）")
     description: Optional[str] = None
 
 
@@ -78,14 +78,14 @@ class UserBrief(BaseModel):
 class ConfigBrief(BaseModel):
     id: int
     key: str
-    value: Optional[str] = None
+    value: str | dict | None = None
     description: Optional[str] = None
     model_config = {"from_attributes": True}
 
 
 class AuditLogBrief(BaseModel):
     id: int
-    admin_id: Optional[int] = None
+    admin_id: int
     user_id: Optional[int] = None
     action: str
     target_type: Optional[str] = None

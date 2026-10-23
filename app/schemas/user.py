@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 # 请求 Schema
 # =============================================================================
 
-class UpdateProfileRequest(BaseModel):
-    """更新个人档案请求"""
+class ProfileUpdateRequest(BaseModel):
+    """更新个人档案请求（PATCH 语义，仅更新传入字段）"""
 
     playing_style: Optional[str] = Field(default=None, max_length=32, description="打法类型")
     self_assessed_level: Optional[str] = Field(default=None, max_length=32, description="自评水平")
@@ -31,6 +31,7 @@ class UpdateRatingRequest(BaseModel):
     """更新积分请求"""
 
     rating: int = Field(..., ge=500, le=3000, description="积分值")
+    kqs_username: Optional[str] = Field(default=None, max_length=128, description="开球网用户名")
     source: str = Field(default="manual", max_length=20, description="来源")
 
 
@@ -45,25 +46,18 @@ class AccountDeletionRequest(BaseModel):
 # 响应 Schema
 # =============================================================================
 
-class ProfileResponse(BaseModel):
-    """个人档案响应"""
+class UserProfileResponse(BaseModel):
+    """个人档案响应 — 嵌套结构（设计 §3.1）"""
 
     id: int
     nickname: str
     avatar_url: Optional[str] = None
-    status: str
-    playing_style: Optional[str] = None
-    self_assessed_level: Optional[str] = None
-    equipment_config: Optional[dict] = None
-    kqs_rating: Optional[int] = None
-    kqs_username: Optional[str] = None
-    profile_completeness: int = 0
-    created_at: Optional[datetime] = None
+    profile: dict = Field(default_factory=dict, description="kqs_rating/kqs_username/playing_style/self_assessed_level/equipment_config/profile_completeness")
 
     model_config = {"from_attributes": True}
 
 
-class UpdateProfileResponse(BaseModel):
+class ProfileUpdateResponse(BaseModel):
     """更新档案响应"""
 
     profile_completeness: int

@@ -58,6 +58,7 @@ class Order(Base):
     __table_args__ = (
         Index("idx_order_user_created", "user_id", "created_at"),
         Index("idx_order_status", "status"),
+        Index("idx_order_no", "order_no"),
     )
 
 

@@ -19,6 +19,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -54,6 +55,9 @@ class TrainingPlan(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+    # ORM relationships
+    adjustments = relationship("PlanAdjustment", back_populates="training_plan", cascade="all, delete-orphan")
+
 
 class PlanAdjustment(Base):
     __tablename__ = "plan_adjustment"
@@ -81,3 +85,6 @@ class PlanAdjustment(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+    # ORM relationships
+    training_plan = relationship("TrainingPlan", back_populates="adjustments")

@@ -281,11 +281,17 @@ class NotificationService:
             wechat_template="training_reminder",
         )
 
-        # 增加本周提醒计数
+        # 增加本周提醒计数 — TTL 按自然周对齐（到本周日 23:59:59）
         key = f"notif:reminder:count:{user_id}:week"
         new_count = await redis.incr(key)
         if new_count == 1:
-            await redis.expire(key, 7 * 24 * 3600)  # 7 天 TTL
+            from datetime import timezone as tz
+            now = datetime.now(tz.utc)
+            # 计算到本周日 23:59:59 的秒数（周一为一周起始）
+            days_until_sunday = (6 - now.weekday()) % 7 or 7
+            end_of_week = now.replace(hour=23, minute=59, second=59, microsecond=0) + timedelta(days=days_until_sunday)
+            ttl_seconds = int((end_of_week - now).total_seconds())
+            await redis.expire(key, max(ttl_seconds, 3600))  # 至少 1 小时
 
     # ==================== WS 重连补偿 ====================
 

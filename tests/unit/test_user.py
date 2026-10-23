@@ -22,7 +22,7 @@ async def test_get_profile(client, auth_headers, test_user):
     data = resp.json()["data"]
     assert data["id"] == test_user.id
     assert data["nickname"] == "测试用户"
-    assert "profile_completeness" in data
+    assert "profile_completeness" in data["profile"]
 
 
 @pytest.mark.asyncio

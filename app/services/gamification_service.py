@@ -131,7 +131,9 @@ class GamificationService:
             raise AppException("今日已打卡", 409, code=40901)
 
         streak = await GamificationService._update_streak(user_id)
-        bonus = 20 if streak == 7 else 100 if streak == 30 else 0
+        # 连续打卡奖励（使用配置常量，非硬编码）
+        streak_bonus_map = {7: POINTS_RULES["streak_7"], 30: POINTS_RULES["streak_30"]}
+        bonus = streak_bonus_map.get(streak, 0)
         points = POINTS_RULES["checkin"] + bonus
 
         record = CheckInRecord(
@@ -225,8 +227,9 @@ class GamificationService:
         # 更新连续签到天数（Redis）
         streak = await GamificationService._update_streak(user_id)
 
-        # 计算奖励
-        bonus = 20 if streak == 7 else 100 if streak == 30 else 0
+        # 计算奖励（使用配置常量，非硬编码）
+        streak_bonus_map = {7: POINTS_RULES["streak_7"], 30: POINTS_RULES["streak_30"]}
+        bonus = streak_bonus_map.get(streak, 0)
         points = POINTS_RULES["checkin"] + bonus
 
         # 插入签到记录

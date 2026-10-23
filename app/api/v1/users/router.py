@@ -17,7 +17,7 @@ from app.core.response import success
 from app.models.user import User
 from app.schemas.user import (
     AccountDeletionRequest,
-    UpdateProfileRequest,
+    ProfileUpdateRequest,
     UpdateRatingRequest,
 )
 from app.services.user_service import UserService
@@ -40,7 +40,7 @@ async def get_profile(
 @limiter.limit(RateLimits.DEFAULT)
 @router.patch("/profile", summary="更新个人档案")
 async def update_profile(
-    body: UpdateProfileRequest,
+    body: ProfileUpdateRequest,
     request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

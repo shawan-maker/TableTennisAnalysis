@@ -213,7 +213,7 @@ class ProgressService:
             return {"trend": "declining", "persistence_count": persistence}
 
     @staticmethod
-    async def list_snapshots(user_id: int, period: str = "all", page: int = 1, page_size: int = 20) -> dict:
+    async def list_snapshots(user_id: int, period: str = "all", status: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
         async with async_session_factory() as db:
             qs = select(ProgressSnapshot).where(ProgressSnapshot.user_id == user_id)
             count_qs = select(func.count()).select_from(ProgressSnapshot).where(
@@ -226,6 +226,15 @@ class ProgressService:
                 start = now - timedelta(days=days)
                 qs = qs.where(ProgressSnapshot.created_at >= start)
                 count_qs = count_qs.where(ProgressSnapshot.created_at >= start)
+
+            # 按 AnalysisReport.status 过滤
+            if status:
+                qs = qs.join(AnalysisReport, ProgressSnapshot.report_id == AnalysisReport.id).where(
+                    AnalysisReport.status == status
+                )
+                count_qs = count_qs.join(AnalysisReport, ProgressSnapshot.report_id == AnalysisReport.id).where(
+                    AnalysisReport.status == status
+                )
 
             total = await db.scalar(count_qs) or 0
             qs = qs.order_by(ProgressSnapshot.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
@@ -417,6 +426,9 @@ class ProgressService:
             metric_trends = []
             for t in trends:
                 defn = METRIC_DEFINITIONS.get(t.metric_name, {})
+                target = t.target_value or defn.get("target", 0)
+                current = t.current_value or 0
+                target_progress = min(100, int(current / target * 100)) if target and target > 0 else 0
                 metric_trends.append({
                     "metric": t.metric_name,
                     "metric_name": defn.get("name", t.metric_name),
@@ -424,13 +436,27 @@ class ProgressService:
                     "previous_value": t.previous_value,
                     "change_rate": t.change_rate,
                     "trend": t.trend,
-                    "target": t.target_value,
-                    "target_progress": 0,
+                    "target": target,
+                    "target_progress": target_progress,
                     "persistence_count": t.persistence_count,
                 })
 
             problem_changes = await ProgressService._get_problem_changes(db, user_id)
             forecast = await ProgressService._linear_regression_forecast(db, user_id)
+
+            # 查询用户当前训练方案状态
+            from app.models.training import TrainingPlan
+            plan = await db.scalar(
+                select(TrainingPlan)
+                .where(TrainingPlan.user_id == user_id)
+                .order_by(TrainingPlan.updated_at.desc())
+                .limit(1)
+            )
+            training_plan_status = {
+                "plan_id": plan.id,
+                "status": plan.status,
+                "version": plan.version,
+            } if plan else None
 
         result = {
             "summary_period": "all",
@@ -438,7 +464,7 @@ class ProgressService:
             "overall_progress": overall,
             "metric_trends": metric_trends,
             "problem_changes": problem_changes,
-            "training_plan_status": None,
+            "training_plan_status": training_plan_status,
             "forecast": forecast,
         }
 

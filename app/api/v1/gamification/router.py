@@ -46,7 +46,20 @@ async def get_checkin_calendar(
     return success(data=data)
 
 
-@limiter.limit("1/day")
+def _user_key_func(request: Request) -> str:
+    """按用户 ID 限流（从 JWT 提取）"""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            from app.core.security import decode_token
+            payload = decode_token(auth[7:])
+            return f"user:{payload.get('sub', request.client.host if request.client else 'unknown')}"
+        except Exception:
+            pass
+    return request.client.host if request.client else "unknown"
+
+
+@limiter.limit("1/day", key_func=_user_key_func)
 @router.post("/checkin", summary="每日打卡")
 async def checkin(
     request: Request,

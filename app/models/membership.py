@@ -65,15 +65,18 @@ class Subscription(Base):
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expire_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=False)
-    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, comment="支付方式: manual/auto_deduct",
+    )
     cancelled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="取消时间（退款撤销时设置）",
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(),
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     orders: Mapped[list["Order"]] = relationship(back_populates="subscription")

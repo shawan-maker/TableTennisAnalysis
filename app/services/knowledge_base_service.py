@@ -111,28 +111,29 @@ class KnowledgeBaseService:
 
     @staticmethod
     async def get_rules_by_problem(db: AsyncSession, problem_id: str) -> list[dict]:
-        """根据 problem_id 查询相关规则"""
+        """根据 problem_id 查询相关规则 — 使用 JSONB 路径查询（利用 GIN 索引）"""
         rows = await db.execute(
             select(RuleDefinition)
-            .where(RuleDefinition.is_active == True)
+            .where(
+                RuleDefinition.is_active == True,
+                RuleDefinition.diagnosis["problem_id"].astext == problem_id,
+            )
             .order_by(RuleDefinition.id)
         )
         results = []
         for r in rows.scalars().all():
-            diag = r.diagnosis or {}
-            if diag.get("problem_id") == problem_id:
-                results.append({
-                    "id": r.id,
-                    "rule_id": r.rule_id,
-                    "rule_name": r.rule_name,
-                    "rule_type": r.rule_type,
-                    "is_active": r.is_active,
-                    "condition": r.condition,
-                    "diagnosis": r.diagnosis,
-                    "training_methods": r.training_methods,
-                    "training_plan_template": r.training_plan_template,
-                    "adjustment_action": r.adjustment_action,
-                })
+            results.append({
+                "id": r.id,
+                "rule_id": r.rule_id,
+                "rule_name": r.rule_name,
+                "rule_type": r.rule_type,
+                "is_active": r.is_active,
+                "condition": r.condition,
+                "diagnosis": r.diagnosis,
+                "training_methods": r.training_methods,
+                "training_plan_template": r.training_plan_template,
+                "adjustment_action": r.adjustment_action,
+            })
         return results
 
     @staticmethod
@@ -189,17 +190,20 @@ class KnowledgeBaseService:
         results = []
         for rule in sorted_rules:
             try:
-                match = KnowledgeBaseService._evaluate_rule(rule, ctx)
-                if match:
+                match_result = KnowledgeBaseService._evaluate_rule(rule, ctx)
+                if match_result and match_result.get("matched"):
                     diag = rule.diagnosis or {}
+                    # 用 suggestion_params 填充建议模板
+                    suggestion_template = diag.get("suggestion_template", "")
+                    suggestion = KnowledgeBaseService._fill_placeholders(suggestion_template, match_result.get("suggestion_params", {})) if suggestion_template else ""
                     results.append({
                         "rule_id": rule.rule_id,
                         "rule_name": rule.rule_name,
                         "rule_type": rule.rule_type,
                         "problem_id": diag.get("problem_id", ""),
                         "problem_name": diag.get("problem_name", ""),
-                        "severity": diag.get("severity", "medium"),
-                        "suggestion": diag.get("suggestion_template", ""),
+                        "severity": match_result.get("severity", diag.get("severity", "medium")),
+                        "suggestion": suggestion,
                         "adjustment_action": rule.adjustment_action,
                         "training_methods": rule.training_methods,
                         "training_plan_template": rule.training_plan_template,
@@ -211,56 +215,71 @@ class KnowledgeBaseService:
         return results
 
     @staticmethod
-    def _evaluate_rule(rule, ctx: dict) -> bool:
-        """评估单条规则是否匹配"""
+    def _evaluate_rule(rule, ctx: dict) -> Optional[dict]:
+        """评估单条规则是否匹配 — 返回 MatchResult dict 或 None
+
+        MatchResult 包含：matched=True + severity + suggestion_params（从 ctx 提取供模板渲染）
+        """
         cond = rule.condition or {}
         metrics = ctx.get("metrics", {})
         trends = ctx.get("trends", {})
         rule_type = rule.rule_type
+        suggestion_params: dict[str, Any] = {}
 
         if rule_type == "single":
-            # 单次指标阈值比较：{metric, operator, threshold}
             metric = cond.get("metric")
             operator = cond.get("operator", "<")
             threshold = cond.get("threshold")
             value = metrics.get(metric)
             if value is None:
-                return False
-            return KnowledgeBaseService._compare(value, operator, threshold)
+                return None
+            if KnowledgeBaseService._compare(value, operator, threshold):
+                suggestion_params.update({"metric": metric, "value": value, "threshold": threshold})
+                return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
+            return None
 
         elif rule_type in ("trend_persistent", "trend_improving"):
-            # 趋势类规则：检查 trend direction + persistence
             metric = cond.get("metric")
-            direction = cond.get("direction")  # improving/declining/stagnant
+            direction = cond.get("direction")
             min_persistence = cond.get("min_persistence", 2)
             trend_info = trends.get(metric, {})
             actual_direction = trend_info.get("direction", "")
             persistence = trend_info.get("persistence", 0)
             if direction and actual_direction != direction:
-                return False
+                return None
             if persistence < min_persistence:
-                return False
-            return True
+                return None
+            suggestion_params.update({
+                "metric": metric,
+                "direction": actual_direction,
+                "persistence": persistence,
+                "change_rate": trend_info.get("change_rate", 0),
+            })
+            return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
 
         elif rule_type == "stagnant":
-            # 停滞规则：连续N次变化率<5%
             metric = cond.get("metric")
             min_stagnation = cond.get("min_stagnation", 3)
             trend_info = trends.get(metric, {})
-            return trend_info.get("persistence", 0) >= min_stagnation and trend_info.get("direction") == "stagnant"
+            if trend_info.get("persistence", 0) >= min_stagnation and trend_info.get("direction") == "stagnant":
+                suggestion_params.update({"metric": metric, "persistence": trend_info.get("persistence", 0)})
+                return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
+            return None
 
         elif rule_type == "plan_effectiveness":
-            # 方案效果规则：检查 current_plan 的 goal_completion
             current_plan = ctx.get("current_plan")
             if not current_plan:
-                return False
+                return None
             goal_completion = current_plan.get("goal_completion", {})
             metric = cond.get("metric")
             threshold = cond.get("threshold", 0.8)
             value = goal_completion.get(metric, 0)
-            return value >= threshold
+            if value >= threshold:
+                suggestion_params.update({"metric": metric, "completion": value, "threshold": threshold})
+                return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
+            return None
 
-        return False
+        return None
 
     @staticmethod
     def _compare(value: float, operator: str, threshold: float) -> bool:
