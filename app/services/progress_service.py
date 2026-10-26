@@ -80,7 +80,15 @@ class ProgressService:
 
             # 清理缓存
             redis = await get_redis()
-            await redis.delete(f"progress:summary:{user_id}", f"progress:trends:{user_id}")
+            await redis.delete(
+                f"progress:summary:{user_id}",
+                f"progress:trends:{user_id}",
+                f"progress:problems:{user_id}",
+            )
+            # R7-Prog-3: 清理 trend_detail 缓存（键含 metric 名，需 scan）
+            trend_detail_keys = await redis.keys(f"progress:trend_detail:{user_id}:*")
+            if trend_detail_keys:
+                await redis.delete(*trend_detail_keys)
 
         return {"id": snapshot.id, "report_id": report_id, "metrics_snapshot": metrics}
 
@@ -214,6 +222,9 @@ class ProgressService:
         新签名兼容设计测试用例：persistence >= 2 约束加到 improving/declining；
         stagnant 分支死代码已修复。
         """
+        # R7-Prog-1: current_value 为 None 时直接返回 new，避免 None - float TypeError
+        if current_value is None:
+            return {"trend": "new", "persistence_count": 0}
         if len(history_values) < 2:
             return {"trend": "new", "persistence_count": 0}
 
@@ -351,12 +362,16 @@ class ProgressService:
         for t in trends:
             defn = METRIC_DEFINITIONS.get(t.metric_name, {})
             target = t.target_value or defn.get("target")
-            current = t.current_value or 0
             direction = defn.get("direction", "up")
-            if direction == "down":
-                target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+            # R7-Prog-2: None 不应被 or 0 强转为 0，down 指标会误判 100%
+            if t.current_value is None:
+                target_progress = None
             else:
-                target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
+                current = t.current_value
+                if direction == "down":
+                    target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                else:
+                    target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
 
             metrics.append({
                 "metric": t.metric_name,
@@ -398,13 +413,17 @@ class ProgressService:
             )
 
             if t:
-                current = t.current_value or 0
                 target = t.target_value or default_target
                 # R6-Prog-3: down 指标 current==0 视为 100% 达成
-                if direction == "down":
-                    target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                # R7-Prog-2: None 不应被 or 0 强转为 0，down 指标会误判 100%
+                if t.current_value is None:
+                    target_progress = None
                 else:
-                    target_progress = min(100, int(current / target * 100)) if target > 0 else None
+                    current = t.current_value
+                    if direction == "down":
+                        target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                    else:
+                        target_progress = min(100, int(current / target * 100)) if target > 0 else None
 
                 result = {
                     "metric": metric,
@@ -549,12 +568,16 @@ class ProgressService:
             for t in trends:
                 defn = METRIC_DEFINITIONS.get(t.metric_name, {})
                 target = t.target_value or defn.get("target", 0)
-                current = t.current_value or 0
                 direction = defn.get("direction", "up")
-                if direction == "down":
-                    target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                # R7-Prog-2: None 不应被 or 0 强转为 0，down 指标会误判 100%
+                if t.current_value is None:
+                    target_progress = None
                 else:
-                    target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
+                    current = t.current_value
+                    if direction == "down":
+                        target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                    else:
+                        target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
                 metric_trends.append({
                     "metric": t.metric_name,
                     "metric_name": defn.get("name", t.metric_name),
@@ -837,10 +860,17 @@ class ProgressService:
             # 预测到达目标的周数
             target = t.target_value
             predicted_weeks = None
-            # R4-Progress-3: slope <= 0 时不预测；predicted_weeks 计算添加 * 2 系数
-            if target and slope > 0:
+            # R7-Prog-4: slope 检查改为方向感知
+            # up 指标 slope > 0 表示改善；down 指标 slope < 0 表示改善（向目标下降）
+            direction = METRIC_DEFINITIONS.get(t.metric_name, {}).get("direction", "up")
+            if target and direction == "up" and slope > 0:
                 # y = slope * x + intercept → x = (target - intercept) / slope
                 weeks_to_target = (target - intercept) / slope
+                if weeks_to_target > 0:
+                    predicted_weeks = int(weeks_to_target * 2)
+            elif target and direction == "down" and slope < 0:
+                # down 指标：slope < 0 表示改善（下降），用 abs(slope) 计算周数
+                weeks_to_target = (intercept - target) / abs(slope)
                 if weeks_to_target > 0:
                     predicted_weeks = int(weeks_to_target * 2)
 

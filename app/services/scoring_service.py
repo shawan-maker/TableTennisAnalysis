@@ -571,8 +571,14 @@ class ScoringService:
         score_distribution = {"serve_point": 0, "rally_point": 0, "opponent_error": 0}
         technique_breakdown: dict[str, int] = {}
         key_points: list[dict] = []
+        user_score = 0
+        opp_score = 0
 
         for r in records:
+            if r.scorer == "user":
+                user_score += 1
+            elif r.scorer == "opponent":
+                opp_score += 1
             if r.score_method:
                 score_distribution[r.score_method] = score_distribution.get(r.score_method, 0) + 1
             if r.technique_action:
@@ -580,8 +586,9 @@ class ScoringService:
             if r.is_key_point:
                 key_points.append({
                     "seq": r.sequence,
-                    "scorer": r.scorer,
-                    "score_method": r.score_method,
+                    "score": f"{user_score}:{opp_score}",
+                    "winner": r.scorer,
+                    "method": r.score_method,
                 })
 
         return {

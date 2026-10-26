@@ -370,9 +370,15 @@ class TrainingAdviceService:
         new_data = dict(old_data)
 
         if action == "new_goal":
+            # R7-Train-1: 方向感知 — up 指标 *1.1 提升；down 指标 *0.9 降低（更难）
+            from app.services.progress_service import METRIC_DEFINITIONS
             for metric, target in new_goal.items():
                 if target is not None:
-                    new_goal[metric] = round(target * 1.1, 4)
+                    direction = METRIC_DEFINITIONS.get(metric, {}).get("direction", "up")
+                    if direction == "up":
+                        new_goal[metric] = round(target * 1.1, 4)
+                    else:
+                        new_goal[metric] = round(target * 0.9, 4)
         elif action == "adjust":
             sessions = new_data.get("sessions", [])
             for s in sessions:

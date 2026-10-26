@@ -270,7 +270,11 @@ class AdminService:
             config = SystemConfig(config_key=key, config_value=value, description=description)
             db.add(config)
             await AdminService._write_audit_log(
-                db, admin_id, "create", "config", changes={"config_key": key}
+                db, admin_id, "create", "config",
+                changes={
+                    "config_key": {"old": None, "new": key},
+                    "config_value": {"old": None, "new": value},
+                },
             )
             await db.commit()
             await db.refresh(config)
@@ -292,7 +296,7 @@ class AdminService:
             if description is not None:
                 config.description = description
             await AdminService._write_audit_log(
-                db, admin_id, "update", "config",
+                db, admin_id, "update", "config", target_id=config.id,
                 changes={"config_key": key, "config_value": {"old": old_value, "new": value}},
             )
             await db.commit()
@@ -316,9 +320,14 @@ class AdminService:
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)
 
+            old_value = config.config_value
             await db.delete(config)
             await AdminService._write_audit_log(
-                db, admin_id, "delete", "config", changes={"config_key": key}
+                db, admin_id, "delete", "config", target_id=config.id,
+                changes={
+                    "config_key": {"old": key, "new": None},
+                    "config_value": {"old": old_value, "new": None},
+                },
             )
             await db.commit()
             # R4-Admin-7+8: 失效缓存
@@ -398,7 +407,10 @@ class AdminService:
             db.add(category)
             await AdminService._write_audit_log(
                 db, admin_id, "create", "knowledge",
-                changes={"name": name, "code": code},
+                changes={
+                    "name": {"old": None, "new": name},
+                    "code": {"old": None, "new": code},
+                },
             )
             await db.commit()
             await db.refresh(category)
@@ -443,9 +455,11 @@ class AdminService:
             if not category:
                 raise AppException("分类不存在", 404, code=ERR_NOT_FOUND)
 
+            old_code = category.code
             await db.delete(category)
             await AdminService._write_audit_log(
-                db, admin_id, "delete", "knowledge", category_id
+                db, admin_id, "delete", "knowledge", category_id,
+                changes={"code": {"old": old_code, "new": None}},
             )
             await db.commit()
 
@@ -478,7 +492,8 @@ class AdminService:
             )
             db.add(rule)
             await AdminService._write_audit_log(
-                db, admin_id, "create", "knowledge", changes={"rule_id": rule_id}
+                db, admin_id, "create", "knowledge",
+                changes={"rule_id": {"old": None, "new": rule_id}},
             )
             await db.commit()
             await db.refresh(rule)
@@ -503,7 +518,7 @@ class AdminService:
             old_active = rule.is_active
             rule.is_active = is_active
             await AdminService._write_audit_log(
-                db, admin_id, "update", "knowledge",
+                db, admin_id, "update", "knowledge", target_id=rule.id,
                 changes={
                     "rule_id": rule.rule_id,
                     "is_active": {"old": old_active, "new": is_active},
@@ -521,8 +536,10 @@ class AdminService:
         """激活模型版本"""
         # S6 阶段仅记录审计日志，实际模型管理在 S7+
         async with async_session_factory() as db:
+            old_status = None
             await AdminService._write_audit_log(
-                db, admin_id, "update", "model", changes={"version_id": version_id}
+                db, admin_id, "update", "model",
+                changes={"status": {"old": old_status, "new": "active"}},
             )
             await db.commit()
         return {"version_id": version_id, "status": "activated"}
