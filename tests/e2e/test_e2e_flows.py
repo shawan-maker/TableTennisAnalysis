@@ -237,8 +237,19 @@ class TestE2E03PaymentFlow:
 class TestE2E04TrainingFlow:
     """E2E-04: 分析→进度快照→趋势→训练方案→训练单→完成"""
 
-    async def test_training_flow_dashboard(self, client, test_user, auth_headers):
+    async def test_training_flow_dashboard(self, client, test_user, auth_headers, db_session, seed_tiers):
         """训练闭环全流程（简化版：验证数据流可达性）"""
+        # 训练端点需要会员权限，为测试用户创建会员订阅
+        from app.models.membership import Subscription
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        sub = Subscription(
+            user_id=test_user.id, tier="member", status="active",
+            start_at=now, expire_at=now + timedelta(days=30),
+        )
+        db_session.add(sub)
+        await db_session.commit()
+
         # 1. 查看仪表盘（进度概览）
         resp = await client.get("/api/v1/dashboard/overview", headers=auth_headers)
         assert resp.status_code == 200
