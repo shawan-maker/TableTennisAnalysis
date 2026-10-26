@@ -290,7 +290,20 @@ class MembershipService:
 
     @staticmethod
     async def _handle_expiry(db: AsyncSession, subscription: Subscription) -> None:
-        """处理到期逻辑（实时兜底）"""
+        """处理到期逻辑（实时兜底）— 与 check_expiry 状态机保持一致。
+
+        R5-Mbr-1 修复：实时兜底此前直接跳到 expired + 权益降级，跳过了
+        grace_period 状态。修复为：检测到过期时先判断是否仍在宽限期内，
+        是则设为 grace_period（保留权益、发续费提醒），否则才 expired + 降级。
+        """
+        now = datetime.now(timezone.utc)
+        expire_at = subscription.expire_at
+        if expire_at is not None and expire_at < now:
+            grace_end = expire_at + timedelta(days=MembershipService.GRACE_PERIOD_DAYS)
+            if now < grace_end:
+                subscription.status = "grace_period"
+                await MembershipService._send_expiry_notification(subscription)
+                return
         subscription.status = "expired"
         await MembershipService._handle_downgrade(db, subscription)
 

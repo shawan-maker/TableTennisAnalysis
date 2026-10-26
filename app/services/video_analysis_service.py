@@ -128,8 +128,8 @@ class VideoAnalysisService:
             # 获取视频时长
             duration_sec = FileService.get_video_duration(record.oss_key)
 
-            # 时长校验（5s ~ 600s）
-            if duration_sec and (duration_sec < settings.MIN_VIDEO_DURATION or duration_sec > settings.MAX_VIDEO_DURATION):
+            # 时长校验（5s ~ 600s）— duration_sec 为 None 或 0 时拒绝确认
+            if not duration_sec or duration_sec < settings.MIN_VIDEO_DURATION or duration_sec > settings.MAX_VIDEO_DURATION:
                 raise AppException(
                     f"视频时长需在 {settings.MIN_VIDEO_DURATION}s ~ {settings.MAX_VIDEO_DURATION}s 之间",
                     422,
@@ -243,11 +243,16 @@ class VideoAnalysisService:
             task_ids = [t.id for t in tasks]
             if task_ids:
                 report_result = await db.execute(
-                    select(AnalysisReport.task_id, AnalysisReport.id).where(
-                        AnalysisReport.task_id.in_(task_ids)
-                    )
+                    select(
+                        AnalysisReport.task_id,
+                        AnalysisReport.id,
+                        AnalysisReport.cover_image_url,
+                    ).where(AnalysisReport.task_id.in_(task_ids))
                 )
-                report_map = {row[0]: row[1] for row in report_result}
+                report_map = {
+                    row[0]: {"report_id": row[1], "cover_image_url": row[2]}
+                    for row in report_result
+                }
             else:
                 report_map = {}
 
@@ -260,7 +265,8 @@ class VideoAnalysisService:
                     "total_steps": t.total_steps,
                     "progress": t.progress,
                     "created_at": t.created_at.isoformat() if t.created_at else None,
-                    "report_id": report_map.get(t.id),
+                    "report_id": report_map.get(t.id, {}).get("report_id"),
+                    "cover_image_url": report_map.get(t.id, {}).get("cover_image_url"),
                 }
                 for t in tasks
             ]
@@ -598,7 +604,7 @@ class VideoAnalysisService:
             await db.commit()
             await db.refresh(share)
 
-            share_url = f"/share/{share_token}"
+            share_url = f"{settings.API_BASE_URL}/share/{share_token}"
 
             # 游戏化积分（try/except 不阻塞主流程）
             try:

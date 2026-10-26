@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
+    API_BASE_URL: str = "http://localhost:8000"
 
     # ---------- Database ----------
     DATABASE_URL: str = "postgresql+asyncpg://tta_user:tta_pass_dev@localhost:5432/tta"

@@ -8,7 +8,7 @@ Admin 独立认证体系：admin_user 表 + Redis session（admin:session:{token
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.core.deps import get_admin_session, require_super_admin, require_content_admin, require_model_admin
+from app.core.deps import get_admin_session, require_super_admin, require_model_admin
 from app.core.exceptions import AppException, ERR_UNAUTHORIZED
 from app.core.limiter import RateLimits, limiter
 from app.core.response import success
@@ -43,9 +43,10 @@ async def admin_logout(
     session: dict = Depends(get_admin_session),
 ):
     """管理员登出"""
-    from app.core.deps import bearer_scheme
     auth = request.headers.get("authorization", "")
-    token = auth.replace("Bearer ", "").replace("bearer ", "")
+    # R5-Admin-4: 支持 "Admin xxx" 和 "Bearer xxx" 两种前缀
+    parts = auth.split(" ", 1)
+    token = parts[1] if len(parts) == 2 and parts[0] in ("Admin", "Bearer") else auth
     await AdminService.logout(token)
     return success(message="已登出")
 
@@ -209,9 +210,9 @@ async def list_audit_logs(
 async def create_category(
     body: CategoryCreateRequest,
     request: Request,
-    session: dict = Depends(require_content_admin),
+    session: dict = Depends(require_super_admin),
 ):
-    """创建知识分类（内容管理员）"""
+    """创建知识分类（超级管理员）"""
     # R4-Admin-3: 传递 content
     data = await AdminService.create_category(
         body.name, body.code, session["admin_id"], body.content,
@@ -227,9 +228,9 @@ async def update_category(
     category_id: int,
     body: CategoryUpdateRequest,
     request: Request,
-    session: dict = Depends(require_content_admin),
+    session: dict = Depends(require_super_admin),
 ):
-    """更新知识分类（内容管理员，仅 name/content 可改）"""
+    """更新知识分类（超级管理员，仅 name/content 可改）"""
     data = await AdminService.update_category(
         category_id, body.name, body.content, session["admin_id"],
     )
@@ -241,9 +242,9 @@ async def update_category(
 async def delete_category(
     category_id: int,
     request: Request,
-    session: dict = Depends(require_content_admin),
+    session: dict = Depends(require_super_admin),
 ):
-    """删除知识分类（内容管理员）"""
+    """删除知识分类（超级管理员）"""
     await AdminService.delete_category(category_id, session["admin_id"])
     return success(message="分类已删除")
 
@@ -253,9 +254,9 @@ async def delete_category(
 async def create_rule(
     body: RuleCreateRequest,
     request: Request,
-    session: dict = Depends(require_content_admin),
+    session: dict = Depends(require_super_admin),
 ):
-    """创建知识规则（内容管理员）"""
+    """创建知识规则（超级管理员）"""
     data = await AdminService.create_rule(
         body.rule_id, body.rule_name, body.rule_type,
         body.condition, body.diagnosis,
@@ -273,9 +274,9 @@ async def toggle_rule(
     rule_id: str,
     request: Request,
     is_active: bool = Query(..., description="目标状态 true=启用/false=禁用"),
-    session: dict = Depends(require_content_admin),
+    session: dict = Depends(require_super_admin),
 ):
-    """设置知识规则状态（内容管理员，显式 is_active 参数）"""
+    """设置知识规则状态（超级管理员，显式 is_active 参数）"""
     data = await AdminService.toggle_rule(rule_id, is_active, session["admin_id"])
     return success(data=data, message="规则状态已更新")
 

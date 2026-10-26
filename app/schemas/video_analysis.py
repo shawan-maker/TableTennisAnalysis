@@ -87,6 +87,7 @@ class TaskListItem(BaseModel):
     progress: float
     created_at: Optional[datetime] = None
     report_id: Optional[int] = None
+    cover_image_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

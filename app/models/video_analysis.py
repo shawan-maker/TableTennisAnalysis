@@ -135,7 +135,10 @@ class AnalysisReport(Base):
 
     __table_args__ = (
         Index("idx_report_user_created", "user_id", text("created_at DESC")),
-        Index("idx_report_text_gin", "report_text", postgresql_using="gin"),
+        # 全文搜索 GIN 索引（to_tsvector）
+        Index("idx_report_text_gin", text("to_tsvector('simple', report_text)"), postgresql_using="gin"),
+        # JSONB 查询 GIN 索引
+        Index("idx_report_text_jsonb_gin", "report_text", postgresql_using="gin"),
     )
 
 

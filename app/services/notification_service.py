@@ -38,10 +38,15 @@ class NotificationService:
 
     @staticmethod
     async def _push_ws(user_id: int, event: str, data: dict) -> None:
-        """通过 Redis pubsub 推送 WS 消息到用户频道"""
+        """通过 Redis pubsub 推送 WS 消息到用户频道。
+
+        R5-Infra-5 修复：与 WSManager.broadcast_to_user 频道命名统一，
+        发布到 ws:relay:ws:user:{user_id} 频道（WSManager.broadcast_to_room
+        发布到 ws:relay:{room_id}，room_id="ws:user:{user_id}"）。
+        """
         try:
             redis = await get_redis()
-            channel = f"ws:user:{user_id}"
+            channel = f"ws:relay:ws:user:{user_id}"
             message = json.dumps({"event": event, "data": data})
             await redis.publish(channel, message)
         except Exception as e:

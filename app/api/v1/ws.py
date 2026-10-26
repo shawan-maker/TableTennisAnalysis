@@ -7,10 +7,13 @@ app/api/v1/ws.py — WebSocket 端点
 
 TODO(R4-Infra-7)：本端点当前绕过 app.core.websocket.WSManager，直接操作 Redis
 pubsub 与在线状态。原因：WSManager.on_connect 内部调用 websocket.accept()
-不带 subprotocol，与本端点所需的 Sec-WebSocket-Protocol JWT 认证流程冲突；
-且 WSManager 使用 ws:relay:* 频道中继，与本端点的 ws:user:{id} 频道不同。
-后续应重构 WSManager 支持 subprotocol accept + 频道统一，再由本端点改用
+不带 subprotocol，与本端点所需的 Sec-WebSocket-Protocol JWT 认证流程冲突。
+后续应重构 WSManager 支持 subprotocol accept，再由本端点改用
 ws_manager.on_connect / on_disconnect 统一管理连接生命周期。
+
+R5-Infra-5 修复：频道命名已与 WSManager 统一。本端点订阅 ws:relay:ws:user:{id}
+与 ws:relay:ws:match:{id} 频道，与 WSManager.broadcast_to_user /
+broadcast_to_room 发布的 relay 频道一致，消息可在两套机制间互通。
 """
 
 import asyncio
@@ -36,7 +39,7 @@ async def websocket_endpoint(websocket: WebSocket):
     认证流程：
     1. 从 sec-websocket-protocol 提取 jwt.{token}
     2. 解码 JWT 获取 user_id
-    3. accept 后订阅 Redis ws:user:{user_id} 频道
+    3. accept 后订阅 Redis ws:relay:ws:user:{user_id} 频道
     4. 三个并行协程：relay_messages + heartbeat + receive_loop
     5. 断连时清理 Redis 状态
     """
@@ -76,7 +79,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
     redis = await get_redis()
     pubsub = redis.pubsub()
-    await pubsub.subscribe(f"ws:user:{user_id}")
+    # R5-Infra-5 修复：与 WSManager.broadcast_to_user 频道命名统一，
+    # 订阅 ws:relay:ws:user:{user_id}（WSManager 通过 broadcast_to_room
+    # 发布到 ws:relay:{room_id}，room_id = "ws:user:{user_id}"）
+    await pubsub.subscribe(f"ws:relay:ws:user:{user_id}")
 
     # Step 3: 发送 connected 事件
     await websocket.send_json({
@@ -136,7 +142,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     except (TypeError, ValueError):
                         continue
                     if match_id not in subscribed_matches:
-                        await pubsub.subscribe(f"ws:match:{match_id}")
+                        # R5-Infra-5 修复：与 WSManager.broadcast_to_room 频道命名统一
+                        await pubsub.subscribe(f"ws:relay:ws:match:{match_id}")
                         subscribed_matches.add(match_id)
                         await websocket.send_json({
                             "event": "subscribed",
@@ -163,7 +170,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception:
         pass
     try:
-        await pubsub.unsubscribe(f"ws:user:{user_id}")
+        await pubsub.unsubscribe(f"ws:relay:ws:user:{user_id}")
         await pubsub.close()
     except Exception:
         pass

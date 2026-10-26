@@ -204,10 +204,9 @@ class UserService:
         Redis Key: quota:analysis:{user_id}:{date}
         TTL: 到当日 23:59:59 + 1 小时（Asia/Shanghai）
         """
-        from datetime import date
-
         redis = await get_redis()
-        today = date.today().isoformat()
+        # R5-User-1: today 改用 CST 日期，与 reset_at 时区一致
+        today = (datetime.now(timezone.utc) + timedelta(hours=8)).date().isoformat()
         quota_key = f"quota:analysis:{user.id}:{today}"
 
         used_today = int(await redis.get(quota_key) or 0)
@@ -407,11 +406,17 @@ class UserService:
 
         redis = await get_redis()
 
-        # 检查本月导出限制
+        # R5-User-2: 先 INCR 再检查（原子操作，避免竞态条件）
         now = datetime.now(timezone.utc)
         month_key = f"export:count:{user.id}:{now.year}{now.month:02d}"
-        count = await redis.get(month_key) or 0
-        if int(count) >= UserService.EXPORT_MONTHLY_LIMIT:
+        count = await redis.incr(month_key)
+        if count == 1:
+            # 首次计数，设置 TTL 到月末
+            last_day = calendar.monthrange(now.year, now.month)[1]
+            end_of_month = now.replace(day=last_day, hour=23, minute=59, second=59)
+            ttl = int((end_of_month - now).total_seconds())
+            await redis.expire(month_key, ttl)
+        if count > UserService.EXPORT_MONTHLY_LIMIT:
             raise AppException("本月已导出过，请下月再试", 429)
 
         # 创建导出任务
@@ -423,14 +428,6 @@ class UserService:
         )
         db.add(export_task)
         await db.commit()
-
-        # 计数 +1
-        await redis.incr(month_key)
-        # TTL 到月末
-        last_day = calendar.monthrange(now.year, now.month)[1]
-        end_of_month = now.replace(day=last_day, hour=23, minute=59, second=59)
-        ttl = int((end_of_month - now).total_seconds())
-        await redis.expire(month_key, ttl)
 
         # TODO: 投递 Celery 异步任务
         # from app.tasks.user_tasks import export_user_data

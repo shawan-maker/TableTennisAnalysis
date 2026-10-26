@@ -76,7 +76,7 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     admin_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True,
+        BigInteger, ForeignKey("admin_user.id", ondelete="RESTRICT"), nullable=True,
         comment="操作管理员 ID（非管理员操作如支付时为空，user_id 有值）",
     )
     user_id: Mapped[int | None] = mapped_column(

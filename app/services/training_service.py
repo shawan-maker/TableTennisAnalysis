@@ -213,7 +213,8 @@ class TrainingAdviceService:
             adjustments = [
                 {
                     "id": r.id,
-                    "version": plan.version if i == 0 else r.id,
+                    # R5-Train-3: 非最新记录的 version 从 new_plan_snapshot 读取，避免用 r.id 作版本号
+                    "version": plan.version if i == 0 else (r.new_plan_snapshot or {}).get("version", r.id),
                     "action": r.adjustment_action,
                     "reason": r.adjustment_reason,
                     "trigger_report_id": r.trigger_report_id,
@@ -247,6 +248,21 @@ class TrainingAdviceService:
             if old_val != new_val and old_val is not None and new_val is not None:
                 changes.append(f"{key}: {old_val} → {new_val}")
 
+        # R5-Train-5: 对比 plan_data 中的 sessions/reps 变化
+        old_pd = old.get("plan_data", {}) or {}
+        new_pd = new.get("plan_data", {}) or {}
+        old_sessions = old_pd.get("sessions", []) or []
+        new_sessions = new_pd.get("sessions", []) or []
+        if len(old_sessions) != len(new_sessions):
+            changes.append(f"训练单数 {len(old_sessions)} → {len(new_sessions)}")
+        for idx in range(min(len(old_sessions), len(new_sessions))):
+            old_s = old_sessions[idx] if isinstance(old_sessions[idx], dict) else {}
+            new_s = new_sessions[idx] if isinstance(new_sessions[idx], dict) else {}
+            old_reps = old_s.get("reps")
+            new_reps = new_s.get("reps")
+            if old_reps is not None and new_reps is not None and old_reps != new_reps:
+                changes.append(f"训练单{idx + 1} reps: {old_reps} → {new_reps}")
+
         return "; ".join(changes) if changes else "无变化"
 
     @staticmethod
@@ -269,6 +285,9 @@ class TrainingAdviceService:
             trends = await TrainingAdviceService._get_trends(db, user_id)
             goal_metrics = plan.goal_metrics or {}
 
+            # R5-Train-1: 只保留 goal_metrics 中定义的指标，避免无关趋势影响评估
+            trends = [t for t in trends if t.metric_name in goal_metrics]
+
             action, reason = TrainingAdviceService._evaluate_plan_effectiveness(trends, goal_metrics)
 
             if action != "maintain":
@@ -278,14 +297,10 @@ class TrainingAdviceService:
                     "goal": goal_metrics,
                     "plan_data": plan.plan_data,
                 }
-                generated_plan_data = TrainingAdviceService._generate_new_plan(
+                # R5-Train-2: _generate_new_plan 返回完整 snapshot {version, goal, plan_data}
+                new_snapshot = TrainingAdviceService._generate_new_plan(
                     plan, trends, goal_metrics, action
                 )
-                new_snapshot = {
-                    "version": plan.version + 1,
-                    "goal": goal_metrics,
-                    "plan_data": generated_plan_data,
-                }
 
                 adjustment = PlanAdjustment(
                     training_plan_id=plan_id,
@@ -296,8 +311,9 @@ class TrainingAdviceService:
                     adjustment_action=action,
                 )
                 db.add(adjustment)
-                plan.plan_data = generated_plan_data
+                plan.plan_data = new_snapshot.get("plan_data", plan.plan_data)
                 plan.version += 1
+                # R5-Train-2: 用 _generate_new_plan 更新后的 goal 写入 plan.goal_metrics 列
                 plan.goal_metrics = new_snapshot.get("goal", goal_metrics)
 
             await db.commit()
@@ -319,7 +335,9 @@ class TrainingAdviceService:
                 break
 
         declining = [t for t in trends if t.trend == "declining"]
-        stagnant = [t for t in trends if t.trend == "stagnant" and t.persistence_count >= STAGNANT_THRESHOLD]
+        # R5-Prog-4: stagnant 判定仅检查 persistence_count >= STAGNANT_THRESHOLD，
+        # 不再额外要求 trend == "stagnant"（与设计文档一致）
+        stagnant = [t for t in trends if t.persistence_count >= STAGNANT_THRESHOLD]
 
         if all_achieved:
             return "new_goal", "已有指标达成目标，建议设定新目标"
@@ -331,15 +349,22 @@ class TrainingAdviceService:
 
     @staticmethod
     def _generate_new_plan(plan: TrainingPlan, trends: list, goal_metrics: dict, action: str) -> dict:
+        """根据调整动作生成新方案快照 — 返回 {version, goal, plan_data}（R5-Train-2）
+
+        - new_goal: 提升 goal_metrics 中各目标 10%（而非 plan_data.goal）
+        - adjust: 增加 plan_data.sessions 中 reps 20%
+        - escalate: 增加 plan_data.sessions 中 reps 50%
+        """
+        new_version = plan.version + 1
+        # R5-Train-2: new_goal 动作修改 goal_metrics，复制后变更
+        new_goal = dict(goal_metrics)
         old_data = plan.plan_data or {}
         new_data = dict(old_data)
 
         if action == "new_goal":
-            goals = new_data.get("goal", {})
-            if isinstance(goals, dict):
-                for k, v in goals.items():
-                    goals[k] = v * 1.1
-            new_data["goal"] = goals
+            for metric, target in new_goal.items():
+                if target is not None:
+                    new_goal[metric] = round(target * 1.1, 4)
         elif action == "adjust":
             sessions = new_data.get("sessions", [])
             for s in sessions:
@@ -353,7 +378,11 @@ class TrainingAdviceService:
                     s["reps"] = int(s["reps"] * 1.5)
             new_data["sessions"] = sessions
 
-        return new_data
+        return {
+            "version": new_version,
+            "goal": new_goal,
+            "plan_data": new_data,
+        }
 
     @staticmethod
     async def list_training_sessions(
@@ -408,7 +437,11 @@ class TrainingAdviceService:
             plan_data = copy.deepcopy(plan.plan_data or {})
             sessions = plan_data.get("sessions", [])
 
-            session = next((s for s in sessions if s.get("id") == session_id), None)
+            # R5-Train-4: 按 id 或 session_index 查找，兼容无 id 的训练单
+            session = next(
+                (s for s in sessions if s.get("id") == session_id or s.get("session_index") == session_id),
+                None,
+            )
             if session is None:
                 raise AppException("训练单不存在", 404, code=40422)
 

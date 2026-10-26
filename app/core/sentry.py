@@ -127,6 +127,8 @@ def init_sentry() -> None:
         from sentry_sdk.integrations.celery import CeleryIntegration
         from sentry_sdk.integrations.redis import RedisIntegration
         from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        # R5-Infra-2 修复：LoggingIntegration — ERROR 级别日志自动上报 Sentry 事件
+        from sentry_sdk.integrations.logging import LoggingIntegration
 
         # FastAPI HTTPException 用于框架层路由/参数校验错误，
         # 属预期内错误、无需告警；AppException 是业务异常，仍需上报监控以便发现真实故障
@@ -141,6 +143,10 @@ def init_sentry() -> None:
                 CeleryIntegration(),
                 RedisIntegration(),
                 SqlalchemyIntegration(),
+                LoggingIntegration(
+                    level=logging.INFO,
+                    event_level=logging.ERROR,
+                ),
             ],
             ignore_errors=[HTTPException],
             before_send=_before_send,

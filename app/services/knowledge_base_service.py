@@ -12,6 +12,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import AppException
 from app.models.knowledge_base import (
     KnowledgeCategory,
     KnowledgeEntry,
@@ -45,12 +46,12 @@ class KnowledgeBaseService:
         ]
 
     @staticmethod
-    async def get_category_by_code(db: AsyncSession, code: str) -> Optional[dict]:
+    async def get_category_by_code(db: AsyncSession, code: str) -> dict:
         row = await db.scalar(
             select(KnowledgeCategory).where(KnowledgeCategory.code == code)
         )
         if not row:
-            return None
+            raise AppException(f"分类 {code} 不存在", 404, code=40401)
         return {
             "id": row.id,
             "name": row.name,
@@ -75,12 +76,12 @@ class KnowledgeBaseService:
         ]
 
     @staticmethod
-    async def get_entry_detail(db: AsyncSession, entry_id: int) -> Optional[dict]:
+    async def get_entry_detail(db: AsyncSession, entry_id: int) -> dict:
         row = await db.scalar(
             select(KnowledgeEntry).where(KnowledgeEntry.id == entry_id)
         )
         if not row:
-            return None
+            raise AppException("知识条目不存在", 404, code=40402)
         return {
             "id": row.id,
             "category_id": row.category_id,
@@ -155,12 +156,12 @@ class KnowledgeBaseService:
         ]
 
     @staticmethod
-    async def get_template_detail(db: AsyncSession, template_code: str) -> Optional[dict]:
+    async def get_template_detail(db: AsyncSession, template_code: str) -> dict:
         row = await db.scalar(
             select(TrainingTemplate).where(TrainingTemplate.template_code == template_code)
         )
         if not row:
-            return None
+            raise AppException(f"模板 {template_code} 不存在", 404, code=40403)
         return {
             "id": row.id,
             "template_code": row.template_code,
@@ -245,18 +246,22 @@ class KnowledgeBaseService:
             metric = cond.get("metric")
             direction = cond.get("direction")
             min_persistence = cond.get("min_persistence", 2)
+            min_change_rate = cond.get("min_change_rate", 0.0)
             trend_info = trends.get(metric, {})
             actual_direction = trend_info.get("direction", "")
             persistence = trend_info.get("persistence", 0)
+            change_rate = trend_info.get("change_rate", 0)
             if direction and actual_direction != direction:
                 return None
             if persistence < min_persistence:
+                return None
+            if abs(change_rate) < min_change_rate:
                 return None
             suggestion_params.update({
                 "metric": metric,
                 "direction": actual_direction,
                 "persistence": persistence,
-                "change_rate": trend_info.get("change_rate", 0),
+                "change_rate": change_rate,
             })
             return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
 
@@ -296,7 +301,7 @@ class KnowledgeBaseService:
         elif operator in (">=", "gte"):
             return value >= threshold
         elif operator in ("==", "eq"):
-            return value == threshold
+            return abs(value - threshold) < 0.001
         return False
 
     @staticmethod

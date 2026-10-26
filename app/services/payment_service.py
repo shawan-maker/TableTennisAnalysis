@@ -475,9 +475,9 @@ class PaymentService:
             select(Subscription).where(
                 Subscription.user_id == order.user_id,
                 Subscription.status.in_(["active", "expiring_soon"]),
-            )
+            ).order_by(Subscription.created_at.desc()).limit(1)
         )
-        existing = result.scalar_one_or_none()
+        existing = result.scalars().first()
 
         now = datetime.now(timezone.utc)
 
@@ -590,7 +590,8 @@ class PaymentService:
             order.status = "refunded"
 
             audit_entry = AuditLog(
-                user_id=operator_id,
+                admin_id=None,  # JWT 管理员无 AdminUser 记录，admin_id 留空
+                user_id=operator_id,  # 操作者 user_id（JWT 认证用户）
                 action="refund",
                 target_type="order",
                 target_id=order.id,

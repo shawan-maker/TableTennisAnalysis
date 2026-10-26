@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_factory
 from app.core.redis import get_redis
 from app.models.progress import ProgressSnapshot, TechniqueTrend
-from app.models.video_analysis import AnalysisReport
+from app.models.video_analysis import AnalysisReport, VideoTask
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +229,10 @@ class ProgressService:
             (direction == "up" and current_value > previous) or
             (direction == "down" and current_value < previous)
         )
+        is_declining = (
+            (direction == "up" and current_value < previous) or
+            (direction == "down" and current_value > previous)
+        )
         is_significant = abs(change_rate or 0) > CHANGE_RATE_THRESHOLD
 
         # 达标判断 - 基于历史值连续达标次数
@@ -281,7 +285,12 @@ class ProgressService:
             if len(history_values) >= 4 and stagnant_persistence >= 3:
                 return {"trend": "stagnant", "persistence_count": stagnant_persistence}
 
-        # fallback - persistence 不足，趋势待定
+        # R5-Prog-2: fallback - persistence 不足时按单次方向标记 improving/declining，
+        # 避免误标单次改善/退步为 stagnant
+        if is_improving:
+            return {"trend": "improving", "persistence_count": 1}
+        if is_declining:
+            return {"trend": "declining", "persistence_count": 1}
         return {"trend": "stagnant", "persistence_count": 1}
 
     @staticmethod
@@ -299,14 +308,14 @@ class ProgressService:
                 qs = qs.where(ProgressSnapshot.created_at >= start)
                 count_qs = count_qs.where(ProgressSnapshot.created_at >= start)
 
-            # 按 AnalysisReport.status 过滤
+            # R5-Prog-1: 按 VideoTask.status 过滤（AnalysisReport 无 status 列，改走 task 关系）
             if status:
-                qs = qs.join(AnalysisReport, ProgressSnapshot.report_id == AnalysisReport.id).where(
-                    AnalysisReport.status == status
-                )
-                count_qs = count_qs.join(AnalysisReport, ProgressSnapshot.report_id == AnalysisReport.id).where(
-                    AnalysisReport.status == status
-                )
+                qs = qs.join(AnalysisReport, ProgressSnapshot.report_id == AnalysisReport.id).join(
+                    VideoTask, AnalysisReport.task_id == VideoTask.id
+                ).where(VideoTask.status == status)
+                count_qs = count_qs.join(AnalysisReport, ProgressSnapshot.report_id == AnalysisReport.id).join(
+                    VideoTask, AnalysisReport.task_id == VideoTask.id
+                ).where(VideoTask.status == status)
 
             total = await db.scalar(count_qs) or 0
             qs = qs.order_by(ProgressSnapshot.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
@@ -556,16 +565,23 @@ class ProgressService:
                     .order_by(PlanAdjustment.created_at.desc())
                     .limit(1)
                 )
-                # 计算 goal_completion（基于 trends 当前值与 goal_metrics 目标值）
+                # R5-Prog-3: 计算 goal_completion — 按 direction 区分计算
+                # up: current/target, down: target/current；返回字符串格式如 "91%"
                 goal_metrics = plan.goal_metrics or {}
                 trends_map = {t.metric_name: t for t in trends}
                 goal_completion = {}
                 for metric, target in goal_metrics.items():
                     t = trends_map.get(metric)
-                    if t and t.current_value is not None and target:
-                        goal_completion[metric] = round(t.current_value / target, 4) if target != 0 else 0.0
+                    defn = METRIC_DEFINITIONS.get(metric, {})
+                    direction = defn.get("direction", "up")
+                    if t and t.current_value is not None and target and t.current_value > 0:
+                        if direction == "down":
+                            progress = min(100, int(target / t.current_value * 100))
+                        else:
+                            progress = min(100, int(t.current_value / target * 100))
+                        goal_completion[metric] = f"{progress}%"
                     else:
-                        goal_completion[metric] = 0.0
+                        goal_completion[metric] = "0%"
                 training_plan_status = {
                     "current_plan_id": str(plan.id),
                     "plan_version": plan.version,

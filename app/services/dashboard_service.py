@@ -320,6 +320,7 @@ class DashboardService:
             {
                 "id": r.id,
                 "opponent_name": r.opponent_name,
+                "opponent_rating": r.opponent_rating,
                 "my_score": r.my_score,
                 "opponent_score": r.opponent_score,
                 "is_win": r.is_win,

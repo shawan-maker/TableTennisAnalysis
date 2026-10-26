@@ -130,7 +130,7 @@ async def test_consent_flow(client, auth_headers):
     resp2 = await client.post(
         "/api/v1/auth/consent",
         headers=auth_headers,
-        json={"consent_type": "privacy_policy", "policy_version": "1.0"},
+        json={"consent_type": "privacy_policy", "policy_version": "v1.0"},
     )
     assert resp2.status_code == 200
     assert resp2.json()["data"]["consented"] is True

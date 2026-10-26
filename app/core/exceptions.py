@@ -77,8 +77,16 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     AppException 全局处理器 — 统一捕获 AppException 并返回标准 JSON 响应。
 
     响应格式：{"code": ..., "message": "...", "data": null, "timestamp": "..."}
+    R5-Infra-1 修复：5xx 业务异常上报 Sentry（业务异常仍需监控告警）。
     """
     from datetime import datetime, timezone
+
+    if exc.status_code >= 500:
+        try:
+            from app.core.sentry import capture_exception
+            capture_exception(exc)
+        except Exception:
+            pass
 
     return JSONResponse(
         status_code=exc.status_code,
@@ -94,6 +102,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     通用异常处理器 — 捕获未处理的异常，返回 500。
+    R5-Infra-1 修复：所有未处理异常上报 Sentry（必然需要告警）。
     """
     import logging
     from datetime import datetime, timezone
@@ -101,6 +110,12 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
     logging.getLogger(__name__).exception(
         "Unhandled exception: %s | path=%s", str(exc), request.url.path
     )
+
+    try:
+        from app.core.sentry import capture_exception
+        capture_exception(exc)
+    except Exception:
+        pass
 
     return JSONResponse(
         status_code=500,

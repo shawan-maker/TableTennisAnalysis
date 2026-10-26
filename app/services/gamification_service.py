@@ -18,6 +18,7 @@ def _cst_today() -> date:
 from typing import Optional
 
 from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
@@ -158,7 +159,7 @@ class GamificationService:
         return {
             "points_earned": POINTS_RULES["checkin"],
             "current_streak": streak,
-            "bonus_points": bonus,
+            "bonus": bonus,
         }
 
     @staticmethod
@@ -316,7 +317,7 @@ class BadgeService:
                     "badge_id": d.id,
                     "name": d.name,
                     "icon": d.icon,
-                    "earned_at": earned_map[d.id].earned_at.isoformat() if earned_map[d.id].earned_at else "",
+                    "earned_at": earned_map[d.id].earned_at.date().isoformat() if earned_map[d.id].earned_at else "",
                 })
             else:
                 cond = d.condition or {}
@@ -383,7 +384,12 @@ class BadgeService:
                     db.add(bp)
 
         if newly_unlocked:
-            await db.flush()
+            try:
+                await db.flush()
+            except IntegrityError:
+                # 并发徽章解锁竞态：徽章已被另一请求解锁，回滚本次解锁并跳过
+                await db.rollback()
+                return
             try:
                 from app.services.notification_service import NotificationService
                 await NotificationService.push_ws_message(user_id, "badge_unlocked", newly_unlocked)

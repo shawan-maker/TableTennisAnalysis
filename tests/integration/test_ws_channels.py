@@ -41,7 +41,8 @@ class TestWSMessagePush:
         """push_ws_message 应向 Redis 频道发布消息"""
         redis = await get_redis()
         user_id = ws_user.id
-        channel = f"ws:user:{user_id}"
+        # R5-Infra-5: 频道命名统一为 ws:relay:ws:user:{user_id}
+        channel = f"ws:relay:ws:user:{user_id}"
 
         # 订阅频道
         pubsub = redis.pubsub()
@@ -89,8 +90,9 @@ class TestWSMessagePush:
         await db_session.refresh(user_b)
 
         redis = await get_redis()
-        channel_a = f"ws:user:{user_a.id}"
-        channel_b = f"ws:user:{user_b.id}"
+        # R5-Infra-5: 频道命名统一为 ws:relay:ws:user:{user_id}
+        channel_a = f"ws:relay:ws:user:{user_a.id}"
+        channel_b = f"ws:relay:ws:user:{user_b.id}"
 
         pubsub_a = redis.pubsub()
         await pubsub_a.subscribe(channel_a)
@@ -176,7 +178,8 @@ class TestWSReconnectCompensation:
 
         # 订阅用户频道以捕获补偿推送
         redis = await get_redis()
-        channel = f"ws:user:{user.id}"
+        # R5-Infra-5: 频道命名统一为 ws:relay:ws:user:{user_id}
+        channel = f"ws:relay:ws:user:{user.id}"
         pubsub = redis.pubsub()
         await pubsub.subscribe(channel)
         await asyncio.sleep(0.3)
@@ -216,7 +219,8 @@ class TestWSReconnectCompensation:
     async def test_reconnect_no_unread_no_push(self, ws_user):
         """无未读通知时重连不推送"""
         redis = await get_redis()
-        channel = f"ws:user:{ws_user.id}"
+        # R5-Infra-5: 频道命名统一为 ws:relay:ws:user:{user_id}
+        channel = f"ws:relay:ws:user:{ws_user.id}"
         pubsub = redis.pubsub()
         await pubsub.subscribe(channel)
         await asyncio.sleep(0.1)
@@ -295,7 +299,8 @@ class TestWSSendNotificationChannel:
         await redis.setex(f"ws:online:{user.id}", 120, "1")
 
         # 订阅频道
-        channel = f"ws:user:{user.id}"
+        # R5-Infra-5: 频道命名统一为 ws:relay:ws:user:{user_id}
+        channel = f"ws:relay:ws:user:{user.id}"
         pubsub = redis.pubsub()
         await pubsub.subscribe(channel)
         await asyncio.sleep(0.3)

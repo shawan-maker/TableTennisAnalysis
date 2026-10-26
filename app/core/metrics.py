@@ -185,9 +185,14 @@ def metrics_endpoint():
 def configure_metrics(app) -> None:
     """配置 Prometheus 指标采集，在应用启动时调用。
 
-    优先使用 prometheus_fastapi_instrumentator 自动采集 HTTP 指标并暴露 /metrics；
-    若未安装则跳过自动采集（/metrics 端点仍由 main.py 手动注册的
-    metrics_endpoint 提供，仅返回自定义业务指标）。
+    优先使用 prometheus_fastapi_instrumentator 自动采集 HTTP 指标并暴露 /metrics
+    （包含自动 HTTP 指标 + 自定义业务指标，业务指标通过模块级 Counter/Gauge/Histogram
+    注册到 prometheus_client 默认 registry，Instrumentator.expose 会一并暴露）；
+    若未安装则回退到仅暴露自定义业务指标（无自动 HTTP 指标）的 /metrics 端点。
+
+    R5-Infra-3 修复：原实现由 main.py 手动注册 /metrics 端点，与
+    Instrumentator.expose 重复注册导致路由冲突。修复为：/metrics 端点
+    完全由 configure_metrics 统一注册，main.py 不再手动注册。
 
     监控不得阻断业务：任何异常均记录日志后吞掉。
     """
@@ -223,10 +228,20 @@ def configure_metrics(app) -> None:
         )
         logger.info("Prometheus metrics configured via Instrumentator")
     except ImportError:
-        # instrumentator 未安装：/metrics 仍由 main.py 手动注册的端点提供
+        # instrumentator 未安装：回退到仅暴露自定义业务指标的 /metrics 端点
+        # （无自动 HTTP 指标采集）
+        from fastapi import Response
+
+        @app.get("/metrics", tags=["monitoring"], include_in_schema=False)
+        async def _metrics_endpoint():
+            """Prometheus 指标采集端点 — 仅业务指标（无 Instrumentator）"""
+            return Response(
+                content=generate_latest(),
+                media_type=CONTENT_TYPE_LATEST,
+            )
         logger.info(
             "prometheus_fastapi_instrumentator not installed, "
-            "falling back to manual /metrics endpoint"
+            "falling back to manual /metrics endpoint (business metrics only)"
         )
     except Exception as e:
         logger.warning("configure_metrics Instrumentator failed: %s", e)

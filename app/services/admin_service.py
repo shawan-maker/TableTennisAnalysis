@@ -104,7 +104,7 @@ class AdminService:
 
     @staticmethod
     async def _write_audit_log(
-        db: AsyncSession,
+        db: AsyncSession,  # 保留参数兼容现有调用，但实际使用独立 session
         admin_id: int | None,
         action: str,
         target_type: str | None = None,
@@ -113,20 +113,25 @@ class AdminService:
         ip_address: str | None = None,
     ) -> None:
         """
-        写审计日志（内部方法）。admin_id 存入 admin_id 列，变更内容存入 changes JSONB。
+        写审计日志（内部方法）。使用独立 session，与业务事务隔离。
+
         R4-Admin-4: 异常吞噬 — 审计日志失败不影响业务事务，仅记录错误日志。
+        R5-Admin-6: 使用独立 async_session_factory() 而非调用方 session，
+                    确保审计日志独立提交，不随业务事务回滚而丢失。
         """
         try:
-            log = AuditLog(
-                admin_id=admin_id,
-                user_id=None,  # admin 操作不关联 user 表
-                action=action,
-                target_type=target_type,
-                target_id=target_id,
-                changes=detail or {},
-                ip_address=ip_address,
-            )
-            db.add(log)
+            async with async_session_factory() as audit_db:
+                log = AuditLog(
+                    admin_id=admin_id,
+                    user_id=None,  # admin 操作不关联 user 表
+                    action=action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    changes=detail or {},
+                    ip_address=ip_address,
+                )
+                audit_db.add(log)
+                await audit_db.commit()
         except Exception as e:
             logging.getLogger(__name__).error(
                 "Failed to write audit log: admin_id=%s action=%s target_type=%s error=%s",
@@ -281,12 +286,14 @@ class AdminService:
             if not config:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)
 
+            # R5-Admin-5: 捕获更新前的旧值用于审计日志
+            old_value = config.config_value
             config.config_value = value
             if description is not None:
                 config.description = description
             await AdminService._write_audit_log(
                 db, admin_id, "update_config", "system_config",
-                detail={"config_key": key, "config_value": {"old": None, "new": value}},
+                detail={"config_key": key, "config_value": {"old": old_value, "new": value}},
             )
             await db.commit()
             await db.refresh(config)
@@ -480,9 +487,13 @@ class AdminService:
 
     # R4-Admin-13: toggle_rule 接受 is_active 显式设置而非 toggle
     # R4-Admin-22: 返回 {"id", "is_active"}
+    # R5-Admin-3: rule_id 改为 int 类型，按 RuleDefinition.id 查询
     @staticmethod
     async def toggle_rule(rule_id: str, is_active: bool, admin_id: int) -> dict:
-        """显式设置规则状态（参数名保留 toggle_rule 兼容）"""
+        """显式设置规则状态（参数名保留 toggle_rule 兼容）
+
+        rule_id 为 RuleDefinition.rule_id（字符串业务 ID），按业务字段查询。
+        """
         async with async_session_factory() as db:
             result = await db.execute(select(RuleDefinition).where(RuleDefinition.rule_id == rule_id))
             rule = result.scalar_one_or_none()
@@ -494,7 +505,7 @@ class AdminService:
             await AdminService._write_audit_log(
                 db, admin_id, "toggle_rule", "rule_definition",
                 detail={
-                    "rule_id": rule_id,
+                    "rule_id": rule.rule_id,
                     "is_active": {"old": old_active, "new": is_active},
                 },
             )

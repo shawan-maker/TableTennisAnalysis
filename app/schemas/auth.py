@@ -5,7 +5,7 @@ app/schemas/auth.py — 认证模块 Pydantic Schema
 规范：{Entity}Request / {Entity}Response 命名
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -57,7 +57,9 @@ class LogoutRequest(BaseModel):
 class ConsentRequest(BaseModel):
     """用户同意隐私政策请求"""
 
-    consent_type: str = Field(..., max_length=32, description="同意类型，如 privacy_policy")
+    consent_type: Literal["privacy_policy", "user_agreement", "data_processing"] = Field(
+        ..., description="同意类型"
+    )
     policy_version: str = Field(..., max_length=16, description="政策版本号")
 
 

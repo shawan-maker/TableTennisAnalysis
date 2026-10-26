@@ -5,7 +5,7 @@ app/core/deps.py — FastAPI 依赖注入
 功能：get_db / get_redis / get_current_user / get_admin_user
 """
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -88,19 +88,26 @@ async def get_current_admin(
     return user
 
 
-async def get_admin_session(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-):
+async def get_admin_session(request: Request):
     """
     Admin 独立认证 — 基于 Redis session 的管理员认证。
     与用户 JWT 认证完全独立，使用 admin_user 表 + Redis session（admin:session:{token}）。
+
+    R5-Admin-4: 不使用 HTTPBearer，改为自定义 Header 解析。
+    支持 "Admin xxx" 和 "Bearer xxx" 两种 Authorization 前缀。
     """
     from app.services.admin_service import AdminService, ADMIN_SESSION_PREFIX
 
-    if credentials is None:
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header:
         raise AppException("管理员请先登录", 401, code=ERR_UNAUTHORIZED)
 
-    token = credentials.credentials
+    # 支持 "Admin xxx" 和 "Bearer xxx" 两种前缀
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2 or parts[0] not in ("Admin", "Bearer"):
+        raise AppException("管理员请先登录", 401, code=ERR_UNAUTHORIZED)
+
+    token = parts[1]
     session = await AdminService.get_session(token)
     if not session:
         raise AppException("管理员会话已过期，请重新登录", 401, code=ERR_UNAUTHORIZED)

@@ -33,6 +33,7 @@ class WSManager:
         self._rooms: dict[str, set[WebSocket]] = {}
         self._reverse: dict[WebSocket, str] = {}
         self._relay_pubsub = None
+        self._relay_task = None
 
     async def on_connect(self, websocket: WebSocket, room_id: str) -> None:
         """接受连接并加入房间"""
@@ -90,17 +91,29 @@ class WSManager:
             await self.on_disconnect(ws, self._reverse.get(ws, room_id))
 
     async def start_relay(self) -> None:
-        """启动 Redis pubsub 中继监听 — 应用启动时调用"""
+        """启动 Redis pubsub 中继监听 — 应用启动时调用。
+
+        R5-Infra-4 修复：psubscribe 后必须显式 listen 才能消费消息，否则消息
+        会堆积在 Redis 端，多实例广播形同虚设。修复为启动后台 asyncio task
+        循环消费 pubsub 消息并投递到本地 room。
+        """
         try:
             redis = await get_redis()
             self._relay_pubsub = redis.pubsub()
             await self._relay_pubsub.psubscribe(self.PUBSUB_PATTERN)
+            self._relay_task = asyncio.create_task(self._consume_relay())
             logger.info("ws_relay_started")
         except Exception as e:
             logger.warning("ws_relay_start_failed", extra={"error": str(e)})
 
     async def stop_relay(self) -> None:
         """停止 Redis pubsub 中继 — 应用关闭时调用"""
+        if self._relay_task is not None:
+            try:
+                self._relay_task.cancel()
+            except Exception:
+                pass
+            self._relay_task = None
         if self._relay_pubsub is not None:
             try:
                 await self._relay_pubsub.punsubscribe(self.PUBSUB_PATTERN)
@@ -109,6 +122,35 @@ class WSManager:
                 pass
             self._relay_pubsub = None
             logger.info("ws_relay_stopped")
+
+    async def _consume_relay(self) -> None:
+        """消费 Redis pubsub 中继消息并投递到本地 room 的 WS 客户端。
+
+        频道格式：ws:relay:{room_id}（room_id 例如 "ws:user:{user_id}"）。
+        从 channel 名解析 room_id，复用 _local_broadcast 进行本地投递
+        （顺带清理死连接）。
+        """
+        if self._relay_pubsub is None:
+            return
+        relay_prefix = self.RELAY_CHANNEL_TEMPLATE.format(room_id="")
+        try:
+            async for message in self._relay_pubsub.listen():
+                if message.get("type") != "pmessage":
+                    continue
+                channel = message.get("channel")
+                data = message.get("data")
+                if not channel or not data:
+                    continue
+                # 从 channel 解析 room_id：ws:relay:{room_id}
+                if not channel.startswith(relay_prefix):
+                    continue
+                room_id = channel[len(relay_prefix):]
+                await self._local_broadcast(room_id, data)
+        except asyncio.CancelledError:
+            # 应用关闭时正常取消
+            raise
+        except Exception as e:
+            logger.warning("ws_relay_consume_failed", extra={"error": str(e)})
 
 
 # 全局单例

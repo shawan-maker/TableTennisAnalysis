@@ -66,6 +66,7 @@ class MatchRecordBrief(BaseModel):
     """比赛记录摘要"""
     id: int
     opponent_name: Optional[str] = None
+    opponent_rating: Optional[int] = None
     my_score: int
     opponent_score: int
     is_win: bool

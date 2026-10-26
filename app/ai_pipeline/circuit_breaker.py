@@ -80,6 +80,10 @@ class AICircuitBreaker:
         redis = await get_redis()
         failures = await redis.incr(self._failures_key)
 
+        if failures == 1:
+            # 首次失败，设置 TTL（300s）避免计数器永久残留
+            await redis.expire(self._failures_key, 300)
+
         if failures >= self.FAILURE_THRESHOLD:
             await redis.set(self._state_key, CircuitState.OPEN.value)
             await redis.set(self._opened_at_key, str(time.time()))

@@ -21,7 +21,7 @@ from app.core.exceptions import (
 )
 from app.core.limiter import RateLimitExceeded, limiter, rate_limit_exceeded_handler
 from app.core.logging import configure_logging
-from app.core.metrics import configure_metrics, metrics_endpoint
+from app.core.metrics import configure_metrics
 from app.core.middleware import RequestIDMiddleware
 from app.core.redis import close_redis, get_redis
 from app.core.sentry import init_sentry
@@ -139,12 +139,6 @@ async def health_check():
         "env": settings.ENV,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-
-
-@app.get("/metrics", tags=["monitoring"], include_in_schema=False)
-async def prometheus_metrics():
-    """Prometheus 指标采集端点 — 供内网 Prometheus scrape"""
-    return metrics_endpoint()
 
 
 @app.get("/", tags=["系统"], summary="根路径")

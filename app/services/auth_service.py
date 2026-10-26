@@ -41,7 +41,7 @@ class AuthService:
     H5_TOKEN_TTL = 300                   # 5 分钟
     SESSION_KEY_TTL = 900                # 15 分钟
     SMS_CODE_TTL = 300                   # 5 分钟
-    CURRENT_POLICY_VERSION = "1.0"       # 隐私政策版本号
+    CURRENT_POLICY_VERSION = "v1.0"      # 隐私政策版本号
 
     # =================================================================
     # 微信登录
@@ -353,11 +353,13 @@ class AuthService:
     # =================================================================
 
     # R4-Auth-2: check_consent 接受 consent_type 参数，None 时返回所有类型
+    # R5-Auth-4: 默认 consent_type="privacy_policy"，登录流程只检查隐私政策同意
     @staticmethod
-    async def check_consent(user_id: int, consent_type: Optional[str] = None) -> dict:
+    async def check_consent(user_id: int, consent_type: Optional[str] = "privacy_policy") -> dict:
         """
         检查用户是否已同意当前版本隐私政策。
 
+        默认 consent_type="privacy_policy"，登录流程检查隐私政策同意。
         consent_type=None: 不限类型，返回任意类型的最新同意记录
         consent_type 指定: 仅查询该类型的最新同意记录
         """
@@ -392,16 +394,39 @@ class AuthService:
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
     ) -> dict:
-        """记录用户同意隐私政策（PIPL 第 14 条合规）"""
+        """记录用户同意隐私政策（PIPL 第 14 条合规）
+
+        R5-Auth-3: upsert 逻辑 — 同 user_id + consent_type + policy_version 的
+        未撤回记录存在则更新 consent_at，不存在才新建。
+        """
         async with async_session_factory() as db:
-            record = ConsentLog(
-                user_id=user_id,
-                consent_type=consent_type,
-                policy_version=policy_version,
-                ip_address=ip_address,
-                user_agent=user_agent,
+            # 查询是否存在同 user_id + consent_type + policy_version 的未撤回记录
+            result = await db.execute(
+                select(ConsentLog).where(
+                    ConsentLog.user_id == user_id,
+                    ConsentLog.consent_type == consent_type,
+                    ConsentLog.policy_version == policy_version,
+                    ConsentLog.withdrawn_at.is_(None),
+                )
             )
-            db.add(record)
+            record = result.scalar_one_or_none()
+
+            if record is not None:
+                # 存在则更新 consent_at 及上下文信息
+                record.consent_at = datetime.now(timezone.utc)
+                record.ip_address = ip_address
+                record.user_agent = user_agent
+            else:
+                # 不存在才新建
+                record = ConsentLog(
+                    user_id=user_id,
+                    consent_type=consent_type,
+                    policy_version=policy_version,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+                db.add(record)
+
             await db.commit()
             await db.refresh(record)
             return {

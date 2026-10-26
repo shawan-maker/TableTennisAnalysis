@@ -192,9 +192,10 @@ def test_ws_relay_message(ws_setup):
             time.sleep(0.5)
 
             # 通过同步 Redis 客户端发布消息
+            # R5-Infra-5: 频道命名统一为 ws:relay:ws:user:{user_id}
             r = sync_redis.from_url(settings.redis_url_computed, decode_responses=True)
             r.publish(
-                "ws:user:12345",
+                "ws:relay:ws:user:12345",
                 json.dumps(
                     {"event": "test_message", "data": {"msg": "hello world"}}
                 ),
