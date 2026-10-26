@@ -52,8 +52,53 @@ async def get_current_user(
     if user is None:
         raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
 
-    # 用户状态检查（PIPL 合规：deleted/banned 状态拒绝业务操作）
-    # pending_deletion 允许通过，以便用户撤销注销（72h 冷静期）
+    # 用户状态检查（PIPL 合规：deleted/banned/pending_deletion 状态拒绝业务操作）
+    # R6-Auth-1: pending_deletion 用户拒绝业务操作（注销冷静期内仅允许撤销注销端点）
+    if user.status == "deleted":
+        raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
+    if user.status == "banned":
+        raise AppException("您的账号已被封禁", 403, code=ERR_FORBIDDEN)
+    if user.status == "pending_deletion":
+        raise AppException("账号已申请注销，请撤销注销后操作", 403, code=ERR_FORBIDDEN)
+
+    # 检查 JWT 黑名单（Redis）
+    redis_client = await get_redis()
+    jti = payload.get("jti")
+    if jti:
+        blacklisted = await redis_client.get(f"jwt:blacklist:{jti}")
+        if blacklisted:
+            raise AppException("登录已过期，请重新登录", 401, code=ERR_UNAUTHORIZED)
+
+    return user
+
+
+async def get_current_user_allow_pending(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    与 get_current_user 相同，但允许 pending_deletion 状态用户通过。
+
+    R6-Auth-1: get_current_user 拒绝 pending_deletion 用户后，注销撤销端点
+    （/users/account/cancel-deletion）和重复注销检测端点（/users/account）
+    需要此依赖以允许 pending_deletion 用户访问。
+    """
+    from app.models.user import User
+
+    if credentials is None:
+        raise AppException("请先登录", 401, code=ERR_UNAUTHORIZED)
+
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    user_id = int(payload["sub"])
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
+
+    # 状态检查（deleted/banned 拒绝；pending_deletion 允许通过以便撤销注销）
     if user.status == "deleted":
         raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
     if user.status == "banned":
@@ -159,7 +204,7 @@ async def require_membership(
 
 # 便捷导出
 __all__ = [
-    "get_current_user", "get_current_admin", "get_admin_session",
+    "get_current_user", "get_current_user_allow_pending", "get_current_admin", "get_admin_session",
     "require_super_admin", "require_content_admin", "require_model_admin",
     "require_membership",
     "get_db", "get_redis", "bearer_scheme",

@@ -99,9 +99,10 @@ class ConfigBrief(BaseModel):
 
 
 # R4-Admin-9+10: AuditLogBrief 添加 admin_username；移除 user_id/detail/ip_address（冗余/敏感）
+# R6-Admin-5+6: admin_id 改为 Optional[int]（AuditLog.admin_id 可为 None，用户侧操作时无 admin_id）
 class AuditLogBrief(BaseModel):
     id: int
-    admin_id: int
+    admin_id: Optional[int] = None
     admin_username: Optional[str] = None
     action: str
     target_type: Optional[str] = None

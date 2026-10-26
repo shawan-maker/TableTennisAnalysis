@@ -213,7 +213,9 @@ class UserService:
         remaining = max(0, UserService.DAILY_FREE_LIMIT - used_today)
 
         # 计算重置时间（次日 00:00 CST = UTC+8）
-        now_cst = datetime.now(timezone.utc) + timedelta(hours=8)
+        # R6-User-1: reset_at 显示值使用 CST 时区，而非 UTC 偏移
+        cst_tz = timezone(timedelta(hours=8))
+        now_cst = datetime.now(cst_tz)
         tomorrow = (now_cst + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         reset_at = tomorrow.isoformat()
 

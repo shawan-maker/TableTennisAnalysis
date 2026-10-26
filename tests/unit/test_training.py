@@ -93,7 +93,7 @@ async def _create_report(db, user_id, idx=0, result_data=None):
     """创建分析报告"""
     if result_data is None:
         result_data = {
-            "technique_stats": {"forehand_drive": 50, "backhand_drive": 15, "serve": 10},
+            "technique_stats": {"backhand_ratio": 0.15, "forehand_ratio": 0.50, "serve_ratio": 0.10},
             "landing_points": {"distribution": {"forehand": 0.68, "backhand": 0.25, "middle": 0.07}},
             "metrics": {"landing_forehand_pct": 0.68, "landing_backhand_pct": 0.25, "landing_middle_pct": 0.07},
             "rally_analysis": {"avg_rally_length": 5.5, "max_rally_length": 12},

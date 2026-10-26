@@ -7,7 +7,7 @@ app/schemas/video_analysis.py — 视频分析模块 Pydantic Schema
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 
 
@@ -19,6 +19,15 @@ class UploadTokenRequest(BaseModel):
     """获取上传凭证请求"""
     filename: str = Field(..., min_length=1, max_length=255, description="文件名")
     file_size: int = Field(..., ge=1048576, le=524288000, description="文件大小（字节，1MB-500MB）")
+
+    @field_validator("filename")
+    @classmethod
+    def validate_file_extension(cls, v: str) -> str:
+        """R6-Video-2: 文件类型校验 — 仅支持 MP4/MOV 格式"""
+        ext = v.rsplit(".", 1)[-1].lower() if "." in v else ""
+        if ext not in ("mp4", "mov"):
+            raise ValueError("仅支持 MP4/MOV 格式")
+        return v
 
 
 class UploadCompleteRequest(BaseModel):
@@ -178,5 +187,7 @@ class SharedReportSummary(BaseModel):
     cover_image_url: Optional[str] = None
     annotated_video_url: Optional[str] = None
     result_data: dict  # 仅含 safe 字段
-    report_text: dict  # summary + top 2 issues
+    report_text: dict  # summary + top 2 issues（向后兼容）
+    report_summary: str = ""  # R6-Video-3: 扁平化摘要
+    top_issues: list[str] = Field(default_factory=list)  # R6-Video-3: 扁平化 top issues
     created_at: Optional[datetime] = None

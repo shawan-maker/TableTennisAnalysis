@@ -474,7 +474,8 @@ class PaymentService:
         result = await db.execute(
             select(Subscription).where(
                 Subscription.user_id == order.user_id,
-                Subscription.status.in_(["active", "expiring_soon"]),
+                # R6-Pay-1: 加入 grace_period，避免用户在宽限期内续费时创建重复订阅
+                Subscription.status.in_(["active", "expiring_soon", "grace_period"]),
             ).order_by(Subscription.created_at.desc()).limit(1)
         )
         existing = result.scalars().first()
@@ -608,8 +609,16 @@ class PaymentService:
             await db.commit()
 
             # 退款后撤销会员权益
-            if order.product_type == "membership" and order.subscription_id:
-                await MembershipService.revoke_subscription(db, order.subscription_id)
+            # R6-Pay-2: refund 已提交，revoke 跨事务调用，失败时仅记录日志
+            # TODO: 增加补偿机制（如投递重试队列），确保退款后权益撤销最终一致
+            try:
+                if order.product_type == "membership" and order.subscription_id:
+                    await MembershipService.revoke_subscription(db, order.subscription_id)
+            except Exception as e:
+                logger.error(
+                    "Failed to revoke subscription %s after refund: %s",
+                    order.subscription_id, e,
+                )
 
             return RefundResponse(
                 order_id=order.id,

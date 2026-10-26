@@ -15,6 +15,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
+from app.core.exceptions import AppException
 from app.core.redis import get_redis
 from app.models.progress import ProgressSnapshot, TechniqueTrend
 from app.models.video_analysis import AnalysisReport, VideoTask
@@ -353,7 +354,7 @@ class ProgressService:
             current = t.current_value or 0
             direction = defn.get("direction", "up")
             if direction == "down":
-                target_progress = min(100, int(target / current * 100)) if current and current > 0 else None
+                target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
             else:
                 target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
 
@@ -375,11 +376,19 @@ class ProgressService:
 
     @staticmethod
     async def get_technique_trend_detail(user_id: int, metric: str) -> Optional[dict]:
+        # R6-Prog-2: 仅当指标名不在 METRIC_DEFINITIONS 时返回 404；有效指标无趋势数据返回 null 字段
+        if metric not in METRIC_DEFINITIONS:
+            raise AppException("指标不存在", 404, code=40420)
+
         redis = await get_redis()
         cache_key = f"progress:trend_detail:{user_id}:{metric}"
         cached = await redis.get(cache_key)
         if cached:
             return json.loads(cached)
+
+        defn = METRIC_DEFINITIONS[metric]
+        default_target = defn.get("target", 0)
+        direction = defn.get("direction", "up")
 
         async with async_session_factory() as db:
             t = await db.scalar(
@@ -387,31 +396,43 @@ class ProgressService:
                     and_(TechniqueTrend.user_id == user_id, TechniqueTrend.metric_name == metric)
                 )
             )
-            if not t:
-                return None
 
-            defn = METRIC_DEFINITIONS.get(metric, {})
-            target = t.target_value or defn.get("target", 0)
-            current = t.current_value or 0
-            direction = defn.get("direction", "up")
-            if direction == "down":
-                target_progress = min(100, int(target / current * 100)) if current and current > 0 else None
+            if t:
+                current = t.current_value or 0
+                target = t.target_value or default_target
+                # R6-Prog-3: down 指标 current==0 视为 100% 达成
+                if direction == "down":
+                    target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                else:
+                    target_progress = min(100, int(current / target * 100)) if target > 0 else None
+
+                result = {
+                    "metric": metric,
+                    "metric_name": defn.get("name", metric),
+                    "current_value": t.current_value,
+                    "target_value": target,
+                    "target_progress": target_progress,
+                    "trend": t.trend,
+                    "change_rate": t.change_rate,
+                    "persistence_count": t.persistence_count,
+                    "history": t.time_series or [],
+                }
             else:
-                target_progress = min(100, int(current / target * 100)) if target > 0 else None
+                # R6-Prog-2: 有效指标无趋势数据 — 返回 null 字段而非 None（不缓存空结果）
+                result = {
+                    "metric": metric,
+                    "metric_name": defn.get("name", metric),
+                    "current_value": None,
+                    "target_value": default_target,
+                    "target_progress": None,
+                    "trend": None,
+                    "change_rate": None,
+                    "persistence_count": None,
+                    "history": [],
+                }
 
-            result = {
-                "metric": metric,
-                "metric_name": defn.get("name", metric),
-                "current_value": t.current_value,
-                "target_value": target,
-                "target_progress": target_progress,
-                "trend": t.trend,
-                "change_rate": t.change_rate,
-                "persistence_count": t.persistence_count,
-                "history": t.time_series or [],
-            }
-
-        await redis.setex(cache_key, CACHE_TTL_TRENDS, json.dumps(result))
+        if t:
+            await redis.setex(cache_key, CACHE_TTL_TRENDS, json.dumps(result))
         return result
 
     @staticmethod
@@ -531,7 +552,7 @@ class ProgressService:
                 current = t.current_value or 0
                 direction = defn.get("direction", "up")
                 if direction == "down":
-                    target_progress = min(100, int(target / current * 100)) if current and current > 0 else None
+                    target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
                 else:
                     target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
                 metric_trends.append({
@@ -574,11 +595,11 @@ class ProgressService:
                     t = trends_map.get(metric)
                     defn = METRIC_DEFINITIONS.get(metric, {})
                     direction = defn.get("direction", "up")
-                    if t and t.current_value is not None and target and t.current_value > 0:
+                    if t and t.current_value is not None and target:
                         if direction == "down":
-                            progress = min(100, int(target / t.current_value * 100))
+                            progress = 100 if t.current_value == 0 else min(100, int(target / t.current_value * 100))
                         else:
-                            progress = min(100, int(t.current_value / target * 100))
+                            progress = min(100, int(t.current_value / target * 100)) if t.current_value > 0 else 0
                         goal_completion[metric] = f"{progress}%"
                     else:
                         goal_completion[metric] = "0%"

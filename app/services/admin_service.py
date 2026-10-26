@@ -109,7 +109,7 @@ class AdminService:
         action: str,
         target_type: str | None = None,
         target_id: int | None = None,
-        detail: dict | None = None,
+        changes: dict | None = None,
         ip_address: str | None = None,
     ) -> None:
         """
@@ -127,7 +127,7 @@ class AdminService:
                     action=action,
                     target_type=target_type,
                     target_id=target_id,
-                    changes=detail or {},
+                    changes=changes or {},
                     ip_address=ip_address,
                 )
                 audit_db.add(log)
@@ -188,8 +188,8 @@ class AdminService:
             old_status = user.status
             user.status = "banned"
             await AdminService._write_audit_log(
-                db, admin_id, "ban_user", "user", user_id,
-                detail={
+                db, admin_id, "update", "user", user_id,
+                changes={
                     "status": {"old": old_status, "new": "banned"},
                     "ban_reason": {"old": None, "new": reason},
                 },
@@ -212,8 +212,8 @@ class AdminService:
             old_status = user.status
             user.status = "active"
             await AdminService._write_audit_log(
-                db, admin_id, "unban_user", "user", user_id,
-                detail={"status": {"old": old_status, "new": "active"}},
+                db, admin_id, "update", "user", user_id,
+                changes={"status": {"old": old_status, "new": "active"}},
             )
             await db.commit()
             return {"user_id": user_id, "status": "active"}
@@ -270,7 +270,7 @@ class AdminService:
             config = SystemConfig(config_key=key, config_value=value, description=description)
             db.add(config)
             await AdminService._write_audit_log(
-                db, admin_id, "create_config", "system_config", detail={"config_key": key}
+                db, admin_id, "create", "config", changes={"config_key": key}
             )
             await db.commit()
             await db.refresh(config)
@@ -292,8 +292,8 @@ class AdminService:
             if description is not None:
                 config.description = description
             await AdminService._write_audit_log(
-                db, admin_id, "update_config", "system_config",
-                detail={"config_key": key, "config_value": {"old": old_value, "new": value}},
+                db, admin_id, "update", "config",
+                changes={"config_key": key, "config_value": {"old": old_value, "new": value}},
             )
             await db.commit()
             await db.refresh(config)
@@ -318,7 +318,7 @@ class AdminService:
 
             await db.delete(config)
             await AdminService._write_audit_log(
-                db, admin_id, "delete_config", "system_config", detail={"config_key": key}
+                db, admin_id, "delete", "config", changes={"config_key": key}
             )
             await db.commit()
             # R4-Admin-7+8: 失效缓存
@@ -397,8 +397,8 @@ class AdminService:
             category = KnowledgeCategory(name=name, code=code, content=content or {})
             db.add(category)
             await AdminService._write_audit_log(
-                db, admin_id, "create_category", "knowledge_category",
-                detail={"name": name, "code": code},
+                db, admin_id, "create", "knowledge",
+                changes={"name": name, "code": code},
             )
             await db.commit()
             await db.refresh(category)
@@ -427,8 +427,8 @@ class AdminService:
                 changes["content"] = {"old": category.content, "new": content}
                 category.content = content
             await AdminService._write_audit_log(
-                db, admin_id, "update_category", "knowledge_category", category_id,
-                detail=changes,
+                db, admin_id, "update", "knowledge", category_id,
+                changes=changes,
             )
             await db.commit()
             await db.refresh(category)
@@ -445,7 +445,7 @@ class AdminService:
 
             await db.delete(category)
             await AdminService._write_audit_log(
-                db, admin_id, "delete_category", "knowledge_category", category_id
+                db, admin_id, "delete", "knowledge", category_id
             )
             await db.commit()
 
@@ -478,7 +478,7 @@ class AdminService:
             )
             db.add(rule)
             await AdminService._write_audit_log(
-                db, admin_id, "create_rule", "rule_definition", detail={"rule_id": rule_id}
+                db, admin_id, "create", "knowledge", changes={"rule_id": rule_id}
             )
             await db.commit()
             await db.refresh(rule)
@@ -503,8 +503,8 @@ class AdminService:
             old_active = rule.is_active
             rule.is_active = is_active
             await AdminService._write_audit_log(
-                db, admin_id, "toggle_rule", "rule_definition",
-                detail={
+                db, admin_id, "update", "knowledge",
+                changes={
                     "rule_id": rule.rule_id,
                     "is_active": {"old": old_active, "new": is_active},
                 },
@@ -522,7 +522,7 @@ class AdminService:
         # S6 阶段仅记录审计日志，实际模型管理在 S7+
         async with async_session_factory() as db:
             await AdminService._write_audit_log(
-                db, admin_id, "activate_model_version", "model_version", detail={"version_id": version_id}
+                db, admin_id, "update", "model", changes={"version_id": version_id}
             )
             await db.commit()
         return {"version_id": version_id, "status": "activated"}

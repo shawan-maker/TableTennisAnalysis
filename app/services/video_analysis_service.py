@@ -22,6 +22,7 @@ from app.core.exceptions import (
     ERR_QUOTA_EXHAUSTED,
     ERR_REPORT_NOT_FOUND,
     ERR_SHARE_TOKEN_INVALID,
+    ERR_VALIDATION,
 )
 from app.core.redis import get_redis
 from app.models.user import User
@@ -129,11 +130,18 @@ class VideoAnalysisService:
             duration_sec = FileService.get_video_duration(record.oss_key)
 
             # 时长校验（5s ~ 600s）— duration_sec 为 None 或 0 时拒绝确认
-            if not duration_sec or duration_sec < settings.MIN_VIDEO_DURATION or duration_sec > settings.MAX_VIDEO_DURATION:
+            # R6-Video-1: 使用两条独立错误消息 + code=42200 (ERR_VALIDATION)
+            if not duration_sec or duration_sec < settings.MIN_VIDEO_DURATION:
                 raise AppException(
-                    f"视频时长需在 {settings.MIN_VIDEO_DURATION}s ~ {settings.MAX_VIDEO_DURATION}s 之间",
+                    f"视频时长过短，需至少 {settings.MIN_VIDEO_DURATION}s",
                     422,
-                    code=ERR_BAD_REQUEST,
+                    code=ERR_VALIDATION,
+                )
+            if duration_sec > settings.MAX_VIDEO_DURATION:
+                raise AppException(
+                    f"视频时长过长，不能超过 {settings.MAX_VIDEO_DURATION}s",
+                    422,
+                    code=ERR_VALIDATION,
                 )
 
             # 更新 file_record
@@ -674,7 +682,9 @@ class VideoAnalysisService:
                 "cover_image_url": report.cover_image_url,
                 "annotated_video_url": report.annotated_video_url,
                 "result_data": safe_result_data,
-                "report_text": safe_text,
+                "report_text": safe_text,  # 向后兼容
+                "report_summary": safe_text.get("summary", ""),
+                "top_issues": safe_text.get("issues", []),
                 "created_at": report.created_at.isoformat() if report.created_at else None,
             }
 

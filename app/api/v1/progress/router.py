@@ -51,8 +51,6 @@ async def get_technique_trend_detail(
     user: User = Depends(get_current_user),
 ):
     data = await ProgressService.get_technique_trend_detail(user.id, metric)
-    if not data:
-        raise AppException("指标不存在", 404, code=40420)
     return success(data=data)
 
 

@@ -9,7 +9,7 @@ S1 实现：GET /users/profile / PATCH /users/profile / GET /users/quota / PATCH
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_user_allow_pending
 from app.core.database import get_db
 from app.core.limiter import RateLimits, limiter
 from app.core.pagination import PaginationParams
@@ -51,6 +51,7 @@ async def update_profile(
     return success(data=data)
 
 
+# R6-User-2: /users/quota 端点未在 API §3 设计文档中记录（已知文档偏差，代码实现先行）
 @limiter.limit(RateLimits.DEFAULT)
 @router.get("/quota", summary="获取免费分析额度")
 async def get_quota(
@@ -106,7 +107,7 @@ async def get_big_data(
 async def delete_account(
     body: AccountDeletionRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_allow_pending),
     db: AsyncSession = Depends(get_db),
 ):
     """用户注销（72h 冷静期内可撤销）"""
@@ -118,7 +119,7 @@ async def delete_account(
 @router.post("/account/cancel-deletion", summary="撤销注销申请")
 async def cancel_deletion(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_allow_pending),
     db: AsyncSession = Depends(get_db),
 ):
     """撤销用户注销申请（72h 冷静期内）"""

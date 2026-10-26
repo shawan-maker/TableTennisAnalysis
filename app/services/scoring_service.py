@@ -188,7 +188,7 @@ class ScoringService:
 
             score_sequence = [
                 {
-                    "seq": r.sequence,
+                    "sequence": r.sequence,  # R6-Scoring-1: API §5.3 字段名 sequence（原 seq）
                     "scorer": r.scorer,
                     "score_method": r.score_method,
                     "technique_action": r.technique_action,

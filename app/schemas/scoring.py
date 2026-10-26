@@ -63,7 +63,7 @@ class MatchBrief(BaseModel):
 class ScoreRecordBrief(BaseModel):
     """得分记录简要"""
 
-    seq: int
+    sequence: int  # R6-Scoring-1: API §5.3 字段名 sequence（原 seq）
     scorer: str
     score_method: Optional[str] = None
     technique_action: Optional[str] = None
@@ -84,6 +84,7 @@ class MatchDetail(BaseModel):
     status: str
     current_score_user: int
     current_score_opp: int
+    current_score: Optional[str] = None  # R6-Scoring-2: API §5.3 current_score 字段
     current_server: Optional[str] = None
     current_game: int
     is_win: Optional[bool] = None

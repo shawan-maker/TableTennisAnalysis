@@ -73,7 +73,17 @@ class GamificationService:
         up = await db.scalar(select(UserPoints).where(UserPoints.user_id == user_id))
         if not up:
             return {"total_points": 0, "monthly_points": 0, "current_streak": 0, "streak_icon": ""}
+        # R6-Gami-4: 优先从 Redis 读取连续打卡天数（实时），无 key 时回退 DB
+        # Redis key 由 _update_streak 写入：gamification:streak:user:{user_id}
         streak = up.current_streak
+        try:
+            redis = await get_redis()
+            redis_streak = await redis.get("gamification:streak:user:%s" % user_id)
+            if redis_streak is not None:
+                streak = int(redis_streak)
+        except Exception as e:
+            logger.debug("get_points_redis_fallback", extra={"error": str(e)})
+
         icon = "🌟" if streak >= 30 else "🔥" if streak >= 7 else ""
         return {
             "total_points": up.total_points,
@@ -156,10 +166,11 @@ class GamificationService:
         except Exception as e:
             logger.warning("badge_check_after_checkin_failed", extra={"error": str(e)})
 
+        # R6-Gami-2: 设计要求 bonus 在无奖励时返回 null（而非 0）
         return {
             "points_earned": POINTS_RULES["checkin"],
             "current_streak": streak,
-            "bonus": bonus,
+            "bonus": bonus if bonus > 0 else None,
         }
 
     @staticmethod
@@ -348,48 +359,57 @@ class BadgeService:
 
         user_metrics = await BadgeService._get_user_metrics(db, user_id)
 
+        # R6-Gami-1: 使用 SAVEPOINT (begin_nested) 隔离徽章解锁逻辑
+        # 若 IntegrityError 发生（并发竞态导致重复解锁），仅 SAVEPOINT 回滚，
+        # 调用方事务（打卡记录/积分/连续天数）得以保留，而非整体回滚。
         newly_unlocked = []
-        for d in defs:
-            if d.id in earned_ids:
-                continue
-            cond = d.condition or {}
-            current = BadgeService._evaluate_condition(cond, user_metrics)
-            target = cond.get("threshold", 1)
-            if current >= target:
-                ub = UserBadge(user_id=user_id, badge_id=d.id)
-                db.add(ub)
-                if d.points_reward > 0:
-                    await GamificationService.grant_badge_points(db, user_id, d.points_reward, d.id)
-                newly_unlocked.append({
-                    "badge_id": d.id,
-                    "name": d.name,
-                    "icon": d.icon,
-                })
-            else:
-                # Update progress
-                progress = min(100, int(current / target * 100)) if target > 0 else 0
-                existing_p = await db.scalar(
-                    select(BadgeProgress).where(
-                        and_(BadgeProgress.user_id == user_id, BadgeProgress.badge_id == d.id)
-                    )
-                )
-                if existing_p:
-                    existing_p.current_value = current
-                    existing_p.progress_pct = progress
-                else:
-                    bp = BadgeProgress(
-                        user_id=user_id, badge_id=d.id,
-                        current_value=current, target_value=target, progress_pct=progress,
-                    )
-                    db.add(bp)
+        try:
+            async with db.begin_nested():
+                for d in defs:
+                    if d.id in earned_ids:
+                        continue
+                    cond = d.condition or {}
+                    current = BadgeService._evaluate_condition(cond, user_metrics)
+                    target = cond.get("threshold", 1)
+                    if current >= target:
+                        ub = UserBadge(user_id=user_id, badge_id=d.id)
+                        db.add(ub)
+                        if d.points_reward > 0:
+                            # 直接调用 _add_points 而非 grant_badge_points，
+                            # 避免其内部 try/except 吞掉 IntegrityError 导致
+                            # SAVEPOINT 无法正确捕获；flush 统一在块末执行。
+                            await GamificationService._add_points(
+                                db, user_id, "badge", d.points_reward, None
+                            )
+                        newly_unlocked.append({
+                            "badge_id": d.id,
+                            "name": d.name,
+                            "icon": d.icon,
+                        })
+                    else:
+                        # Update progress
+                        progress = min(100, int(current / target * 100)) if target > 0 else 0
+                        existing_p = await db.scalar(
+                            select(BadgeProgress).where(
+                                and_(BadgeProgress.user_id == user_id, BadgeProgress.badge_id == d.id)
+                            )
+                        )
+                        if existing_p:
+                            existing_p.current_value = current
+                            existing_p.progress_pct = progress
+                        else:
+                            bp = BadgeProgress(
+                                user_id=user_id, badge_id=d.id,
+                                current_value=current, target_value=target, progress_pct=progress,
+                            )
+                            db.add(bp)
+                await db.flush()
+        except IntegrityError:
+            # 并发徽章解锁竞态：徽章已被另一请求解锁
+            # SAVEPOINT 已回滚，调用方事务保留
+            return
 
         if newly_unlocked:
-            try:
-                await db.flush()
-            except IntegrityError:
-                # 并发徽章解锁竞态：徽章已被另一请求解锁，回滚本次解锁并跳过
-                await db.rollback()
-                return
             try:
                 from app.services.notification_service import NotificationService
                 await NotificationService.push_ws_message(user_id, "badge_unlocked", newly_unlocked)
@@ -398,6 +418,13 @@ class BadgeService:
 
     @staticmethod
     async def _get_user_metrics(db: AsyncSession, user_id: int) -> dict:
+        # R6-Gami-3 (设计偏差，Phase 2+ 修复):
+        # 设计要求按 CheckInRecord.checkin_type 统计 analysis_count/match_count，
+        # 但当前实现使用 AnalysisReport/Match 计数。两者在标准流程下（analysis/match
+        # 事件触发 auto_checkin）功能等价，但存在边界差异：若用户先手动打卡再分析视频，
+        # auto_checkin 会被跳过（当日已有打卡），CheckInRecord.checkin_type 为 "manual"
+        # 而非 "analysis"，此时 CheckInRecord 方案将无法解锁 analysis 徽章。
+        # 当前 AnalysisReport/Match 方案在此时更准确。保留现有实现，待 Phase 2+ 统一重构。
         analysis_count = await db.scalar(
             select(func.count()).select_from(AnalysisReport).where(AnalysisReport.user_id == user_id)
         ) or 0

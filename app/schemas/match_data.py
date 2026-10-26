@@ -115,3 +115,4 @@ class MatchRecordCreateResponse(BaseModel):
 
     id: int
     is_win: bool
+    match_id: Optional[int] = None  # R6-Match-1: API §7.1 match_id 字段

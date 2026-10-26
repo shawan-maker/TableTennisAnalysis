@@ -326,11 +326,19 @@ class TrainingAdviceService:
         if not trends:
             return "maintain", "暂无足够趋势数据"
 
-        # 达标判断基于值：current_value >= target
+        # 达标判断基于值：up direction current_value >= target; down direction current_value <= target
+        from app.services.progress_service import METRIC_DEFINITIONS
         all_achieved = True
         for trend in trends:
             target = goal_metrics.get(trend.metric_name)
-            if target is None or trend.current_value is None or trend.current_value < target:
+            if target is None or trend.current_value is None:
+                all_achieved = False
+                break
+            direction = METRIC_DEFINITIONS.get(trend.metric_name, {}).get("direction", "up")
+            if direction == "up" and trend.current_value < target:
+                all_achieved = False
+                break
+            elif direction == "down" and trend.current_value > target:
                 all_achieved = False
                 break
 

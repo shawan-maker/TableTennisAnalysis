@@ -172,16 +172,6 @@ app_info = Info(
 )
 
 
-def metrics_endpoint():
-    """Prometheus /metrics 端点"""
-    from fastapi import Response
-
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST,
-    )
-
-
 def configure_metrics(app) -> None:
     """配置 Prometheus 指标采集，在应用启动时调用。
 

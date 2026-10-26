@@ -260,6 +260,9 @@ class NotificationService:
         template_ids: list[str],
     ) -> SubscribeResponse:
         """微信订阅消息授权（静默过滤无效模板 ID）"""
+        # R6-Notif-2: 设计偏差 — API §13.3 要求无效模板返回 422，但 R4 为
+        # 修复 test_subscribe_templates 改为静默过滤。当前测试期望静默过滤行为。
+        # TODO: Phase 2+ — 更新 API 设计以匹配实现，或补充 422 校验逻辑
         valid_templates = {"analysis_complete", "payment_success", "training_reminder"}
         valid_ids = [t for t in template_ids if t in valid_templates]
 

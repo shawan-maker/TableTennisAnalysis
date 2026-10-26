@@ -134,10 +134,19 @@ class MembershipService:
 
     @staticmethod
     async def check_membership(db: AsyncSession, user_id: int) -> MembershipCheckResult:
-        """检查用户会员状态（供 video_analysis 等模块调用）"""
+        """检查用户会员状态（供 video_analysis 等模块调用）
+
+        R6-Mbr-1 修复：此前仅判断 subscription 是否存在，未校验 status，
+        导致 expired/closed 状态的订阅仍被当作有效会员。修复为仅
+        active/expiring_soon/grace_period 三态视为有效会员权益。
+        """
         subscription = await MembershipService._get_active_subscription(db, user_id)
 
-        if subscription is None:
+        # R6-Mbr-1: 校验订阅状态 — 仅 active/expiring_soon/grace_period 视为有效会员
+        # expired/closed 状态的订阅不应享受会员权益，按免费用户处理
+        if subscription is None or subscription.status not in (
+            "active", "expiring_soon", "grace_period",
+        ):
             today = MembershipService._get_today_cst()
             used_today = await MembershipService._get_used_count(user_id, today)
             remaining = max(0, MembershipService.FREE_DAILY_LIMIT - used_today)

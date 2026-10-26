@@ -71,18 +71,22 @@ async def websocket_endpoint(websocket: WebSocket):
     # Step 2: 接受连接
     await websocket.accept(subprotocol=f"jwt.{token}")
 
-    # Step 2.5: WS 重连补偿 — 推送离线期间未读通知（R4-Notif-3）
-    try:
-        await NotificationService.on_ws_reconnect(user_id)
-    except Exception as e:
-        logger.warning("ws_on_reconnect failed: %s", e)
-
     redis = await get_redis()
     pubsub = redis.pubsub()
     # R5-Infra-5 修复：与 WSManager.broadcast_to_user 频道命名统一，
     # 订阅 ws:relay:ws:user:{user_id}（WSManager 通过 broadcast_to_room
     # 发布到 ws:relay:{room_id}，room_id = "ws:user:{user_id}"）
+    # R6-Notif-1 修复：必须先 subscribe 再 publish sync 消息。
+    # Redis pubsub 不缓存未订阅期间的消息，若先 publish 后 subscribe，
+    # on_ws_reconnect 推送的 sync 事件会丢失。
     await pubsub.subscribe(f"ws:relay:ws:user:{user_id}")
+
+    # Step 2.5: WS 重连补偿 — 推送离线期间未读通知（R4-Notif-3）
+    # R6-Notif-1: 在 subscribe 之后调用，确保 sync 消息能被 relay 接收
+    try:
+        await NotificationService.on_ws_reconnect(user_id)
+    except Exception as e:
+        logger.warning("ws_on_reconnect failed: %s", e)
 
     # Step 3: 发送 connected 事件
     await websocket.send_json({
