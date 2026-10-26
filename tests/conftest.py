@@ -2,7 +2,16 @@
 tests/conftest.py — 共享测试 Fixture
 
 依据：切片 13-infrastructure/conftest.py.md
-功能：client / auth_user / db_session / mock_redis
+功能：client / auth_user / db_session
+
+依赖说明（R4-Infra-5）：
+  本测试套件依赖外部真实 PostgreSQL + Redis 服务（通过 Docker Compose 启动），
+  不使用内存 SQLite + fakeredis。原因：测试覆盖 PostgreSQL 特有特性（JSONB、
+  复合类型、分区表、ON CONFLICT 等）以及 Redis pubsub/INCR 原子操作行为，
+  内存替代品无法保证等价性。
+
+  当 PostgreSQL/Redis 不可用时，测试将在 fixture 层报错（而非跳过），
+  以便及早暴露环境问题。
 """
 
 import asyncio
@@ -14,10 +23,21 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import Base, async_session_factory, engine
 from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, generate_jti
 from app.models.user import ConsentLog, User
+
+# 测试环境强制 Celery eager 模式 — pipeline 同步执行，确保任务状态在测试内完成
+from app.core.celery import celery_app
+celery_app.conf.task_always_eager = True
+celery_app.conf.task_eager_propagates = True
+
+# 测试环境禁用 SQL echo（减少输出噪音，DEBUG=True 用于保持 eager 模式）
+engine.echo = False
+import logging as _logging
+_logging.getLogger("sqlalchemy.engine.Engine").setLevel(_logging.WARNING)
 
 
 @pytest.fixture(scope="session")
@@ -34,6 +54,9 @@ async def db_setup():
     创建数据库表（测试前）+ 清理（测试后）。
     同时清理 Redis 缓存，确保 S2 scoring 模块的 Redis INCR 序号不跨测试污染。
     使用真实的 PostgreSQL 数据库（通过 Docker Compose 启动）。
+
+    依赖外部 PostgreSQL + Redis（R4-Infra-5）：
+    若不可用，fixture 将跳过（pytest 在 fixture 层 skip 依赖此结果的测试）。
     """
     # 创建所有表（先清理 schema 以避免 PostgreSQL 复合类型残留）
     async with engine.begin() as conn:
@@ -45,7 +68,8 @@ async def db_setup():
     try:
         redis = await get_redis()
         # 删除所有 scoring:match:* 和 ws:* 相关的 key
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*"]:
+        # R4-Auth-4: sms:rate:* → sms:sent:*（保留两者兼容旧测试缓存）
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*"]:
                 keys = await redis.keys(pattern)
                 if keys:
                     await redis.delete(*keys)
@@ -62,7 +86,7 @@ async def db_setup():
     # 清理 Redis
     try:
         redis = await get_redis()
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*"]:
             keys = await redis.keys(pattern)
             if keys:
                 await redis.delete(*keys)

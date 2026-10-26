@@ -79,12 +79,12 @@ class CreateTaskResponse(BaseModel):
 
 class TaskListItem(BaseModel):
     """任务列表项"""
-    id: int
+    task_id: int
     task_uuid: str
     status: str
     current_step: int
     total_steps: int
-    progress: int
+    progress: float
     created_at: Optional[datetime] = None
     report_id: Optional[int] = None
 
@@ -93,13 +93,13 @@ class TaskListItem(BaseModel):
 
 class TaskDetailResponse(BaseModel):
     """任务详情"""
-    id: int
+    task_id: int
     task_uuid: str
     status: str
     current_step: int
     total_steps: int
     step_name: Optional[str] = None
-    progress: int
+    progress: float
     estimated_remaining_seconds: Optional[int] = None
     error_message: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -115,6 +115,7 @@ class ReportListItem(BaseModel):
     created_at: Optional[datetime] = None
     is_llm_generated: bool
     cover_image_url: Optional[str] = None
+    report_summary: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -158,8 +159,9 @@ class FeedbackHistoryItem(BaseModel):
 
 class AnnotatedVideoResponse(BaseModel):
     """标注视频响应"""
-    annotated_video_url: str
+    url: str
     duration_sec: Optional[int] = None
+    quality_options: list[str] = Field(default_factory=list)
 
 
 class ShareResponse(BaseModel):

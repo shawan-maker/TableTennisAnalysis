@@ -25,6 +25,9 @@ from app.services.video_analysis_service import VideoAnalysisService
 
 router = APIRouter(prefix="/video-analysis", tags=["视频分析"])
 
+# 独立分享路由 — 不挂载 /video-analysis prefix，挂载到 /share/{share_token} 根路径
+share_router = APIRouter(tags=["分享"])
+
 
 # =============================================================================
 # 上传
@@ -143,10 +146,12 @@ async def submit_feedback(
 async def list_feedbacks(
     request: Request,
     report_id: int,
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=50, description="每页条数"),
     user: User = Depends(get_current_user),
 ):
-    """获取报告的反馈历史列表"""
-    data = await VideoAnalysisService.list_feedbacks(user.id, report_id)
+    """获取报告的反馈历史列表（分页）"""
+    data = await VideoAnalysisService.list_feedbacks(user.id, report_id, page, page_size)
     return success(data=data)
 
 
@@ -175,11 +180,15 @@ async def create_share(
 
 
 # =============================================================================
-# 公开分享（不需要认证）
+# 公开分享（不需要认证）— 挂载到根路径 /share/{share_token}
 # =============================================================================
 
-@router.get("/share/{share_token}", summary="公开分享报告")
-async def get_shared_report(share_token: str):
+@limiter.limit(RateLimits.DEFAULT)
+@share_router.get("/share/{share_token}", summary="公开分享报告")
+async def get_shared_report(
+    share_token: str,
+    request: Request,
+):
     """获取公开分享报告摘要（7 天有效，不含训练建议/趋势/个人信息）"""
     data = await VideoAnalysisService.get_shared_report(share_token)
     return success(data=data)

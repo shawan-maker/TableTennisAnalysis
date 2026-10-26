@@ -6,7 +6,9 @@ app/api/v1/auth/router.py — 认证模块 API 路由
 S1 实现：wechat-login / refresh / logout / me / h5-token / h5-exchange / consent / consent-status
 """
 
-from fastapi import APIRouter, Depends, Request
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -36,11 +38,15 @@ async def wechat_login(body: WechatLoginRequest, request: Request):
     return success(data=data.model_dump(), message="登录成功")
 
 
+# R4-Auth-1: send-sms 限流策略说明
+# 按 IP 限流（slowapi 默认 key_func=get_remote_address），Service 层 Redis
+# 按手机号二次检查（sms:sent:{phone} 60s 防刷），避免单一 IP 撑爆验证码发送。
 @limiter.limit(RateLimits.SEND_SMS)
 @router.post("/send-sms", summary="发送短信验证码")
 async def send_sms(body: SendSmsRequest, request: Request):
     """发送短信验证码（5 分钟有效，60 秒防刷）"""
-    data = await AuthService.send_sms(body)
+    # R4-Auth-3: 调用 send_sms(phone) 而非 send_sms(req)
+    data = await AuthService.send_sms(body.phone)
     return success(data=data, message="验证码已发送")
 
 
@@ -144,8 +150,10 @@ async def record_consent(
 @router.get("/consent-status", summary="查询用户同意状态")
 async def get_consent_status(
     request: Request,
+    # R4-Auth-2: 添加 consent_type 参数，None 时返回所有类型
+    consent_type: Optional[str] = Query(default=None, description="同意类型，如 privacy_policy"),
     user: User = Depends(get_current_user),
 ):
     """查询当前用户是否已同意最新版隐私政策"""
-    data = await AuthService.check_consent(user.id)
+    data = await AuthService.check_consent(user.id, consent_type)
     return success(data=data)

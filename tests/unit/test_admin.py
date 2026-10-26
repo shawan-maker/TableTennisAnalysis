@@ -161,45 +161,46 @@ class TestAdminConfig:
 
     async def test_create_config(self, client, admin_headers):
         """创建配置"""
+        # R4-Admin-19: 字段名 key/value → config_key/config_value
         resp = await client.post(
             "/api/v1/admin/configs",
-            json={"key": "test_key", "value": "test_value", "description": "测试配置"},
+            json={"config_key": "test_key", "config_value": "test_value", "description": "测试配置"},
             headers=admin_headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["key"] == "test_key"
+        assert resp.json()["data"]["config_key"] == "test_key"
 
     async def test_get_config(self, client, admin_headers):
         """获取单个配置"""
         await client.post(
             "/api/v1/admin/configs",
-            json={"key": "get_test", "value": "val", "description": None},
+            json={"config_key": "get_test", "config_value": "val", "description": None},
             headers=admin_headers,
         )
         resp = await client.get("/api/v1/admin/configs/get_test", headers=admin_headers)
         assert resp.status_code == 200
-        assert resp.json()["data"]["value"] == "val"
+        assert resp.json()["data"]["config_value"] == "val"
 
     async def test_update_config(self, client, admin_headers):
         """更新配置"""
         await client.post(
             "/api/v1/admin/configs",
-            json={"key": "update_test", "value": "old_val", "description": None},
+            json={"config_key": "update_test", "config_value": "old_val", "description": None},
             headers=admin_headers,
         )
         resp = await client.patch(
             "/api/v1/admin/configs/update_test",
-            json={"value": "new_val", "description": "更新后"},
+            json={"config_value": "new_val", "description": "更新后"},
             headers=admin_headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["value"] == "new_val"
+        assert resp.json()["data"]["config_value"] == "new_val"
 
     async def test_delete_config(self, client, admin_headers):
         """删除配置"""
         await client.post(
             "/api/v1/admin/configs",
-            json={"key": "del_test", "value": "val", "description": None},
+            json={"config_key": "del_test", "config_value": "val", "description": None},
             headers=admin_headers,
         )
         resp = await client.delete("/api/v1/admin/configs/del_test", headers=admin_headers)
@@ -269,8 +270,9 @@ class TestAdminKnowledge:
             },
             headers=admin_headers,
         )
+        # R4-Admin-13: toggle_rule 接受 is_active 显式参数
         resp = await client.patch(
-            "/api/v1/admin/knowledge/rules/toggle_test/toggle",
+            "/api/v1/admin/knowledge/rules/toggle_test/toggle?is_active=false",
             headers=admin_headers,
         )
         assert resp.status_code == 200
@@ -294,6 +296,9 @@ class TestAdminPermission:
         )
         assert resp.status_code == 403
 
+    # R4-Admin-23: activate_model_version 端点已注释（Phase 2 占位）
+    # 测试相应跳过；S7+ 模型管理实现后恢复。
+    @pytest.mark.skip(reason="R4-Admin-23: activate_model_version 端点注释（Phase 2 占位）")
     async def test_model_activate(self, client, admin_headers):
         """激活模型版本"""
         resp = await client.post(

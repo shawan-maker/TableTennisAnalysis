@@ -142,7 +142,7 @@ class MatchDataService:
         # 7. 触发游戏化积分（不阻塞）
         await MatchDataService._trigger_gamification(user_id, record.id)
 
-        return {"id": record.id, "is_win": is_win}
+        return {"id": record.id, "is_win": is_win, "match_id": record.match_id}
 
     @staticmethod
     async def create_record_from_scoring(
@@ -180,7 +180,9 @@ class MatchDataService:
         is_detailed = len(score_records) > 0
 
         # 4. 创建 MatchRecord
-        match_date = match.finished_at if match.finished_at else datetime.now(timezone.utc)
+        # 使用 CST（UTC+8）作为默认 match_date，避免跨日边界错误
+        tz_cst = timezone(timedelta(hours=8))
+        match_date = match.finished_at if match.finished_at else datetime.now(tz_cst)
 
         record = MatchRecord(
             user_id=user_id,
@@ -337,15 +339,26 @@ class MatchDataService:
             if not update_data:
                 raise AppException("未提供任何更新字段", 422, code=ERR_BAD_REQUEST)
 
+            # 记录实际更新的字段名（排除 is_win —— 由后续逻辑决定）
+            updated_fields = [k for k in update_data.keys() if k != "is_win"]
+
             for field, value in update_data.items():
                 if hasattr(record, field):
                     setattr(record, field, value)
 
-            # is_win 重新计算
-            if data.my_score is not None or data.opponent_score is not None:
+            # is_win 处理：
+            # - 用户显式传入 is_win 时优先使用用户值
+            # - 否则仅当同时传入 my_score 和 opponent_score 时才重算
+            if data.is_win is not None:
+                record.is_win = data.is_win
+            elif data.my_score is not None and data.opponent_score is not None:
                 record.is_win = record.my_score > record.opponent_score
 
             await db.commit()
             await db.refresh(record)
 
-            return {"id": record.id, "is_win": record.is_win}
+            return {
+                "id": record.id,
+                "is_win": record.is_win,
+                "updated_fields": updated_fields,
+            }

@@ -411,7 +411,7 @@ class ScoringService:
             return {
                 "match_id": match_id,
                 "status": "in_progress",
-                "started_at": now.isoformat(),
+                "started_at": now,
             }
 
     @staticmethod
@@ -506,7 +506,7 @@ class ScoringService:
             return {
                 "match_id": match_id,
                 "status": "abandoned",
-                "abandoned_at": now.isoformat(),
+                "abandoned_at": now,
             }
 
     @staticmethod
@@ -524,6 +524,7 @@ class ScoringService:
             if elapsed > timedelta(hours=24):
                 raise AppException("放弃超过 24h，比赛已自动结束", 400, code=ERR_BAD_REQUEST)
 
+            now = datetime.now(timezone.utc)
             match.status = "in_progress"
             match.abandoned_at = None
             await db.commit()
@@ -534,7 +535,7 @@ class ScoringService:
             return {
                 "match_id": match_id,
                 "status": "in_progress",
-                "resumed_at": datetime.now(timezone.utc).isoformat(),
+                "resumed_at": now,
             }
 
     @staticmethod

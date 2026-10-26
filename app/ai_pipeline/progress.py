@@ -154,7 +154,7 @@ class ProgressTracker:
                 .where(VideoTask.id == task_id)
                 .values(
                     status="completed",
-                    progress=100,
+                    progress=1.0,
                     current_step=10,
                     completed_at=now,
                 )
@@ -171,8 +171,11 @@ class ProgressTracker:
                 )
 
     @staticmethod
-    def _calc_progress(step: int, step_progress: int) -> int:
-        """计算总进度（0-100）"""
+    def _calc_progress(step: int, step_progress: int) -> float:
+        """计算总进度（0.0-1.0）"""
+        total_weight = sum(STEP_WEIGHTS.values())
+        if total_weight <= 0:
+            return 0.0
         completed_weight = sum(STEP_WEIGHTS.get(i, 0) for i in range(1, step))
         current_weight = STEP_WEIGHTS.get(step, 0) * step_progress / 100
-        return min(100, int(completed_weight + current_weight))
+        return min(1.0, round((completed_weight + current_weight) / total_weight, 2))

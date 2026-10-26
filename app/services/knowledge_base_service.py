@@ -207,6 +207,7 @@ class KnowledgeBaseService:
                         "adjustment_action": rule.adjustment_action,
                         "training_methods": rule.training_methods,
                         "training_plan_template": rule.training_plan_template,
+                        "field": (rule.condition or {}).get("metric"),
                     })
             except Exception as e:
                 logger.warning("rule_eval_failed", extra={"rule_id": rule.rule_id, "error": str(e)})

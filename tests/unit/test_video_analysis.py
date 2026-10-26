@@ -38,8 +38,8 @@ async def _create_and_upload_file(client, headers, filename="test.mp4", file_siz
     file_id = data["file_id"]
     oss_key = data["oss_key"]
 
-    # 2. 保存 mock 文件到本地（模拟 OSS 上传）
-    FileService.save_uploaded_file(oss_key, b"fake_video_data" * (file_size // 16 + 1))
+    # 2. 保存 mock 文件到本地（模拟 OSS 上传）— 大小必须与声明一致
+    FileService.save_uploaded_file(oss_key, b"\x00" * file_size)
 
     # 3. 确认上传
     resp = await client.post(
@@ -169,7 +169,7 @@ async def test_create_task_and_pipeline(client, auth_headers):
     async with async_session_factory() as db:
         task = await db.get(VideoTask, task_id)
         assert task.status == "completed"
-        assert task.progress == 100
+        assert task.progress == 1.0  # R4: progress 从 0-100 改为 0.0-1.0
         assert task.current_step == 10
 
         # 验证 10 条 pipeline_step 记录
@@ -259,9 +259,9 @@ async def test_task_detail(client, auth_headers):
     )
     assert resp.status_code == 200
     data = resp.json()["data"]
-    assert data["id"] == task_id
+    assert data["task_id"] == task_id  # R4: 字段名 id → task_id
     assert data["status"] == "completed"
-    assert data["progress"] == 100
+    assert data["progress"] == 1.0  # R4: progress 从 0-100 改为 0.0-1.0
     assert data["report_id"] is not None
 
     # 404
@@ -456,8 +456,8 @@ async def test_annotated_video(client, auth_headers):
     )
     assert resp.status_code == 200
     data = resp.json()["data"]
-    assert "annotated_video_url" in data
-    assert data["annotated_video_url"].startswith("http")
+    assert "url" in data  # R4: 字段名 annotated_video_url → url
+    assert data["url"].startswith("http")
 
 
 # =============================================================================
@@ -492,9 +492,9 @@ async def test_share_create_and_access(client, auth_headers):
     assert "expire_at" in data
     share_token = data["share_url"].split("/share/")[-1]
 
-    # 公开访问（不需要认证）
+    # 公开访问（不需要认证）— R4: share_router 独立挂载到 /api/v1/share/
     resp = await client.get(
-        f"/api/v1/video-analysis/share/{share_token}",
+        f"/api/v1/share/{share_token}",
     )
     assert resp.status_code == 200
     data = resp.json()["data"]

@@ -86,8 +86,8 @@ class MembershipService:
 
         now = datetime.now(timezone.utc)
 
-        # 实时兜底：到期但状态未更新
-        if subscription.status == "active" and subscription.expire_at < now:
+        # 实时兜底：到期但状态未更新（R4-Mbr-3：补 expiring_soon 状态的到期检查）
+        if subscription.status in ("active", "expiring_soon") and subscription.expire_at < now:
             await MembershipService._handle_expiry(db, subscription)
             await db.commit()
 
@@ -184,10 +184,18 @@ class MembershipService:
 
     @staticmethod
     async def check_expiry(db: AsyncSession) -> None:
-        """到期检测：Celery Beat 每日 00:30 执行。"""
-        now = datetime.now(timezone.utc)
+        """到期检测：Celery Beat 每日 00:30 执行。
 
-        # 1. 标记即将到期（3 天内）
+        状态机：active → expiring_soon → grace_period → expired → closed
+        - expiring_soon：3 天内将到期（保留权益，发续费提醒）
+        - grace_period：刚过期但在宽限期内（保留权益，发续费提醒）— R4-Mbr-2
+        - expired：宽限期结束（权益降级）
+        - closed：到期 14 天后（彻底关闭）
+        """
+        now = datetime.now(timezone.utc)
+        grace_days = timedelta(days=MembershipService.GRACE_PERIOD_DAYS)
+
+        # 1. 标记即将到期（3 天内）— active → expiring_soon
         expiring_soon_threshold = now + timedelta(days=MembershipService.EXPIRING_SOON_DAYS)
         result = await db.execute(
             select(Subscription).where(and_(
@@ -200,19 +208,32 @@ class MembershipService:
             sub.status = "expiring_soon"
             await MembershipService._send_expiry_notification(sub)
 
-        # 2. 标记已到期
+        # 2. 刚过期 → grace_period（宽限期内保留权益）— R4-Mbr-2
         result = await db.execute(
             select(Subscription).where(and_(
                 Subscription.status.in_(["active", "expiring_soon"]),
                 Subscription.expire_at < now,
+                Subscription.expire_at >= now - grace_days,
+            ))
+        )
+        for sub in result.scalars().all():
+            sub.status = "grace_period"
+            await MembershipService._send_expiry_notification(sub)
+
+        # 3. 宽限期结束 → expired + 权益降级
+        #    同时兜底：active/expiring_soon 超过宽限期未处理的情况
+        result = await db.execute(
+            select(Subscription).where(and_(
+                Subscription.status.in_(["grace_period", "active", "expiring_soon"]),
+                Subscription.expire_at < now - grace_days,
             ))
         )
         for sub in result.scalars().all():
             sub.status = "expired"
             await MembershipService._handle_downgrade(db, sub)
 
-        # 3. 标记已关闭（到期 7 天后）
-        closed_threshold = now - timedelta(days=MembershipService.GRACE_PERIOD_DAYS)
+        # 4. 标记已关闭（到期 14 天后 = 宽限 7 + 过期 7）
+        closed_threshold = now - timedelta(days=2 * MembershipService.GRACE_PERIOD_DAYS)
         result = await db.execute(
             select(Subscription).where(and_(
                 Subscription.status == "expired",
@@ -365,13 +386,30 @@ class MembershipService:
             )
             return
 
-        # TODO: 接入微信订阅消息 API
+        # TODO: 接入微信订阅消息 API（生产环境取消注释并配置 client）
+        # 构造 template_msg 结构，便于日志审计与后续接入
+        template_msg = {
+            "template_id": "membership_expiry_reminder",
+            "page": f"pages/membership/detail?id={subscription.id}",
+            "data": {
+                "thing1": {"value": f"{subscription.tier}会员"},
+                "time2": {"value": f"{days_remaining}天后到期"},
+                "thing3": {"value": "点击续费"},
+            },
+            "miniprogram_state": "formal" if settings.is_production else "developer",
+            "lang": "zh_CN",
+        }
+        logger.info(
+            "wechat subscribe message prepared: user_id=%s subscription_id=%s "
+            "template_id=%s days_remaining=%s",
+            subscription.user_id, subscription.id,
+            template_msg["template_id"], days_remaining,
+        )
         # from app.core.wechat import WeChatClient
         # client = WeChatClient()
         # await client.send_subscribe_message(
         #     user_id=subscription.user_id,
-        #     template_id="membership_expiry_reminder",
-        #     page=f"pages/membership/detail?id={subscription.id}",
-        #     data={"thing1": {"value": f"{subscription.tier}会员"}, "time2": {"value": f"{days_remaining}天后到期"}},
+        #     template_id=template_msg["template_id"],
+        #     page=template_msg["page"],
+        #     data=template_msg["data"],
         # )
-        logger.info("wechat subscribe message sent: user_id=%s", subscription.user_id)

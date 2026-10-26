@@ -4,6 +4,13 @@ app/api/v1/ws.py — WebSocket 端点
 依据：API §14 WebSocket / 切片 12-notification/backend.md §6.2
 功能：Sec-WebSocket-Protocol 认证 + Redis pubsub 中继 + 心跳 + 断连清理
 架构约束：§5.6 WebSocket / §15 约束 #30 重连
+
+TODO(R4-Infra-7)：本端点当前绕过 app.core.websocket.WSManager，直接操作 Redis
+pubsub 与在线状态。原因：WSManager.on_connect 内部调用 websocket.accept()
+不带 subprotocol，与本端点所需的 Sec-WebSocket-Protocol JWT 认证流程冲突；
+且 WSManager 使用 ws:relay:* 频道中继，与本端点的 ws:user:{id} 频道不同。
+后续应重构 WSManager 支持 subprotocol accept + 频道统一，再由本端点改用
+ws_manager.on_connect / on_disconnect 统一管理连接生命周期。
 """
 
 import asyncio
@@ -61,6 +68,12 @@ async def websocket_endpoint(websocket: WebSocket):
     # Step 2: 接受连接
     await websocket.accept(subprotocol=f"jwt.{token}")
 
+    # Step 2.5: WS 重连补偿 — 推送离线期间未读通知（R4-Notif-3）
+    try:
+        await NotificationService.on_ws_reconnect(user_id)
+    except Exception as e:
+        logger.warning("ws_on_reconnect failed: %s", e)
+
     redis = await get_redis()
     pubsub = redis.pubsub()
     await pubsub.subscribe(f"ws:user:{user_id}")
@@ -101,7 +114,8 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
     async def receive_loop():
-        """接收客户端消息（ping/pong）"""
+        """接收客户端消息（ping/pong + subscribe）"""
+        subscribed_matches: set[int] = set()
         try:
             while True:
                 data = await websocket.receive_text()
@@ -115,6 +129,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         "event": "pong",
                         "data": {"token_expired": False},
                     })
+                elif msg.get("event") == "subscribe" and msg.get("match_id"):
+                    # 客户端订阅比赛频道 — 接收该比赛的实时比分推送
+                    try:
+                        match_id = int(msg["match_id"])
+                    except (TypeError, ValueError):
+                        continue
+                    if match_id not in subscribed_matches:
+                        await pubsub.subscribe(f"ws:match:{match_id}")
+                        subscribed_matches.add(match_id)
+                        await websocket.send_json({
+                            "event": "subscribed",
+                            "data": {"match_id": match_id},
+                        })
         except WebSocketDisconnect:
             return
         except Exception:

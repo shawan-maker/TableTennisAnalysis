@@ -34,7 +34,8 @@ async def get_profile(
 ):
     """获取当前用户的个人档案"""
     data = await UserService.get_profile(user, db)
-    return success(data=data.model_dump())
+    # R4-User-6: data=data（success() 通过 jsonable_encoder 处理 Pydantic 对象）
+    return success(data=data)
 
 
 @limiter.limit(RateLimits.DEFAULT)
@@ -47,7 +48,7 @@ async def update_profile(
 ):
     """更新个人档案（PATCH 语义，仅更新传入字段）"""
     data = await UserService.update_profile(user, body, db)
-    return success(data=data.model_dump())
+    return success(data=data)
 
 
 @limiter.limit(RateLimits.DEFAULT)
@@ -58,7 +59,7 @@ async def get_quota(
 ):
     """获取当前用户的免费分析额度状态"""
     data = await UserService.get_quota(user)
-    return success(data=data.model_dump())
+    return success(data=data)
 
 
 @limiter.limit(RateLimits.DEFAULT)
@@ -71,7 +72,7 @@ async def update_rating(
 ):
     """更新开球网积分，旧积分自动写入历史记录"""
     data = await UserService.update_rating(user, body, db)
-    return success(data=data.model_dump())
+    return success(data=data)
 
 
 @limiter.limit(RateLimits.DEFAULT)
@@ -97,7 +98,7 @@ async def get_big_data(
 ):
     """乒乓大数据（间接胜利算法，24h 缓存）"""
     data = await UserService.get_big_data(user, db)
-    return success(data=data.model_dump())
+    return success(data=data)
 
 
 @limiter.limit(RateLimits.DEFAULT)
@@ -110,7 +111,7 @@ async def delete_account(
 ):
     """用户注销（72h 冷静期内可撤销）"""
     data = await UserService.delete_account(user, body, db)
-    return success(data=data.model_dump(), message="注销申请已提交，72 小时内可撤销")
+    return success(data=data, message="注销申请已提交，72 小时内可撤销")
 
 
 @limiter.limit(RateLimits.DEFAULT)
@@ -134,7 +135,7 @@ async def export_data(
 ):
     """发起个人数据导出（PIPL 数据可携带权，每月限 1 次）"""
     data = await UserService.export_data(user, db)
-    return success(data=data.model_dump(), message="导出任务已创建，完成后将通过通知告知您")
+    return success(data=data, message="导出任务已创建，完成后将通过通知告知您")
 
 
 @limiter.limit(RateLimits.DEFAULT)
@@ -147,4 +148,4 @@ async def get_export_status(
 ):
     """查询导出任务状态和下载链接"""
     data = await UserService.get_export_status(user, task_id, db)
-    return success(data=data.model_dump())
+    return success(data=data)

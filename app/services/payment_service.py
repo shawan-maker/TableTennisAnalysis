@@ -549,8 +549,15 @@ class PaymentService:
                 elapsed = datetime.now(timezone.utc) - order.paid_at
                 if elapsed > timedelta(days=7):
                     raise AppException("超过7天的订单不可退款", 422)
+                # 24h 内可全额退款；24h-7d 仅支持部分退款且不可超过订单金额 50%
                 if refund_amount_cents < order.amount_cents:
                     reversal_type = "partial"
+                    # R4-Pay-2: 24h-7d 部分退款限额校验
+                    if elapsed > timedelta(hours=24):
+                        if refund_amount_cents > order.amount_cents * 0.5:
+                            raise AppException(
+                                "24小时至7天内退款不可超过50%", 400,
+                            )
                 elif elapsed <= timedelta(hours=24):
                     reversal_type = "full"
                 else:

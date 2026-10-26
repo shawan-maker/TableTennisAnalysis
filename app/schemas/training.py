@@ -5,7 +5,7 @@ app/schemas/training.py - 训练建议 Schema
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DiagnosisItem(BaseModel):
@@ -42,6 +42,8 @@ class TemplateBrief(BaseModel):
     name: str
     problem_id: Optional[str] = None
 
+    model_config = {"from_attributes": True}
+
 
 class TemplateDetail(TemplateBrief):
     template_data: dict = {}
@@ -64,6 +66,8 @@ class AdjustmentItem(BaseModel):
     created_at: Optional[datetime] = None
     changes_summary: str = ""
 
+    model_config = {"from_attributes": True}
+
 
 class PlanAdjustmentsResponse(BaseModel):
     plan_id: int
@@ -84,8 +88,10 @@ class TrainingSessionBrief(BaseModel):
     is_completed: bool = False
     scheduled_date: Optional[str] = None
     completed_at: Optional[datetime] = None
-    session_index: int = 0
-    reps: int = 0
+    session_index: int = Field(...)
+    reps: int = Field(...)
+
+    model_config = {"from_attributes": True}
 
 
 class TrainingSessionListResponse(BaseModel):

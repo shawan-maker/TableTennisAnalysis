@@ -93,20 +93,11 @@ class UserService:
         updated_fields: list[str] = []
 
         if req.playing_style is not None:
-            if req.playing_style not in PLAYING_STYLES:
-                raise AppException(
-                    f"打法类型不合法，可选值: {', '.join(PLAYING_STYLES)}",
-                    422,
-                )
+            # R4-User-2: Schema 已通过 @field_validator 校验，service 层不再重复校验
             user.playing_style = req.playing_style
             updated_fields.append("playing_style")
 
         if req.self_assessed_level is not None:
-            if req.self_assessed_level not in SELF_ASSESSED_LEVELS:
-                raise AppException(
-                    f"自评水平不合法，可选值: {', '.join(SELF_ASSESSED_LEVELS)}",
-                    422,
-                )
             user.self_assessed_level = req.self_assessed_level
             updated_fields.append("self_assessed_level")
 
@@ -114,21 +105,8 @@ class UserService:
             user.equipment_config = req.equipment_config
             updated_fields.append("equipment_config")
 
-        if req.kqs_rating is not None:
-            user.kqs_rating = req.kqs_rating
-            updated_fields.append("kqs_rating")
-
-        if req.kqs_username is not None:
-            user.kqs_username = req.kqs_username
-            updated_fields.append("kqs_username")
-
-        if req.nickname is not None:
-            user.nickname = req.nickname
-            updated_fields.append("nickname")
-
-        if req.avatar_url is not None:
-            user.avatar_url = req.avatar_url
-            updated_fields.append("avatar_url")
+        # R4-User-3: 不再处理 kqs_rating/kqs_username/nickname/avatar_url
+        # 这些字段通过 /users/rating 或 /users/profile 单独端点更新
 
         await db.commit()
         await db.refresh(user)
@@ -183,10 +161,11 @@ class UserService:
             history_id=history_id,
         )
 
+    # R4-User-7: get_rating_history 返回 PaginatedRatingHistory Schema 对象而非 dict
     @staticmethod
     async def get_rating_history(
         user: User, page: int, page_size: int, db: AsyncSession
-    ) -> dict:
+    ) -> PaginatedRatingHistory:
         """积分历史记录分页查询"""
         offset = (page - 1) * page_size
 
@@ -206,12 +185,12 @@ class UserService:
         )
         rows = (await db.execute(list_stmt)).scalars().all()
 
-        return {
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "items": [RatingHistoryItem.model_validate(r).model_dump() for r in rows],
-        }
+        return PaginatedRatingHistory(
+            total=total,
+            page=page,
+            page_size=page_size,
+            items=[RatingHistoryItem.model_validate(r) for r in rows],
+        )
 
     # =================================================================
     # 免费额度

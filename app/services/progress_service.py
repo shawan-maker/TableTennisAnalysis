@@ -125,7 +125,17 @@ class ProgressService:
 
     @staticmethod
     async def _update_trends(db: AsyncSession, user_id: int, snapshot: ProgressSnapshot) -> None:
-        """更新趋势表 - UPSERT"""
+        """更新趋势表 - 基于历史快照重算（R4-Progress-1）"""
+        # 读取所有历史快照（按时间升序）
+        rows = await db.execute(
+            select(ProgressSnapshot)
+            .where(ProgressSnapshot.user_id == user_id)
+            .order_by(ProgressSnapshot.created_at.asc())
+        )
+        all_snapshots = rows.scalars().all()
+        if not all_snapshots:
+            return
+
         metrics = snapshot.metrics_snapshot or {}
 
         for metric_name, value in metrics.items():
@@ -133,6 +143,38 @@ class ProgressService:
             if not defn:
                 continue
 
+            # 从完整快照序列提取 values 列表
+            history_values: list[float] = []
+            time_series = []
+            for s in all_snapshots:
+                s_metrics = s.metrics_snapshot or {}
+                v = s_metrics.get(metric_name)
+                if v is not None:
+                    history_values.append(v)
+                    time_series.append({
+                        "date": s.created_at.isoformat() if s.created_at else "",
+                        "value": v,
+                    })
+
+            if len(history_values) > 20:
+                history_values = history_values[-20:]
+                time_series = time_series[-20:]
+
+            target = defn["target"]
+
+            # 调用 _calculate_trend（R4-Progress-2 新签名）
+            trend_info = ProgressService._calculate_trend(
+                user_id, metric_name, value, history_values, target
+            )
+
+            # 计算 change_rate 与 previous_value
+            if len(history_values) >= 2 and history_values[-2] != 0:
+                change_rate = round((value - history_values[-2]) / abs(history_values[-2]), 4)
+            else:
+                change_rate = None
+            previous_value = history_values[-2] if len(history_values) >= 2 else None
+
+            # UPSERT
             existing = await db.scalar(
                 select(TechniqueTrend).where(
                     and_(TechniqueTrend.user_id == user_id, TechniqueTrend.metric_name == metric_name)
@@ -140,77 +182,107 @@ class ProgressService:
             )
 
             if existing:
-                existing.previous_value = existing.current_value
                 existing.current_value = value
-                if existing.previous_value and existing.previous_value != 0:
-                    existing.change_rate = round((value - existing.previous_value) / abs(existing.previous_value), 4)
-                else:
-                    existing.change_rate = None
-
-                # 计算趋势
-                history = existing.time_series or []
-                history.append({"date": snapshot.created_at.isoformat() if snapshot.created_at else "", "value": value})
-                if len(history) > 20:
-                    history = history[-20:]
-
-                trend_info = ProgressService._calculate_trend(
-                    value, existing.previous_value, existing.change_rate,
-                    history, defn["target"], defn["direction"], existing.persistence_count
-                )
+                existing.previous_value = previous_value
+                existing.change_rate = change_rate
                 existing.trend = trend_info["trend"]
                 existing.persistence_count = trend_info["persistence_count"]
-                existing.target_value = defn["target"]
-                existing.time_series = history
+                existing.target_value = target
+                existing.time_series = time_series
             else:
                 tt = TechniqueTrend(
                     user_id=user_id,
                     metric_name=metric_name,
                     current_value=value,
-                    previous_value=None,
-                    change_rate=None,
-                    trend="new",
-                    target_value=defn["target"],
-                    persistence_count=0,
-                    time_series=[{"date": snapshot.created_at.isoformat() if snapshot.created_at else "", "value": value}],
+                    previous_value=previous_value,
+                    change_rate=change_rate,
+                    trend=trend_info["trend"],
+                    target_value=target,
+                    persistence_count=trend_info["persistence_count"],
+                    time_series=time_series,
                 )
                 db.add(tt)
 
     @staticmethod
     def _calculate_trend(
-        current: float, previous: Optional[float], change_rate: Optional[float],
-        history: list, target: float, direction: str, current_persistence: int
+        user_id: int, metric_name: str, current_value: float,
+        history_values: list[float], target_value: float
     ) -> dict:
-        """计算趋势方向"""
-        if previous is None:
+        """计算趋势方向 - 基于历史值序列（R4-Progress-2）
+
+        新签名兼容设计测试用例：persistence >= 2 约束加到 improving/declining；
+        stagnant 分支死代码已修复。
+        """
+        if len(history_values) < 2:
             return {"trend": "new", "persistence_count": 0}
 
+        defn = METRIC_DEFINITIONS.get(metric_name, {})
+        direction = defn.get("direction", "up")
+
+        previous = history_values[-2]
+        if previous == 0:
+            change_rate = None
+        else:
+            change_rate = round((current_value - previous) / abs(previous), 4)
+
         is_improving = (
-            (direction == "up" and current > previous) or
-            (direction == "down" and current < previous)
+            (direction == "up" and current_value > previous) or
+            (direction == "down" and current_value < previous)
         )
         is_significant = abs(change_rate or 0) > CHANGE_RATE_THRESHOLD
 
-        if direction == "up" and current >= target:
-            persistence = current_persistence + 1
-            if persistence >= 2:
-                return {"trend": "achieved", "persistence_count": persistence}
-        elif direction == "down" and current <= target:
-            persistence = current_persistence + 1
-            if persistence >= 2:
-                return {"trend": "achieved", "persistence_count": persistence}
+        # 达标判断 - 基于历史值连续达标次数
+        achieved_persistence = 0
+        for v in reversed(history_values):
+            if (direction == "up" and v >= target_value) or (direction == "down" and v <= target_value):
+                achieved_persistence += 1
+            else:
+                break
+        if achieved_persistence >= 2:
+            return {"trend": "achieved", "persistence_count": achieved_persistence}
 
+        # improving: 需 persistence >= 2
         if is_improving and is_significant:
-            persistence = current_persistence + 1
-            return {"trend": "improving", "persistence_count": persistence}
-        elif not is_significant:
-            persistence = current_persistence + 1
-            # 设计要求：len(history)>=4 且 change_rate<5% 才判定为停滞
-            if len(history) >= 4 and persistence >= 3:
-                return {"trend": "stagnant", "persistence_count": persistence}
-            return {"trend": "stagnant", "persistence_count": persistence}
-        else:
-            persistence = current_persistence + 1
-            return {"trend": "declining", "persistence_count": persistence}
+            improving_persistence = 0
+            for i in range(len(history_values) - 1, 0, -1):
+                v_curr = history_values[i]
+                v_prev = history_values[i - 1]
+                if (direction == "up" and v_curr > v_prev) or (direction == "down" and v_curr < v_prev):
+                    improving_persistence += 1
+                else:
+                    break
+            if improving_persistence >= 2:
+                return {"trend": "improving", "persistence_count": improving_persistence}
+
+        # declining: 需 persistence >= 2
+        if not is_improving and is_significant:
+            declining_persistence = 0
+            for i in range(len(history_values) - 1, 0, -1):
+                v_curr = history_values[i]
+                v_prev = history_values[i - 1]
+                if (direction == "up" and v_curr < v_prev) or (direction == "down" and v_curr > v_prev):
+                    declining_persistence += 1
+                else:
+                    break
+            if declining_persistence >= 2:
+                return {"trend": "declining", "persistence_count": declining_persistence}
+
+        # stagnant: not is_significant 且 len>=4 且 persistence>=3
+        if not is_significant:
+            stagnant_persistence = 0
+            for i in range(len(history_values) - 1, 0, -1):
+                v_curr = history_values[i]
+                v_prev = history_values[i - 1]
+                rate = abs((v_curr - v_prev) / abs(v_prev)) if v_prev != 0 else 0
+                if rate <= CHANGE_RATE_THRESHOLD:
+                    stagnant_persistence += 1
+                else:
+                    break
+            if len(history_values) >= 4 and stagnant_persistence >= 3:
+                return {"trend": "stagnant", "persistence_count": stagnant_persistence}
+
+        # fallback - persistence 不足，趋势待定
+        return {"trend": "stagnant", "persistence_count": 1}
 
     @staticmethod
     async def list_snapshots(user_id: int, period: str = "all", status: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
@@ -272,9 +344,9 @@ class ProgressService:
             current = t.current_value or 0
             direction = defn.get("direction", "up")
             if direction == "down":
-                target_progress = min(100, int(target / current * 100)) if current and current > 0 else 0
+                target_progress = min(100, int(target / current * 100)) if current and current > 0 else None
             else:
-                target_progress = min(100, int(current / target * 100)) if target and target > 0 else 0
+                target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
 
             metrics.append({
                 "metric": t.metric_name,
@@ -314,9 +386,9 @@ class ProgressService:
             current = t.current_value or 0
             direction = defn.get("direction", "up")
             if direction == "down":
-                target_progress = min(100, int(target / current * 100)) if current and current > 0 else 0
+                target_progress = min(100, int(target / current * 100)) if current and current > 0 else None
             else:
-                target_progress = min(100, int(current / target * 100)) if target > 0 else 0
+                target_progress = min(100, int(current / target * 100)) if target > 0 else None
 
             result = {
                 "metric": metric,
@@ -354,22 +426,30 @@ class ProgressService:
             metrics_a = sa.metrics_snapshot if sa else ProgressService._extract_metrics(ra.result_data or {})
             metrics_b = sb.metrics_snapshot if sb else ProgressService._extract_metrics(rb.result_data or {})
 
-            def _dim(keys: list[str]) -> dict:
-                """生成单维度对比"""
+            def _dim(keys: list) -> dict:
+                """生成单维度对比 - 支持 (metric_key, output_key) 映射（R4-Progress-8）"""
                 result = {}
                 for k in keys:
-                    va = metrics_a.get(k, 0)
-                    vb = metrics_b.get(k, 0)
+                    if isinstance(k, tuple):
+                        metric_key, output_key = k
+                    else:
+                        metric_key = output_key = k
+                    va = metrics_a.get(metric_key, 0)
+                    vb = metrics_b.get(metric_key, 0)
                     change = round(vb - va, 4) if isinstance(va, (int, float)) and isinstance(vb, (int, float)) else None
-                    result[k] = {"a": va, "b": vb, "change": change}
+                    result[output_key] = {"a": va, "b": vb, "change": change}
                 return result
 
             # 6 维度对比（对齐设计文档）
             comparisons = {
                 # 维度 1: 技术统计
                 "technique_stats": _dim(["forehand_ratio", "backhand_ratio", "serve_ratio"]),
-                # 维度 2: 落点分布
-                "landing": _dim(["landing_forehand_pct", "landing_backhand_pct", "landing_middle_pct"]),
+                # 维度 2: 落点分布（R4-Progress-8: key 名改为 forehand_pct/backhand_pct/middle_pct）
+                "landing": _dim([
+                    ("landing_forehand_pct", "forehand_pct"),
+                    ("landing_backhand_pct", "backhand_pct"),
+                    ("landing_middle_pct", "middle_pct"),
+                ]),
                 # 维度 3: 回合分析
                 "rally": {
                     "avg_length_a": metrics_a.get("avg_rally_length"),
@@ -442,9 +522,9 @@ class ProgressService:
                 current = t.current_value or 0
                 direction = defn.get("direction", "up")
                 if direction == "down":
-                    target_progress = min(100, int(target / current * 100)) if current and current > 0 else 0
+                    target_progress = min(100, int(target / current * 100)) if current and current > 0 else None
                 else:
-                    target_progress = min(100, int(current / target * 100)) if target and target > 0 else 0
+                    target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
                 metric_trends.append({
                     "metric": t.metric_name,
                     "metric_name": defn.get("name", t.metric_name),
@@ -460,18 +540,41 @@ class ProgressService:
             problem_changes = await ProgressService._get_problem_changes(db, user_id)
             forecast = await ProgressService._linear_regression_forecast(db, user_id)
 
-            # 查询用户当前训练方案状态
-            from app.models.training import TrainingPlan
+            # 查询用户当前训练方案状态（R4-Progress-4: 添加 last_adjustment/adjustment_reason/goal_completion）
+            from app.models.training import TrainingPlan, PlanAdjustment
             plan = await db.scalar(
                 select(TrainingPlan)
                 .where(TrainingPlan.user_id == user_id)
                 .order_by(TrainingPlan.updated_at.desc())
                 .limit(1)
             )
-            training_plan_status = {
-                "current_plan_id": str(plan.id),
-                "plan_version": plan.version,
-            } if plan else None
+            if plan:
+                # 查询最近一次 PlanAdjustment 记录
+                adj = await db.scalar(
+                    select(PlanAdjustment)
+                    .where(PlanAdjustment.training_plan_id == plan.id)
+                    .order_by(PlanAdjustment.created_at.desc())
+                    .limit(1)
+                )
+                # 计算 goal_completion（基于 trends 当前值与 goal_metrics 目标值）
+                goal_metrics = plan.goal_metrics or {}
+                trends_map = {t.metric_name: t for t in trends}
+                goal_completion = {}
+                for metric, target in goal_metrics.items():
+                    t = trends_map.get(metric)
+                    if t and t.current_value is not None and target:
+                        goal_completion[metric] = round(t.current_value / target, 4) if target != 0 else 0.0
+                    else:
+                        goal_completion[metric] = 0.0
+                training_plan_status = {
+                    "current_plan_id": str(plan.id),
+                    "plan_version": plan.version,
+                    "last_adjustment": adj.created_at.isoformat() if adj and adj.created_at else None,
+                    "adjustment_reason": adj.adjustment_reason if adj else None,
+                    "goal_completion": goal_completion,
+                }
+            else:
+                training_plan_status = None
 
         result = {
             "summary_period": "no_data" if total <= 0 else "recent" if total <= 3 else "last_3_months",
@@ -638,14 +741,11 @@ class ProgressService:
         issues_a = _extract_issues(report_a)
         issues_b = _extract_issues(report_b)
 
-        new_ids = issues_b - issues_a
-        resolved_ids = issues_a - issues_b
-        persistent_ids = issues_a & issues_b
-
+        # R4-Progress-5: API 设计要求 list[str]，返回问题标识列表
         return {
-            "new": [{"problem_id": f"NEW_{i}", "problem_name": str(p)} for i, p in enumerate(new_ids)],
-            "resolved": [{"problem_id": f"RESOLVED_{i}", "problem_name": str(p)} for i, p in enumerate(resolved_ids)],
-            "persistent": [{"problem_id": f"PERSIST_{i}", "problem_name": str(p)} for i, p in enumerate(persistent_ids)],
+            "new": list(issues_b - issues_a),
+            "resolved": list(issues_a - issues_b),
+            "persistent": list(issues_a & issues_b),
         }
 
     @staticmethod
@@ -661,7 +761,8 @@ class ProgressService:
         forecast = {}
         for t in rows:
             series = t.time_series or []
-            if len(series) < 2:
+            # R4-Progress-3: 数据点阈值从 2 改为 3
+            if len(series) < 3:
                 continue
 
             # 简单线性回归: y = slope * x + intercept
@@ -669,7 +770,8 @@ class ProgressService:
             x_vals = list(range(n))
             y_vals = [float(v["value"]) for v in series if isinstance(v, dict) and v.get("value") is not None]
 
-            if len(y_vals) < 2:
+            # R4-Progress-3: 数据点阈值从 2 改为 3
+            if len(y_vals) < 3:
                 continue
 
             m = len(y_vals)
@@ -698,11 +800,12 @@ class ProgressService:
             # 预测到达目标的周数
             target = t.target_value
             predicted_weeks = None
-            if target and slope != 0:
+            # R4-Progress-3: slope <= 0 时不预测；predicted_weeks 计算添加 * 2 系数
+            if target and slope > 0:
                 # y = slope * x + intercept → x = (target - intercept) / slope
                 weeks_to_target = (target - intercept) / slope
                 if weeks_to_target > 0:
-                    predicted_weeks = int(weeks_to_target)
+                    predicted_weeks = int(weeks_to_target * 2)
 
             confidence = "high" if r_squared > 0.7 else "medium"
 

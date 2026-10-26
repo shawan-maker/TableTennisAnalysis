@@ -100,7 +100,7 @@ async def run_pipeline_async(task_id: int, oss_key: str) -> None:
             .where(VideoTask.id == task_id)
             .values(
                 status="completed",
-                progress=100,
+                progress=1.0,
                 current_step=10,
                 completed_at=datetime.now(timezone.utc),
             )

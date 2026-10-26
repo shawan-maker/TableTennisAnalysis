@@ -74,14 +74,17 @@ class TrainingAdviceService:
             plan_template = None
 
             for m in matches:
+                # R4-Training-3: 基于当前 rule 的 field 从 trend_ctx 取对应趋势
+                trend_val = "new"
+                field = m.get("field")
+                if field and field in trend_ctx:
+                    trend_val = trend_ctx[field].get("direction", "new")
+
                 diagnosis.append({
                     "problem_id": m["problem_id"],
                     "problem_name": m["problem_name"],
                     "severity": m["severity"],
-                    "trend": trend_ctx.get(
-                        next(iter([k for k, v in trend_ctx.items() if v.get("direction")]), ""),
-                        {}
-                    ).get("direction", "new"),
+                    "trend": trend_val,
                     "description": m["suggestion"],
                 })
 
@@ -97,16 +100,23 @@ class TrainingAdviceService:
                 suggestions.append({"type": sug_type, "text": m["suggestion"]})
 
                 for method_id in (m.get("training_methods") or []):
+                    # R4-Training-13: method name 去除 METHOD_ 前缀
+                    method_name = (
+                        method_id.replace("METHOD_", "", 1)
+                        if isinstance(method_id, str) and method_id.startswith("METHOD_")
+                        else method_id
+                    )
                     training_methods.append({
                         "method_id": method_id,
-                        "name": method_id,
+                        "name": method_name,
                         "description": "",
                     })
 
                 if m.get("training_plan_template") and not plan_template:
                     plan_template = m["training_plan_template"]
 
-            if is_first and not suggestions:
+            # R4-Training-11: 首次分析建议改为无条件追加
+            if is_first:
                 suggestions.append({
                     "type": "first_analysis",
                     "text": "这是您的首次分析，建议关注基本技术动作。",
@@ -134,6 +144,11 @@ class TrainingAdviceService:
                 raise AppException("暂无分析报告", 404, code=40412)
 
         return await TrainingAdviceService.get_advice_by_report(user_id, latest.id)
+
+    @staticmethod
+    async def generate_advice(user_id: int, report_id: int) -> dict:
+        """生成训练建议 — 委托给 get_advice_by_report（R4-Training-4）"""
+        return await TrainingAdviceService.get_advice_by_report(user_id, report_id)
 
     @staticmethod
     async def _get_trends(db: AsyncSession, user_id: int) -> list[TechniqueTrend]:
@@ -245,26 +260,45 @@ class TrainingAdviceService:
             if not plan:
                 raise AppException("训练方案不存在", 404, code=40420)
 
+            # R4-Training-7: 防御性 MembershipService 校验
+            from app.services.membership_service import MembershipService
+            membership = await MembershipService.check_membership(db, user_id)
+            if not membership.is_member:
+                raise AppException("非会员无法重新评估训练方案", 403, code=40301)
+
             trends = await TrainingAdviceService._get_trends(db, user_id)
             goal_metrics = plan.goal_metrics or {}
 
             action, reason = TrainingAdviceService._evaluate_plan_effectiveness(trends, goal_metrics)
 
             if action != "maintain":
-                old_snapshot = plan.plan_data
-                new_plan_data = TrainingAdviceService._generate_new_plan(plan, trends, goal_metrics, action)
+                # R4-Training-1: old/new snapshot 结构为 {version, goal, plan_data}
+                old_snapshot = {
+                    "version": plan.version,
+                    "goal": goal_metrics,
+                    "plan_data": plan.plan_data,
+                }
+                generated_plan_data = TrainingAdviceService._generate_new_plan(
+                    plan, trends, goal_metrics, action
+                )
+                new_snapshot = {
+                    "version": plan.version + 1,
+                    "goal": goal_metrics,
+                    "plan_data": generated_plan_data,
+                }
 
                 adjustment = PlanAdjustment(
                     training_plan_id=plan_id,
                     trigger_report_id=None,
                     old_plan_snapshot=old_snapshot,
-                    new_plan_snapshot=new_plan_data,
+                    new_plan_snapshot=new_snapshot,
                     adjustment_reason=reason,
                     adjustment_action=action,
                 )
                 db.add(adjustment)
-                plan.plan_data = new_plan_data
+                plan.plan_data = generated_plan_data
                 plan.version += 1
+                plan.goal_metrics = new_snapshot.get("goal", goal_metrics)
 
             await db.commit()
 
@@ -272,11 +306,22 @@ class TrainingAdviceService:
 
     @staticmethod
     def _evaluate_plan_effectiveness(trends: list, goal_metrics: dict) -> tuple:
+        # R4-Training-2: 空 trends 守卫
+        if not trends:
+            return "maintain", "暂无足够趋势数据"
+
+        # 达标判断基于值：current_value >= target
+        all_achieved = True
+        for trend in trends:
+            target = goal_metrics.get(trend.metric_name)
+            if target is None or trend.current_value is None or trend.current_value < target:
+                all_achieved = False
+                break
+
         declining = [t for t in trends if t.trend == "declining"]
-        achieved = [t for t in trends if t.trend == "achieved"]
         stagnant = [t for t in trends if t.trend == "stagnant" and t.persistence_count >= STAGNANT_THRESHOLD]
 
-        if len(achieved) == len(trends):
+        if all_achieved:
             return "new_goal", "已有指标达成目标，建议设定新目标"
         if declining:
             return "escalate", "指标下降趋势，建议升级训练强度"
@@ -341,7 +386,7 @@ class TrainingAdviceService:
                         "is_completed": s.get("status") == "completed" or s.get("is_completed", False),
                         "scheduled_date": s.get("scheduled_date"),
                         "completed_at": s.get("completed_at"),
-                        "session_index": s.get("session_index", offset + i),
+                        "session_index": s.get("session_index", i + 1),
                         "reps": s.get("reps", 0),
                     })
 

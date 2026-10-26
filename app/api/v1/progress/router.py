@@ -13,6 +13,7 @@ from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
 from app.services.progress_service import ProgressService
+from typing import Optional
 
 router = APIRouter(prefix="/progress", tags=["进度分析"])
 
@@ -22,11 +23,13 @@ router = APIRouter(prefix="/progress", tags=["进度分析"])
 async def list_snapshots(
     request: Request,
     period: str = Query(default="all", pattern="^(month|quarter|year|all)$"),
+    # R4-Progress-11: 添加 status 过滤参数
+    status: Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
     user: User = Depends(get_current_user),
 ):
-    data = await ProgressService.list_snapshots(user.id, period=period, page=page, page_size=page_size)
+    data = await ProgressService.list_snapshots(user.id, period=period, status=status, page=page, page_size=page_size)
     return success(data=data)
 
 

@@ -126,17 +126,32 @@ class NotificationService:
             )
             return True
 
-        # TODO: 接入微信订阅消息 API
+        # TODO: 接入微信订阅消息 API（生产环境取消注释并配置 client）
+        # 构造 template_msg 结构，便于日志审计与后续接入
+        template_msg = {
+            "template_id": settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
+            if hasattr(settings, "WECHAT_SUBSCRIBE_TEMPLATE_ID")
+            else notification.get("type", "notification"),
+            "page": "pages/notification/list",
+            "data": {
+                "thing1": {"value": notification.get("title", "")[:20]},
+                "thing2": {"value": notification.get("content", "")[:20]},
+            },
+            "miniprogram_state": "formal" if settings.is_production else "developer",
+            "lang": "zh_CN",
+        }
+        logger.info(
+            "wechat subscribe message prepared: user_id=%s type=%s template_id=%s",
+            user_id, notification.get("type"), template_msg["template_id"],
+        )
         # from app.core.wechat import WeChatClient
         # client = WeChatClient()
-        # template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
         # await client.send_subscribe_message(
         #     user_id=user_id,
-        #     template_id=template_id,
-        #     page="pages/notification/list",
-        #     data={"thing1": {"value": notification.get("title", "")}, "thing2": {"value": notification.get("content", "")}},
+        #     template_id=template_msg["template_id"],
+        #     page=template_msg["page"],
+        #     data=template_msg["data"],
         # )
-        logger.info("wechat subscribe message sent: user_id=%s", user_id)
         return True
 
     # ==================== 通知列表 / 已读 / 未读数 ====================
@@ -239,20 +254,18 @@ class NotificationService:
         user_id: int,
         template_ids: list[str],
     ) -> SubscribeResponse:
-        """微信订阅消息授权"""
+        """微信订阅消息授权（静默过滤无效模板 ID）"""
         valid_templates = {"analysis_complete", "payment_success", "training_reminder"}
-        invalid = [t for t in template_ids if t not in valid_templates]
-        if invalid:
-            raise AppException(f"订阅模板 ID 不合法: {invalid}", 422, code=40004)
+        valid_ids = [t for t in template_ids if t in valid_templates]
 
         redis = await get_redis()
         key = f"notif:subscribed:{user_id}"
         # 清除旧订阅，设置新订阅
         await redis.delete(key)
-        if template_ids:
-            await redis.sadd(key, *template_ids)
+        if valid_ids:
+            await redis.sadd(key, *valid_ids)
 
-        return SubscribeResponse(subscribed_templates=template_ids)
+        return SubscribeResponse(subscribed_templates=valid_ids)
 
     # ==================== 训练提醒 ====================
 

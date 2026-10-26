@@ -134,7 +134,7 @@ class MatchStartResponse(BaseModel):
 
     match_id: int
     status: str = "in_progress"
-    started_at: str
+    started_at: datetime
 
 
 class MatchAbandonResponse(BaseModel):
@@ -142,7 +142,7 @@ class MatchAbandonResponse(BaseModel):
 
     match_id: int
     status: str = "abandoned"
-    abandoned_at: str
+    abandoned_at: datetime
 
 
 class MatchResumeResponse(BaseModel):
@@ -150,7 +150,7 @@ class MatchResumeResponse(BaseModel):
 
     match_id: int
     status: str = "in_progress"
-    resumed_at: str
+    resumed_at: datetime
 
 
 class MatchStatisticResponse(BaseModel):

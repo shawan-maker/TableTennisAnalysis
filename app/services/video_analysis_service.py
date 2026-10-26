@@ -120,6 +120,11 @@ class VideoAnalysisService:
             if not head:
                 raise AppException("文件未上传完成", 400, code=ERR_FILE_NOT_UPLOADED)
 
+            # 文件大小校验 — 实际大小必须与声明一致
+            actual_size = head.get("content_length", 0)
+            if actual_size != record.file_size:
+                raise AppException("上传文件大小与声明不符", 400, code=ERR_BAD_REQUEST)
+
             # 获取视频时长
             duration_sec = FileService.get_video_duration(record.oss_key)
 
@@ -177,7 +182,7 @@ class VideoAnalysisService:
                 status="queued",
                 task_uuid=task_uuid,
                 total_steps=10,
-                progress=0,
+                progress=0.0,
             )
             db.add(task)
             await db.commit()
@@ -248,7 +253,7 @@ class VideoAnalysisService:
 
             items = [
                 {
-                    "id": t.id,
+                    "task_id": t.id,
                     "task_uuid": t.task_uuid,
                     "status": t.status,
                     "current_step": t.current_step,
@@ -291,7 +296,7 @@ class VideoAnalysisService:
                     report_id = report
 
             return {
-                "id": task.id,
+                "task_id": task.id,
                 "task_uuid": task.task_uuid,
                 "status": task.status,
                 "current_step": task.current_step,
@@ -331,6 +336,10 @@ class VideoAnalysisService:
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                     "is_llm_generated": r.is_llm_generated,
                     "cover_image_url": r.cover_image_url,
+                    "report_summary": (
+                        r.report_text.get("summary")
+                        if isinstance(r.report_text, dict) else None
+                    ),
                 }
                 for r in reports
             ]
@@ -362,13 +371,18 @@ class VideoAnalysisService:
             )
             task_uuid = task_result.scalar_one_or_none()
 
+            # is_readonly 通过 Redis 降级标记判断（会员到期权限降级）
+            redis = await get_redis()
+            readonly = await redis.get(f"downgrade:report:readonly:{user_id}")
+            is_readonly = readonly is not None
+
             return {
                 "id": report.id,
                 "task_id": report.task_id,
                 "task_uuid": task_uuid,
                 "created_at": report.created_at.isoformat() if report.created_at else None,
                 "is_llm_generated": report.is_llm_generated,
-                "is_readonly": report.is_anonymized,
+                "is_readonly": is_readonly,
                 "result_data": report.result_data,
                 "report_text": report.report_text,
                 "annotated_video_url": report.annotated_video_url,
@@ -428,6 +442,30 @@ class VideoAnalysisService:
                 await db.refresh(feedback)
                 feedback_id = feedback.id
 
+            # 数据飞轮：is_correct=True 时归档样本用于训练
+            if req.is_correct:
+                try:
+                    await FileService.archive_for_training(report_id, report.task_id)
+                except AttributeError:
+                    # FileService 尚未实现 archive_for_training 方法
+                    # TODO: S6+ 实现 FileService.archive_for_training 后移除此分支
+                    logger.warning("FileService.archive_for_training not implemented")
+                except Exception as e:
+                    logger.error("archive_for_training_failed", extra={
+                        "error": str(e), "report_id": report_id
+                    })
+
+            # 游戏化积分（try/except 不阻塞主流程）
+            try:
+                from app.services.gamification_service import GamificationService
+                await GamificationService.add_points(
+                    db, user_id=user_id, event_type="feedback", ref_id=feedback_id
+                )
+            except Exception as e:
+                logger.warning("feedback_add_points_failed", extra={
+                    "error": str(e), "feedback_id": feedback_id
+                })
+
             return {
                 "feedback_id": feedback_id,
                 "is_correct": req.is_correct,
@@ -435,8 +473,10 @@ class VideoAnalysisService:
             }
 
     @staticmethod
-    async def list_feedbacks(user_id: int, report_id: int) -> dict:
-        """获取报告的反馈历史"""
+    async def list_feedbacks(
+        user_id: int, report_id: int, page: int, page_size: int
+    ) -> dict:
+        """获取报告的反馈历史（分页）"""
         async with async_session_factory() as db:
             # 验证报告存在且属于当前用户
             report_result = await db.execute(
@@ -449,11 +489,20 @@ class VideoAnalysisService:
             if report is None:
                 raise AppException("分析报告不存在", 404, code=ERR_REPORT_NOT_FOUND)
 
-            # 查询反馈记录
+            # 计数
+            count_qs = select(func.count()).select_from(FeedbackRecord).where(
+                FeedbackRecord.report_id == report_id
+            )
+            count_result = await db.execute(count_qs)
+            total = count_result.scalar() or 0
+
+            # 分页查询反馈记录
             fb_result = await db.execute(
                 select(FeedbackRecord)
                 .where(FeedbackRecord.report_id == report_id)
                 .order_by(FeedbackRecord.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
             )
             feedbacks = fb_result.scalars().all()
 
@@ -474,7 +523,12 @@ class VideoAnalysisService:
                 for fb in feedbacks
             ]
 
-            return {"items": items}
+            return {
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "items": items,
+            }
 
     # =================================================================
     # 标注视频
@@ -504,8 +558,9 @@ class VideoAnalysisService:
             duration = task_result.scalar_one_or_none()
 
             return {
-                "annotated_video_url": report.annotated_video_url,
+                "url": report.annotated_video_url,
                 "duration_sec": duration,
+                "quality_options": ["480p", "720p", "1080p"],
             }
 
     # =================================================================
@@ -544,6 +599,17 @@ class VideoAnalysisService:
             await db.refresh(share)
 
             share_url = f"/share/{share_token}"
+
+            # 游戏化积分（try/except 不阻塞主流程）
+            try:
+                from app.services.gamification_service import GamificationService
+                await GamificationService.add_points(
+                    db, user_id=user_id, event_type="share", ref_id=share.id
+                )
+            except Exception as e:
+                logger.warning("share_add_points_failed", extra={
+                    "error": str(e), "share_id": share.id
+                })
 
             return {
                 "share_url": share_url,
@@ -589,11 +655,19 @@ class VideoAnalysisService:
                 "issues": report_text.get("issues", [])[:2],
             }
 
+            # result_data 仅返回安全子集（不含个人信息/训练建议）
+            safe_keys = ("technique_stats", "landing_points", "ball_speed")
+            safe_result_data = {
+                k: report.result_data.get(k)
+                for k in safe_keys
+                if report.result_data and k in report.result_data
+            }
+
             return {
                 "report_id": report.id,
                 "cover_image_url": report.cover_image_url,
                 "annotated_video_url": report.annotated_video_url,
-                "result_data": report.result_data,
+                "result_data": safe_result_data,
                 "report_text": safe_text,
                 "created_at": report.created_at.isoformat() if report.created_at else None,
             }
@@ -620,17 +694,18 @@ class VideoAnalysisService:
         """
         免费配额检查 — Redis INCR。
         会员跳过（S5 实现）。
+        使用 CST（UTC+8）日期作为 key，避免跨日边界错误。
         """
         redis = await get_redis()
-        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        tz_cst = timezone(timedelta(hours=8))
+        today = datetime.now(tz_cst).strftime("%Y%m%d")
         key = f"quota:analysis:{user_id}:{today}"
         count = await redis.incr(key)
 
         if count == 1:
             # 当天第一次，设置 TTL 到当天结束
-            import calendar
-            now = datetime.now(timezone.utc)
-            end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59, tzinfo=timezone.utc)
+            now = datetime.now(tz_cst)
+            end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59, tzinfo=tz_cst)
             ttl = int((end_of_day - now).total_seconds()) + 3600  # +1h buffer
             await redis.expire(key, ttl)
 
@@ -645,15 +720,16 @@ class VideoAnalysisService:
 
     @staticmethod
     async def _check_share_limit(user_id: int) -> None:
-        """分享次数限制"""
+        """分享次数限制 — 使用 CST 日期作为 key"""
         redis = await get_redis()
-        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        tz_cst = timezone(timedelta(hours=8))
+        today = datetime.now(tz_cst).strftime("%Y%m%d")
         key = f"share:count:{user_id}:{today}"
         count = await redis.incr(key)
 
         if count == 1:
-            now = datetime.now(timezone.utc)
-            end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59, tzinfo=timezone.utc)
+            now = datetime.now(tz_cst)
+            end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59, tzinfo=tz_cst)
             ttl = int((end_of_day - now).total_seconds()) + 3600
             await redis.expire(key, ttl)
 

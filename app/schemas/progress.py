@@ -85,12 +85,6 @@ class ForecastItem(BaseModel):
     r_squared: float
 
 
-class ProblemChanges(BaseModel):
-    new: list[str] = []
-    resolved: list[str] = []
-    persistent: list[str] = []
-
-
 class TrainingPlanStatus(BaseModel):
     current_plan_id: Optional[str] = None
     plan_version: Optional[int] = None

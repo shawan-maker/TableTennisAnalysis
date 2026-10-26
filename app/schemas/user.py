@@ -8,30 +8,49 @@ app/schemas/user.py — 用户模块 Pydantic Schema
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # =============================================================================
 # 请求 Schema
 # =============================================================================
 
+# R4-User-2: 添加 @field_validator 校验 playing_style/self_assessed_level
+# R4-User-3: 移除 kqs_rating/kqs_username/nickname/avatar_url（这些通过 /users/rating 或 /users/profile 单独端点更新）
 class ProfileUpdateRequest(BaseModel):
     """更新个人档案请求（PATCH 语义，仅更新传入字段）"""
 
     playing_style: Optional[str] = Field(default=None, max_length=32, description="打法类型")
     self_assessed_level: Optional[str] = Field(default=None, max_length=32, description="自评水平")
     equipment_config: Optional[dict] = Field(default=None, description="装备配置 JSON")
-    kqs_rating: Optional[int] = Field(default=None, ge=0, le=3000, description="开球网积分")
-    kqs_username: Optional[str] = Field(default=None, max_length=64, description="开球网用户名")
-    nickname: Optional[str] = Field(default=None, max_length=64, description="昵称")
-    avatar_url: Optional[str] = Field(default=None, max_length=512, description="头像 URL")
+
+    @field_validator("playing_style")
+    @classmethod
+    def validate_playing_style(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"loop", "fast_attack", "chop", "all_round"}
+        if v not in allowed:
+            raise ValueError(f"打法类型不合法，可选值: {', '.join(sorted(allowed))}")
+        return v
+
+    @field_validator("self_assessed_level")
+    @classmethod
+    def validate_self_level(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"beginner", "intermediate", "advanced"}
+        if v not in allowed:
+            raise ValueError(f"自评水平不合法，可选值: {', '.join(sorted(allowed))}")
+        return v
 
 
 class RatingUpdateRequest(BaseModel):
     """更新积分请求"""
 
     rating: int = Field(..., ge=500, le=3000, description="积分值")
-    kqs_username: Optional[str] = Field(default=None, max_length=128, description="开球网用户名")
+    # R4-User-4: max_length=128 → 64（DB 列 VARCHAR(64)）
+    kqs_username: Optional[str] = Field(default=None, max_length=64, description="开球网用户名")
     source: str = Field(default="manual", max_length=20, description="来源")
 
 

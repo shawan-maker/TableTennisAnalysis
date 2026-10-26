@@ -14,12 +14,14 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -45,6 +47,9 @@ class FileRecord(Base):
     uploaded_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    # Relationships
+    tasks = relationship("VideoTask", back_populates="file_record")
+
     __table_args__ = (
         CheckConstraint("file_size >= 1048576 AND file_size <= 524288000", name="ck_file_size_range"),
         Index("idx_file_record_user_created", "user_id", "created_at"),
@@ -68,7 +73,7 @@ class VideoTask(Base):
     task_uuid = Column(String(64), nullable=False, unique=True)
     total_steps = Column(Integer, nullable=False, default=10)
     step_name = Column(String(32), nullable=True)
-    progress = Column(Integer, nullable=False, default=0)  # 0-100
+    progress = Column(Float, nullable=False, default=0.0)  # 0.0-1.0
     estimated_remaining_seconds = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
@@ -76,7 +81,7 @@ class VideoTask(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    file = relationship("FileRecord", backref="tasks")
+    file_record = relationship("FileRecord", back_populates="tasks")
     pipeline_steps = relationship("PipelineStep", backref="task", cascade="all, delete-orphan", order_by="PipelineStep.step_number")
     report = relationship("AnalysisReport", backref="task", uselist=False, cascade="all, delete-orphan")
 
@@ -129,7 +134,8 @@ class AnalysisReport(Base):
     shares = relationship("ShareRecord", backref="report")
 
     __table_args__ = (
-        Index("idx_report_user_created", "user_id", "created_at"),
+        Index("idx_report_user_created", "user_id", text("created_at DESC")),
+        Index("idx_report_text_gin", "report_text", postgresql_using="gin"),
     )
 
 

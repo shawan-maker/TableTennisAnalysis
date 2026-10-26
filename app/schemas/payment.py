@@ -5,10 +5,28 @@ app/schemas/payment.py — 支付模块 Pydantic Schema
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, Field
 from typing import Literal
+
+
+# ---------------------------------------------------------------------------
+# 分页泛型（R4-Pay-3）— 统一分页响应结构
+# ---------------------------------------------------------------------------
+T = TypeVar("T")
+
+
+class Paginated(BaseModel, Generic[T]):
+    """通用分页响应 Schema"""
+    total: int = Field(..., description="总记录数")
+    page: int = Field(..., description="当前页码")
+    page_size: int = Field(..., description="每页数量")
+    items: List[T] = Field(default_factory=list, description="当前页数据")
+
+
+# 订单分页响应类型别名
+PaginatedOrders = Paginated["OrderBrief"]
 
 
 # --- 请求 Schema ---

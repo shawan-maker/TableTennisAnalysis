@@ -10,14 +10,42 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+import bcrypt as _bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ERR_TOKEN_EXPIRED, ERR_UNAUTHORIZED
 
-# 密码哈希工具（pbkdf2_sha256 — 不依赖 bcrypt）
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
+# 密码哈希工具（bcrypt — 设计要求 §12 安全）
+# 注：passlib 1.7.4 与 bcrypt 5.x 不兼容（detect_wrap_bug 触发 ValueError:
+# "password cannot be longer than 72 bytes"），因此直接封装 bcrypt 模块，
+# 对外保持 pwd_context.hash()/verify() API。
+class _PwdContext:
+    """密码哈希上下文（bcrypt 直接封装，保持 CryptContext 兼容 API）"""
+
+    @staticmethod
+    def hash(password: str) -> str:
+        if password is None:
+            raise TypeError("password must not be None")
+        # bcrypt 限 72 字节，超出部分截断（与 passlib 默认行为一致）
+        secret = password.encode("utf-8")[:72]
+        return _bcrypt.hashpw(secret, _bcrypt.gensalt()).decode("utf-8")
+
+    @staticmethod
+    def verify(password: str, hashed: str) -> bool:
+        if not password or not hashed:
+            return False
+        try:
+            return _bcrypt.checkpw(
+                password.encode("utf-8")[:72],
+                hashed.encode("utf-8"),
+            )
+        except (ValueError, TypeError):
+            return False
+
+
+pwd_context = _PwdContext()
 
 
 def create_access_token(payload: dict[str, Any]) -> str:

@@ -28,7 +28,6 @@ from app.schemas.auth import (
     LoginResponse,
     PhoneLoginRequest,
     RefreshResponse,
-    SendSmsRequest,
     UserBrief,
     WechatLoginRequest,
 )
@@ -124,15 +123,17 @@ class AuthService:
     # 手机号验证码登录
     # =================================================================
 
+    # R4-Auth-3: send_sms 签名 phone: str 而非 req: SendSmsRequest
     @staticmethod
-    async def send_sms(req: SendSmsRequest) -> dict:
+    async def send_sms(phone: str) -> dict:
         """发送短信验证码（5 分钟有效）"""
         import random
 
         redis = await get_redis()
 
         # 防刷限制：同一手机号 60 秒内只能发一次
-        rate_key = f"sms:rate:{req.phone}"
+        # R4-Auth-4: Redis key sms:rate:{phone} → sms:sent:{phone}（与设计一致）
+        rate_key = f"sms:sent:{phone}"
         rate = await redis.get(rate_key)
         if rate:
             raise AppException("验证码发送过于频繁，请 60 秒后重试", 429)
@@ -141,7 +142,7 @@ class AuthService:
         code = f"{random.randint(0, 999999):06d}"
 
         # 存入 Redis，5 分钟有效
-        code_key = f"sms:code:{req.phone}"
+        code_key = f"sms:code:{phone}"
         await redis.setex(code_key, AuthService.SMS_CODE_TTL, code)
 
         # 设置防刷标记，60 秒
@@ -152,10 +153,10 @@ class AuthService:
             # Mock 模式：日志输出验证码（开发环境）
             import logging
             logging.getLogger(__name__).info(
-                "SMS mock mode: phone=%s code=%s", req.phone, code
+                "SMS mock mode: phone=%s code=%s", phone, code
             )
         else:
-            await AuthService._send_aliyun_sms(req.phone, code)
+            await AuthService._send_aliyun_sms(phone, code)
 
         return {"expire_seconds": AuthService.SMS_CODE_TTL}
 
@@ -193,10 +194,9 @@ class AuthService:
         # 验证码校验
         code_key = f"sms:code:{req.phone}"
         stored_code = await redis.get(code_key)
-        if not stored_code:
-            raise AppException("验证码已过期，请重新获取", 400, code=ERR_BAD_REQUEST)
-        if stored_code != req.code:
-            raise AppException("验证码错误", 400, code=ERR_BAD_REQUEST)
+        # R4-Auth-6: 合并验证码错误消息为 "验证码错误或已过期"
+        if not stored_code or stored_code != req.code:
+            raise AppException("验证码错误或已过期", 400, code=ERR_BAD_REQUEST)
 
         # 验证通过，删除验证码（一次性使用）
         await redis.delete(code_key)
@@ -208,9 +208,10 @@ class AuthService:
 
             if user is None:
                 # 新用户注册
+                # R4-Auth-5: 昵称 f"球友{req.phone[-4:]}" → "球友"（避免泄漏手机号尾号）
                 user = User(
                     phone=req.phone,
-                    nickname=f"球友{req.phone[-4:]}",
+                    nickname="球友",
                 )
                 db.add(user)
                 await db.commit()
@@ -351,21 +352,29 @@ class AuthService:
     # PIPL 合规 — consent 链路
     # =================================================================
 
+    # R4-Auth-2: check_consent 接受 consent_type 参数，None 时返回所有类型
     @staticmethod
-    async def check_consent(user_id: int) -> dict:
-        """检查用户是否已同意当前版本隐私政策"""
+    async def check_consent(user_id: int, consent_type: Optional[str] = None) -> dict:
+        """
+        检查用户是否已同意当前版本隐私政策。
+
+        consent_type=None: 不限类型，返回任意类型的最新同意记录
+        consent_type 指定: 仅查询该类型的最新同意记录
+        """
         async with async_session_factory() as db:
-            result = await db.execute(
+            stmt = (
                 select(ConsentLog)
                 .where(
                     ConsentLog.user_id == user_id,
-                    ConsentLog.consent_type == "privacy_policy",
                     ConsentLog.policy_version == AuthService.CURRENT_POLICY_VERSION,
                     ConsentLog.withdrawn_at.is_(None),
                 )
                 .order_by(ConsentLog.consent_at.desc())
                 .limit(1)
             )
+            if consent_type is not None:
+                stmt = stmt.where(ConsentLog.consent_type == consent_type)
+            result = await db.execute(stmt)
             record = result.scalar_one_or_none()
             if record:
                 return {

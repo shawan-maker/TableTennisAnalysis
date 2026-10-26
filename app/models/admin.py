@@ -55,9 +55,10 @@ class SystemConfig(Base):
 
     __tablename__ = "system_config"
 
+    # R4-Admin-16: Python 属性名与 DB 列名一致 config_key/config_value（设计 §2.33）
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    key: Mapped[str] = mapped_column("config_key", String(64), unique=True, nullable=False)
-    value: Mapped[dict | str] = mapped_column("config_value", JSONB, nullable=False, comment="配置值 JSONB")
+    config_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    config_value: Mapped[dict | str] = mapped_column(JSONB, nullable=False, comment="配置值 JSONB")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
@@ -74,19 +75,21 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    admin_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("admin_user.id", ondelete="RESTRICT"), nullable=False,
-        comment="操作管理员 ID",
+    admin_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True,
+        comment="操作管理员 ID（非管理员操作如支付时为空，user_id 有值）",
     )
     user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("user.id", ondelete="SET NULL"), nullable=True,
         comment="操作者 ID（用户侧操作时记录）",
     )
+    # R4-Admin-24: action String(64) → String(32)（与设计一致）
     action: Mapped[str] = mapped_column(
-        String(64), nullable=False, comment="操作类型",
+        String(32), nullable=False, comment="操作类型",
     )
-    target_type: Mapped[str | None] = mapped_column(
-        String(32), nullable=True, comment="目标对象类型",
+    # R4-Admin-14: target_type nullable=True → nullable=False（审计日志必有目标类型）
+    target_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, comment="目标对象类型",
     )
     target_id: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True, comment="目标对象 ID",

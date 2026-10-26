@@ -20,13 +20,33 @@ from app.core.exceptions import (
     generic_exception_handler,
 )
 from app.core.limiter import RateLimitExceeded, limiter, rate_limit_exceeded_handler
+from app.core.logging import configure_logging
+from app.core.metrics import configure_metrics, metrics_endpoint
+from app.core.middleware import RequestIDMiddleware
 from app.core.redis import close_redis, get_redis
+from app.core.sentry import init_sentry
 from app.core.websocket import manager as ws_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理 — 启动时初始化连接，关闭时清理资源"""
+    # 启动时：初始化可观测性（日志 → Sentry → Prometheus，先于 Redis）
+    try:
+        configure_logging()
+    except Exception as e:
+        print(f"[WARNING] Logging configuration failed: {e}")
+
+    try:
+        init_sentry()
+    except Exception as e:
+        print(f"[WARNING] Sentry initialization failed: {e}")
+
+    try:
+        configure_metrics(app)
+    except Exception as e:
+        print(f"[WARNING] Metrics configuration failed: {e}")
+
     # 启动时：验证 Redis 连接
     try:
         redis = await get_redis()
@@ -86,6 +106,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# request_id 中间件（注册顺序：后注册=外层先执行，故 request_id 先于业务处理）
+# 纯 ASGI 实现，对 WebSocket 请求直接透传
+app.add_middleware(RequestIDMiddleware)
+
 # 限流（slowapi）
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
@@ -115,6 +139,12 @@ async def health_check():
         "env": settings.ENV,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/metrics", tags=["monitoring"], include_in_schema=False)
+async def prometheus_metrics():
+    """Prometheus 指标采集端点 — 供内网 Prometheus scrape"""
+    return metrics_endpoint()
 
 
 @app.get("/", tags=["系统"], summary="根路径")

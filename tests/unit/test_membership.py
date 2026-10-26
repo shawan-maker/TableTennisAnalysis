@@ -191,7 +191,7 @@ async def test_membership_expiry_detection(db_session, seed_tiers):
 
 @pytest.mark.asyncio
 async def test_membership_expired_detection(db_session, seed_tiers):
-    """到期检测：已过期标记 expired"""
+    """到期检测：超过宽限期(7天)标记 expired"""
     from app.models.user import User
     from app.models.membership import Subscription
     from app.services.membership_service import MembershipService
@@ -200,10 +200,11 @@ async def test_membership_expired_detection(db_session, seed_tiers):
     db_session.add(user)
     await db_session.flush()
 
+    # 过期 8 天（超过 GRACE_PERIOD_DAYS=7 宽限期，应直接标记 expired）
     sub = Subscription(
         user_id=user.id, tier="member", status="active",
-        start_at=datetime.now(timezone.utc) - timedelta(days=35),
-        expire_at=datetime.now(timezone.utc) - timedelta(days=5),
+        start_at=datetime.now(timezone.utc) - timedelta(days=38),
+        expire_at=datetime.now(timezone.utc) - timedelta(days=8),
     )
     db_session.add(sub)
     await db_session.commit()
@@ -216,6 +217,36 @@ async def test_membership_expired_detection(db_session, seed_tiers):
     )
     updated = result.scalar_one()
     assert updated.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_membership_grace_period_detection(db_session, seed_tiers):
+    """到期检测：刚过期(宽限期内)标记 grace_period，保留权益"""
+    from app.models.user import User
+    from app.models.membership import Subscription
+    from app.services.membership_service import MembershipService
+
+    user = User(openid="test_grace_001", nickname="宽限期用户", status="active")
+    db_session.add(user)
+    await db_session.flush()
+
+    # 过期 3 天（在 GRACE_PERIOD_DAYS=7 宽限期内，应标记 grace_period）
+    sub = Subscription(
+        user_id=user.id, tier="member", status="active",
+        start_at=datetime.now(timezone.utc) - timedelta(days=33),
+        expire_at=datetime.now(timezone.utc) - timedelta(days=3),
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    await MembershipService.check_expiry(db_session)
+
+    from sqlalchemy import select
+    result = await db_session.execute(
+        select(Subscription).where(Subscription.user_id == user.id)
+    )
+    updated = result.scalar_one()
+    assert updated.status == "grace_period"
 
 
 @pytest.mark.asyncio
