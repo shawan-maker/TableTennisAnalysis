@@ -269,15 +269,16 @@ class AdminService:
             # R4-Admin-16: SystemConfig(key=...) → SystemConfig(config_key=...)
             config = SystemConfig(config_key=key, config_value=value, description=description)
             db.add(config)
+            await db.commit()
+            await db.refresh(config)
+            # R9-Admin-P2-1: 审计日志移到 commit 后，传入 target_id=config.id
             await AdminService._write_audit_log(
-                db, admin_id, "create", "config",
+                db, admin_id, "create", "config", target_id=config.id,
                 changes={
                     "config_key": {"old": None, "new": key},
                     "config_value": {"old": None, "new": value},
                 },
             )
-            await db.commit()
-            await db.refresh(config)
             return ConfigBrief.model_validate(config)
 
     @staticmethod
@@ -405,15 +406,16 @@ class AdminService:
         async with async_session_factory() as db:
             category = KnowledgeCategory(name=name, code=code, content=content or {})
             db.add(category)
+            await db.commit()
+            await db.refresh(category)
+            # R9-Admin-P2-1: 审计日志移到 commit 后，传入 target_id=category.id
             await AdminService._write_audit_log(
-                db, admin_id, "create", "knowledge",
+                db, admin_id, "create", "knowledge", target_id=category.id,
                 changes={
                     "name": {"old": None, "new": name},
                     "code": {"old": None, "new": code},
                 },
             )
-            await db.commit()
-            await db.refresh(category)
             return {"id": category.id, "name": category.name, "code": category.code}
 
     # R4-Admin-11: 仅允许更新 name 和 content（不允许更新 code）
@@ -491,12 +493,13 @@ class AdminService:
                 adjustment_action=adjustment_action,
             )
             db.add(rule)
-            await AdminService._write_audit_log(
-                db, admin_id, "create", "knowledge",
-                changes={"rule_id": {"old": None, "new": rule_id}},
-            )
             await db.commit()
             await db.refresh(rule)
+            # R9-Admin-P2-1: 审计日志移到 commit 后，传入 target_id=rule.id
+            await AdminService._write_audit_log(
+                db, admin_id, "create", "knowledge", target_id=rule.id,
+                changes={"rule_id": {"old": None, "new": rule_id}},
+            )
             # R4-Admin-21: 返回 {"id", "rule_id"}
             return {"id": rule.id, "rule_id": rule.rule_id}
 
