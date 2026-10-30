@@ -339,19 +339,25 @@ class MatchDataService:
             if not update_data:
                 raise AppException("未提供任何更新字段", 422, code=ERR_BAD_REQUEST)
 
-            # 记录实际更新的字段名（排除 is_win —— 由后续逻辑决定）
-            updated_fields = [k for k in update_data.keys() if k != "is_win"]
+            # 记录实际更新的字段名（is_win 不在 Update schema 中，禁止前端传入）
+            updated_fields = list(update_data.keys())
 
             for field, value in update_data.items():
                 if hasattr(record, field):
                     setattr(record, field, value)
 
-            # is_win 处理：
-            # - 用户显式传入 is_win 时优先使用用户值
-            # - 否则仅当同时传入 my_score 和 opponent_score 时才重算
-            if data.is_win is not None:
-                record.is_win = data.is_win
-            elif data.my_score is not None and data.opponent_score is not None:
+            # R13-MatchData-1: PATCH 编辑比分补赛制校验（API §7.4 契约 422）。
+            # 单边 PATCH（如 3:1 → {"my_score": 1} → 1:1）可造出乒乓球不可能的
+            # 平局记录，应用更新后统一校验合并比分（含赛制合法性 + 非平局）
+            if data.my_score is not None or data.opponent_score is not None:
+                if not MatchDataService._validate_score_by_format(
+                    record.my_score, record.opponent_score, record.format
+                ):
+                    raise AppException(
+                        "比分不符合赛制规则", 422, code=ERR_SCORE_INVALID
+                    )
+                # R12-MatchData-B2: 任一比分变更即重算 is_win（服务端自动计算）
+                # 比分字段在模型层非空，应用更新后直接比较即可
                 record.is_win = record.my_score > record.opponent_score
 
             await db.commit()

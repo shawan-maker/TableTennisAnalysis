@@ -21,8 +21,8 @@ from app.services.payment_service import PaymentService
 router = APIRouter(prefix="/payment", tags=["支付"])
 
 
-@limiter.limit("100/minute")
 @router.post("/orders", summary="创建订单")
+@limiter.limit("100/minute")
 async def create_order(
     body: OrderCreateRequest,
     request: Request,
@@ -37,8 +37,8 @@ async def create_order(
     return success(data=data, message="订单已创建")
 
 
-@limiter.limit("100/minute")
 @router.get("/orders", summary="订单列表")
+@limiter.limit("100/minute")
 async def list_orders(
     request: Request,
     status: str | None = Query(default=None, description="状态过滤"),
@@ -92,8 +92,8 @@ async def payment_notify(
     )
 
 
-@limiter.limit("100/minute")
 @router.post("/orders/{order_id}/refund", summary="申请退款")
+@limiter.limit("100/minute")
 async def refund_order(
     order_id: int,
     body: RefundRequest,

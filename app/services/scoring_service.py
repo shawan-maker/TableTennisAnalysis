@@ -41,6 +41,10 @@ class ScoringService:
     _SERVER_KEY = "scoring:match:{match_id}:server"
     _STATUS_KEY = "scoring:match:{match_id}:status"
 
+    # R12-SC-1: 多局赛制 — 赢够此局数比赛自动结束（bo3=3局2胜/bo5=5局3胜/bo7=7局4胜）
+    # bo1/custom 视为单局（game_ended 即全场结束）
+    GAMES_TO_WIN = {"bo1": 1, "bo3": 2, "bo5": 3, "bo7": 4}
+
     # =================================================================
     # 辅助方法
     # =================================================================
@@ -252,14 +256,37 @@ class ScoringService:
                 score_user, score_opp, match.target_score, game_ended
             )
 
-            # 5. 写入 ScoreRecord
+            # 4.1 R12-SC-1: 多局赛制推进 — 本局结束后累计局分
+            #     达赛制局数 → 全场自动结束；否则进入下一局（比分清零、局数+1）
+            #     record_game_number 在推进前保存：致胜球属于其结束的那一局
+            record_game_number = match.current_game
+            games_to_win = ScoringService.GAMES_TO_WIN.get(match.format, 1)
+            match_finished = False
+            if game_ended:
+                if score_user > score_opp:
+                    match.games_won_user = (match.games_won_user or 0) + 1
+                else:
+                    match.games_won_opp = (match.games_won_opp or 0) + 1
+
+                if max(match.games_won_user or 0, match.games_won_opp or 0) >= games_to_win:
+                    # 达到赛制要求 → 全场自动结束
+                    # （最后一局实际比分保留在 current_score；is_win/final_score 由
+                    #   finish_match 按局分判定，与 MatchRecord 局分语义一致）
+                    match_finished = True
+                else:
+                    # 进入下一局：当前局比分清零、局数递增、发球权重置
+                    match.current_game += 1
+                    score_user, score_opp = 0, 0
+                    current_server = "user"
+
+            # 5. 写入 ScoreRecord（本球所属局 = 推进前局号）
             record = ScoreRecord(
                 match_id=match_id,
                 sequence=seq,
                 scorer=req.scorer,
                 score_method=req.score_method,
                 technique_action=req.technique_action,
-                game_number=match.current_game,
+                game_number=record_game_number,
                 is_key_point=is_key_point,
             )
             db.add(record)
@@ -297,14 +324,25 @@ class ScoringService:
             except Exception as e:
                 logger.warning("scoring_ws_broadcast_failed", extra={"error": str(e)})
 
+            # 9. R12-SC-1: 达赛制局数 → 自动结束全场（复用 finish_match 完整链路）
+            if match_finished:
+                try:
+                    await ScoringService.finish_match(user_id, match_id)
+                except Exception as e:
+                    logger.error("scoring_auto_finish_failed", extra={
+                        "error": str(e), "match_id": match_id,
+                    })
+
             return {
                 "sequence": seq,
                 "score": f"{score_user}:{score_opp}",
                 "current_server": current_server,
                 "game_number": match.current_game,
                 "is_key_point": is_key_point,
-                "match_status": match.status,
+                "match_status": "finished" if match_finished else match.status,
                 "should_change_sides": should_change_sides,
+                # R12-SC-1: 本球导致全场结束（前端据此跳转结束页）
+                "match_finished": match_finished,
             }
 
     @staticmethod
@@ -336,6 +374,13 @@ class ScoringService:
             record = result.scalar_one_or_none()
             if record is None:
                 raise AppException("没有可撤销的记录", 400, code=ERR_BAD_REQUEST)
+
+            # R12-SC-1: 跨局保护 — 该球已结束上一局（局分已记录、当前局比分已清零），
+            # 撤销会导致局分/局数状态错乱，拒绝
+            if record.game_number < match.current_game:
+                raise AppException(
+                    "该球已结束本局，局分已记录，不可撤销", 400, code=ERR_BAD_REQUEST
+                )
 
             # 回滚比分
             scores = await redis.hgetall(ScoringService._SCORE_KEY.format(match_id=match_id))
@@ -424,8 +469,16 @@ class ScoringService:
 
             score_user = match.current_score_user
             score_opp = match.current_score_opp
-            is_win = score_user > score_opp
-            final_score = f"{score_user}:{score_opp}"
+            # R12-SC-1: 多局模式下胜负与最终比分按局分判定
+            # （final_score 与 MatchRecord 局分语义一致，如 bo5 的 "3:1"）
+            games_user = match.games_won_user or 0
+            games_opp = match.games_won_opp or 0
+            if games_user > 0 or games_opp > 0:
+                is_win = games_user > games_opp
+                final_score = f"{games_user}:{games_opp}"
+            else:
+                is_win = score_user > score_opp
+                final_score = f"{score_user}:{score_opp}"
 
             match.status = "finished"
             match.is_win = is_win
@@ -467,6 +520,17 @@ class ScoringService:
                 )
             except Exception as e:
                 logger.error("gamification_add_points_match_failed", extra={
+                    "error": str(e), "match_id": match_id
+                })
+
+            # R12-Dash-1 → R13-AIP-1: 比赛结束后清除看板缓存 — 按 ai_pipeline.md
+            # 反幻觉约束（"级联链必须异步触发"）改 Celery 投递，避免在用户
+            # 请求路径上同步执行（dashboard.bust_cache，event=match_end）
+            try:
+                from app.tasks.dashboard import bust_cache_task
+                bust_cache_task.delay(match.user_id, "match_end")
+            except Exception as e:
+                logger.error("scoring_bust_cache_failed", extra={
                     "error": str(e), "match_id": match_id
                 })
 

@@ -10,10 +10,10 @@
 ## 1. 切片准备清单
 
 - [ ] 阅读模块详细设计 §2.12（notification 模块功能规格）
-- [ ] 阅读 API 契约 §13（3 个 REST 端点）+ §14（WebSocket 端点）
+- [ ] 阅读 API 契约 §13（4 个 REST 端点，含切片新增 unread-count，见文末回写说明）+ §14（WebSocket 端点）
 - [ ] 阅读 `app/core/redis.py`（Redis 连接管理）
 - [ ] 阅读 `app/models/notification.py`（NotificationRecord 表定义）
-- [ ] 确认本切片范围：3 个 REST API + WS 端点 + Celery Beat 训练提醒 + 离线补偿
+- [ ] 确认本切片范围：4 个 REST API + WS 端点 + Celery 任务（训练提醒 + 旧通知清理）+ 离线补偿
 
 ### 任务清单
 
@@ -26,7 +26,7 @@
 | 5 | 实现 WebSocket 端点 | `app/api/v1/ws.py` | #4 | ☐ |
 | 6 | 实现 API 路由 | `app/api/v1/notification/router.py` | #4 | ☐ |
 | 7 | 注册 Router | `app/api/v1/__init__.py` | #6 | ☐ |
-| 8 | 实现 Celery Beat 训练提醒 | `app/tasks/notification_beat.py` | #4 | ☐ |
+| 8 | 实现 Celery 任务（训练提醒 + 旧通知清理） | `app/tasks/notification.py` | #4 | ☐ |
 | 9 | 编写测试 | `tests/unit/test_notification.py` | #4 | ☐ |
 | 10 | 编写冒烟测试 | `tests/smoke/notification_smoke_test.py` | #7 | ☐ |
 
@@ -162,7 +162,7 @@ async def test_online_user_gets_ws_push(client, db_session):
     """用户在线时走 WS 推送，不写 DB。"""
     from app.services.notification_service import NotificationService
     with patch.object(
-        NotificationService, "_is_user_online",
+        NotificationService, "is_user_online",
         new_callable=AsyncMock, return_value=True,
     ), patch.object(
         NotificationService, "_push_ws",
@@ -183,7 +183,7 @@ async def test_offline_user_writes_db(client, db_session):
     """用户离线时写 DB + 发微信订阅消息。"""
     from app.services.notification_service import NotificationService
     with patch.object(
-        NotificationService, "_is_user_online",
+        NotificationService, "is_user_online",
         new_callable=AsyncMock, return_value=False,
     ), patch.object(
         NotificationService, "_send_wechat_subscribe",
@@ -194,6 +194,8 @@ async def test_offline_user_writes_db(client, db_session):
             notif_type="training_reminder",
             title="训练提醒",
             content="您已 3 天未训练，快去练球吧！",
+            # R13-P3 文档同步：实现仅在传入 wechat_template 时才发送微信订阅消息
+            wechat_template="training_reminder",
         )
         mock_wx.assert_called_once()
 
@@ -227,7 +229,7 @@ async def test_training_reminder_frequency_control(db_session):
 """通知数据模型。"""
 
 from datetime import datetime, timezone
-from sqlalchemy import BigInteger, String, Text, Boolean, ForeignKey, Index, DateTime
+from sqlalchemy import BigInteger, String, Text, Boolean, ForeignKey, Index, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -252,7 +254,8 @@ class NotificationRecord(Base):
     extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     """附加数据：{task_id, report_id, action_url, match_id, ...}"""
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # R13-P3 文档同步：实现采用 DB 端默认值（app/models/notification.py）
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         Index("idx_notif_user_unread", "user_id", "is_read", "created_at"),
@@ -330,7 +333,7 @@ PaginatedNotifications = Paginated[NotificationBrief]
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy import select, update, func
@@ -366,10 +369,15 @@ class NotificationService:
     REMINDER_INACTIVE_DAYS = 3
 
     @staticmethod
-    async def _is_user_online(user_id: int) -> bool:
+    async def is_user_online(user_id: int) -> bool:
+        # R13-P3 文档同步：实现为公开方法 is_user_online（ws.py 与测试直接调用），
+        # Redis 异常时返回 False 防御连接抖动
         """检查用户是否在线（Redis ws:online:{user_id} 是否存在）。"""
-        redis = await get_redis()
-        return await redis.exists(f"ws:online:{user_id}") > 0
+        try:
+            redis = await get_redis()
+            return await redis.exists(f"ws:online:{user_id}") > 0
+        except Exception:
+            return False
 
     @staticmethod
     async def _push_ws(user_id: int, event: str, data: dict) -> None:
@@ -378,7 +386,9 @@ class NotificationService:
         通过 Redis pub/sub 发布消息，WS 网关订阅后推送到客户端。
         """
         redis = await get_redis()
-        channel = f"ws:user:{user_id}"
+        # R13-P3 文档同步（R5-Infra-5）：发布频道与 WSManager 统一为
+        # ws:relay:{room_id}（room_id="ws:user:{user_id}"），两套推送机制互通
+        channel = f"ws:relay:ws:user:{user_id}"
         message = json.dumps({"event": event, "data": data})
         await redis.publish(channel, message)
 
@@ -392,34 +402,47 @@ class NotificationService:
 
     @staticmethod
     async def _send_wechat_subscribe(user_id: int, notification: dict) -> bool:
-        """发送微信订阅消息。"""
-        try:
-            from app.core.wechat import wechat_client  # 微信客户端
+        """发送微信订阅消息。
 
-            # 获取用户 openid
-            async with get_async_session() as db:
-                stmt = select(User).where(User.id == user_id)
-                user = (await db.execute(stmt)).scalar_one_or_none()
-            if not user or not user.openid:
-                return False
+        R12-Notif-2（Phase 2 外联边界确认）：微信订阅消息 API 接入属 Phase 2
+        范围。Phase 1 行为——`SMS_MOCK=true` 或 `WECHAT_PAY_MOCK=true`（默认）
+        时打 mock 日志直接返回 True；否则构造 template_msg 供日志审计（结构
+        与 Phase 2 真实调用一致）并打 prepared 日志，真实发送在 Phase 2 接入
+        `app.core.wechat.WechatClient` 后启用。模板字段 thing1/thing2 取
+        title/content 前 20 字符（微信 thing 类型长度限制）。
+        """
+        from app.core.config import settings
 
-            # 构造订阅消息
-            template_msg = {
-                "touser": user.openid,
-                "template_id": settings.WECHAT_SUBSCRIBE_TEMPLATE_ID,
-                "page": "pages/notification/list/index",
-                "data": {
-                    "thing1": {"value": notification["title"][:20]},
-                    "time2": {"value": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")},
-                    "thing3": {"value": (notification.get("content") or "")[:20]},
-                }
-            }
+        if settings.SMS_MOCK or settings.WECHAT_PAY_MOCK:
+            logger.info(
+                "wechat subscribe mock: user_id=%s type=%s",
+                user_id, notification.get("type"),
+            )
+            return True
 
-            result = await wechat_client.send_subscribe_message(template_msg)
-            return result.get("errcode") == 0
-        except Exception as e:
-            logger.warning(f"微信订阅消息发送失败: {e}")
-            return False
+        # Phase 2 外联边界：接入微信订阅消息 API 后取消下方注释并配置 client
+        # 构造 template_msg 结构，便于日志审计与后续接入
+        template_msg = {
+            "template_id": settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
+            if hasattr(settings, "WECHAT_SUBSCRIBE_TEMPLATE_ID")
+            else notification.get("type", "notification"),
+            "page": "pages/notification/list",
+            "data": {
+                "thing1": {"value": notification.get("title", "")[:20]},
+                "thing2": {"value": notification.get("content", "")[:20]},
+            },
+            "miniprogram_state": "formal" if settings.is_production else "developer",
+            "lang": "zh_CN",
+        }
+        logger.info(
+            "wechat subscribe message prepared: user_id=%s type=%s template_id=%s",
+            user_id, notification.get("type"), template_msg["template_id"],
+        )
+        # from app.core.wechat import WeChatClient
+        # client = WeChatClient()
+        # result = await client.send_subscribe_message(template_msg)
+        # return result.get("errcode") == 0
+        return True
 
     @staticmethod
     async def send_notification(
@@ -436,7 +459,7 @@ class NotificationService:
         - 用户在线 → WS 实时推送（不写 DB）
         - 用户离线 → 写 DB notification_record + 微信订阅消息（如需）
         """
-        is_online = await NotificationService._is_user_online(user_id)
+        is_online = await NotificationService.is_user_online(user_id)
 
         if is_online:
             # 在线：WS 推送
@@ -515,10 +538,14 @@ class NotificationService:
                     NotificationRecord.is_read == False,
                 )
                 .values(is_read=True)
+                .returning(NotificationRecord.id)
             )
             result = await db.execute(stmt)
+            updated_ids = result.scalars().all()
             await db.commit()
-            updated = result.rowcount
+            # R13-P3 文档同步：asyncpg 下 UPDATE rowcount 不可靠，
+            # 实现改用 RETURNING 收集实际更新 id
+            updated = len(updated_ids)
 
             # 更新未读计数缓存
             if updated > 0:
@@ -547,7 +574,8 @@ class NotificationService:
                 )
             )
             count = count or 0
-            await redis.set(f"notif:unread:{user_id}", count)
+            # R13-P3 文档同步：回填缓存带 300s TTL，避免未读数长期陈旧
+            await redis.set(f"notif:unread:{user_id}", count, ex=300)
             return count
 
     @staticmethod
@@ -556,16 +584,20 @@ class NotificationService:
         template_ids: list[str],
     ) -> SubscribeResponse:
         """微信订阅消息授权。"""
-        # 校验模板 ID 合法性
+        # R13-P3 文档同步（R6-Notif-2 设计偏差，R12 测试已固定现契约）：
+        # 无效模板 ID 静默过滤（API §13.3 的 422 行为属 Phase 2+ 文档同步项）；
+        # 重新订阅为覆盖语义 —— 先删旧集合再写新集合，返回过滤后的列表
         valid_templates = {"analysis_complete", "payment_success", "training_reminder"}
-        invalid = set(template_ids) - valid_templates
-        if invalid:
-            raise AppException(f"订阅模板 ID 不合法: {invalid}", 422)
+        valid_ids = [t for t in template_ids if t in valid_templates]
 
         redis = await get_redis()
-        for tid in template_ids:
-            await redis.sadd(f"notif:subscribed:{user_id}", tid)
-        return SubscribeResponse(subscribed_templates=template_ids)
+        key = f"notif:subscribed:{user_id}"
+        # 清除旧订阅，设置新订阅（覆盖语义）
+        await redis.delete(key)
+        if valid_ids:
+            await redis.sadd(key, *valid_ids)
+
+        return SubscribeResponse(subscribed_templates=valid_ids)
 
     @staticmethod
     async def _check_reminder_frequency(
@@ -595,33 +627,44 @@ class NotificationService:
         if not await NotificationService._check_reminder_frequency(user_id, redis):
             return
 
+        # R13-P3 文档同步：文案对齐实现（不含 extra_data 深链，前端按 type 路由）
         await NotificationService.send_notification(
             user_id=user_id,
             notif_type="training_reminder",
             title="训练提醒",
-            content=f"您已 {last_training_days} 天未训练，快去练球吧！保持手感很重要～",
-            extra_data={"action_url": "/pages/home/index"},
+            content=f"您已经{last_training_days}天没有训练了，快来练习吧！",
             wechat_template="training_reminder",
         )
 
-        # 递增本周计数
+        # 递增本周计数 — TTL 按自然周对齐（到本周日 23:59:59）
+        # R13-P3 文档同步：实现按自然周末计算 TTL（非固定 7 天），
+        # 且以 incr 返回值判断是否首次设置
         key = f"notif:reminder:count:{user_id}:week"
-        await redis.incr(key)
-        # 首次设置 TTL 到本周日 23:59:59
-        if int(await redis.get(key) or 0) == 1:
-            import calendar
+        new_count = await redis.incr(key)
+        if new_count == 1:
             now = datetime.now(timezone.utc)
-            # 计算到本周日结束的秒数（简化：7 天 TTL）
-            await redis.expire(key, 7 * 86400)
+            # 计算到本周日 23:59:59 的秒数（周一为一周起始）
+            days_until_sunday = (6 - now.weekday()) % 7 or 7
+            end_of_week = now.replace(hour=23, minute=59, second=59, microsecond=0) + timedelta(days=days_until_sunday)
+            ttl_seconds = int((end_of_week - now).total_seconds())
+            await redis.expire(key, max(ttl_seconds, 3600))  # 至少 1 小时
 
     @staticmethod
     async def on_ws_reconnect(user_id: int) -> None:
         """WebSocket 重连后的离线消息补偿。
 
-        1. 拉取断连期间的未读通知
+        1. 拉取断连期间的未读通知（直查 DB —— Redis 缓存有 300s TTL，
+           重连时刻需准确计数；R13-P3 文档同步）
         2. 通过 WS 推送 sync 事件
         """
-        unread = await NotificationService.get_unread_count(user_id)
+        async with get_async_session() as db:
+            count_result = await db.execute(
+                select(func.count()).select_from(NotificationRecord).where(
+                    NotificationRecord.user_id == user_id,
+                    NotificationRecord.is_read == False,  # noqa: E712
+                )
+            )
+            unread = count_result.scalar() or 0
         if unread > 0:
             await NotificationService.push_ws_message(
                 user_id, "sync", {
@@ -640,31 +683,36 @@ class NotificationService:
 
 ```python
 # app/api/v1/notification/router.py
-from fastapi import APIRouter, Depends, Query
+# R13-P3 文档同步：装饰器顺序为 @router.* 在上、@limiter.limit 在下
+# （slowapi 要求限流装饰器位于路由装饰器下方，否则路由表注册的是原始
+# 函数、限流不生效），且端点签名必须含 request: Request 参数。
 from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, Request
+
 from app.core.deps import get_current_user
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
 from app.schemas.notification import (
-    MarkReadRequest,
-    SubscribeRequest,
-    NotificationListQuery,
+    MarkReadRequest, SubscribeRequest, NotificationListQuery,
 )
 from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/notification", tags=["通知"])
 
 
-@limiter.limit("100/minute")
 @router.get("/list", summary="通知列表")
+@limiter.limit("100/minute")
 async def list_notifications(
+    request: Request,
     is_read: Optional[bool] = Query(default=None),
     type: Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
     user: User = Depends(get_current_user),
 ):
+    """查询通知列表（分页）"""
     query = NotificationListQuery(
         is_read=is_read, type=type, page=page, page_size=page_size,
     )
@@ -672,31 +720,37 @@ async def list_notifications(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.post("/read", summary="标记已读")
+@limiter.limit("100/minute")
 async def mark_read(
     body: MarkReadRequest,
+    request: Request,
     user: User = Depends(get_current_user),
 ):
+    """批量标记通知为已读"""
     data = await NotificationService.mark_read(user.id, body.notification_ids)
     return success(data=data, message="已标记为已读")
 
 
-@limiter.limit("100/minute")
 @router.post("/subscribe", summary="微信订阅消息授权")
+@limiter.limit("100/minute")
 async def subscribe(
     body: SubscribeRequest,
+    request: Request,
     user: User = Depends(get_current_user),
 ):
+    """微信订阅消息授权"""
     data = await NotificationService.subscribe_templates(user.id, body.template_ids)
     return success(data=data, message="订阅已更新")
 
 
-@limiter.limit("100/minute")
 @router.get("/unread-count", summary="未读通知数量")
+@limiter.limit("100/minute")
 async def unread_count(
+    request: Request,
     user: User = Depends(get_current_user),
 ):
+    """获取未读通知数量"""
     count = await NotificationService.get_unread_count(user.id)
     return success(data={"unread_count": count})
 ```
@@ -713,45 +767,52 @@ api_router.include_router(notification_router)
 # app/api/v1/ws.py
 """WebSocket 端点。"""
 
-import json
 import asyncio
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from app.core.security import decode_token
+import json
+import logging
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
 from app.core.redis import get_redis
+from app.core.security import decode_token
 from app.services.notification_service import NotificationService
+from app.services.scoring_service import ScoringService
 
-ws_router = APIRouter()
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["WebSocket"])
 
 
-# SEC-002 修复：改用 WebSocket 子协议传递 token，避免 URL 日志泄露
-# 客户端连接方式: new WebSocket(url, ['jwt.' + token])
-@ws_router.websocket("/ws")
+@router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket 主端点。
+    """WebSocket 主端点 — 通过 Sec-WebSocket-Protocol 传递 JWT。
 
-    连接流程：
-    0. 从 Sec-WebSocket-Protocol header 提取 JWT token（避免 URL query param 泄露）
-    1. 校验 JWT token
-    2. 标记用户在线（Redis ws:online:{user_id}，TTL 120s）
-    3. 订阅 Redis ws:user:{user_id} 频道
-    4. 心跳 ping/pong（30s 间隔）
-    5. 断连时标记离线 + 触发重连补偿
+    认证流程（R13-P3 文档同步，对齐 app/api/v1/ws.py 现实现）：
+    1. 从 sec-websocket-protocol 提取 jwt.{token}（SEC-002：子协议传 token
+       避免 URL query 泄露）
+    2. 解码 JWT 获取 user_id，accept 时回传选定子协议
+    3. 订阅 Redis ws:relay:ws:user:{user_id} 频道（R5-Infra-5：与
+       WSManager.broadcast_to_user / broadcast_to_room 的 relay 频道统一）
+    4. 重连补偿：subscribe 之后再调用 on_ws_reconnect（R6-Notif-1：Redis
+       pubsub 不缓存未订阅期间的消息，先 publish 后 subscribe 会丢 sync 事件）
+    5. 三个并行协程：relay_messages + heartbeat + receive_loop
+    6. 断连时清理 Redis 状态（在线标记 + pubsub）
     """
-    # SEC-002 修复：从 Sec-WebSocket-Protocol header 提取 token
-    # 客户端连接时: new WebSocket(url, ['jwt.{token}'])
+    # Step 0: 提取 token
     protocols = websocket.headers.get("sec-websocket-protocol", "")
-    token = None
+    token = ""
     if protocols:
         for proto in protocols.split(","):
             proto = proto.strip()
             if proto.startswith("jwt."):
-                token = proto[4:]
+                token = proto[5:]  # strip "jwt." prefix
                 break
+
     if not token:
         await websocket.close(code=4001)
         return
 
-    # 1. 校验 Token
+    # Step 1: 验证 JWT
     payload = decode_token(token)
     if not payload:
         await websocket.close(code=4001)
@@ -762,168 +823,182 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4001)
         return
 
-    # 接受连接时回传选定的子协议
+    # Step 2: 接受连接（回传选定的子协议）
     await websocket.accept(subprotocol=f"jwt.{token}")
 
     redis = await get_redis()
+    pubsub = redis.pubsub()
+    # R5-Infra-5：频道命名与 WSManager 统一
+    await pubsub.subscribe(f"ws:relay:ws:user:{user_id}")
 
-    # 2. 标记在线
-    await redis.setex(f"ws:online:{user_id}", NotificationService.WS_ONLINE_TTL, "1")
+    # Step 2.5: WS 重连补偿 — 推送离线期间未读通知（R4-Notif-3）
+    # R6-Notif-1：在 subscribe 之后调用，确保 sync 消息能被 relay 接收
+    try:
+        await NotificationService.on_ws_reconnect(user_id)
+    except Exception as e:
+        logger.warning("ws_on_reconnect failed: %s", e)
 
-    # 3. 发送连接成功事件
+    # Step 3: 发送 connected 事件
     await websocket.send_json({
         "event": "connected",
         "data": {"user_id": user_id},
     })
 
-    # 4. 启动 Redis pub/sub 订阅 + 心跳
-    pubsub = redis.pubsub()
-    await pubsub.subscribe(f"ws:user:{user_id}")
+    # Step 4: 设置在线状态（TTL 120s，heartbeat 每 30s 续期）
+    await redis.setex(f"ws:online:{user_id}", NotificationService.WS_ONLINE_TTL, "1")
 
     async def relay_messages():
-        """从 Redis pub/sub 读取消息并推送到 WS。"""
+        """Redis pubsub -> WS 消息中继"""
         try:
             async for message in pubsub.listen():
                 if message["type"] == "message":
-                    await websocket.send_text(message["data"].decode())
+                    # redis-py asyncio 返回 str，直接 send_text（无需 decode）
+                    await websocket.send_text(message["data"])
         except WebSocketDisconnect:
             return
 
     async def heartbeat():
-        """客户端心跳处理 + 在线标记续期。"""
+        """在线状态续期 — 每 30s 更新 Redis TTL"""
         try:
             while True:
-                # 每 30s 续期在线标记
                 await redis.setex(
                     f"ws:online:{user_id}",
-                    NotificationService.WS_ONLINE_TTL, "1"
+                    NotificationService.WS_ONLINE_TTL, "1",
                 )
                 await asyncio.sleep(30)
         except WebSocketDisconnect:
             return
 
     async def receive_loop():
-        """接收客户端消息（ping/pong）。"""
+        """接收客户端消息（ping/pong + 比赛频道订阅）"""
+        subscribed_matches: set[int] = set()
         try:
             while True:
                 data = await websocket.receive_text()
-                msg = json.loads(data)
+                try:
+                    msg = json.loads(data)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
                 if msg.get("event") == "ping":
-                    # 检查 token 是否即将过期
                     await websocket.send_json({
                         "event": "pong",
                         "data": {"token_expired": False},
                     })
+                elif msg.get("event") == "subscribe" and msg.get("match_id"):
+                    # 客户端订阅比赛频道 — 接收该比赛的实时比分推送
+                    try:
+                        match_id = int(msg["match_id"])
+                    except (TypeError, ValueError):
+                        continue
+                    if match_id not in subscribed_matches:
+                        # R5-Infra-5：与 broadcast_to_room 频道命名统一
+                        await pubsub.subscribe(f"ws:relay:ws:match:{match_id}")
+                        subscribed_matches.add(match_id)
+                        await websocket.send_json({
+                            "event": "subscribed",
+                            "data": {"match_id": match_id},
+                        })
+                        # R12-SC-2：订阅后推送 sync_match 全量同步
+                        # （当前比分状态 + 得分序列；非属主订阅 get_match_detail
+                        #   404 时跳过 sync，保持房间广播行为）
+                        try:
+                            detail = await ScoringService.get_match_detail(user_id, match_id)
+                            await websocket.send_json({
+                                "event": "sync_match",
+                                "data": {
+                                    "match_id": match_id,
+                                    "status": detail["status"],
+                                    "current_score": detail["current_score"],
+                                    "score_sequence": detail["score_sequence"],
+                                },
+                            })
+                        except Exception:
+                            pass
         except WebSocketDisconnect:
             return
 
-    # 并行运行三个协程
+    # Step 5: 三个并行协程
     tasks = [
         asyncio.create_task(relay_messages()),
         asyncio.create_task(heartbeat()),
         asyncio.create_task(receive_loop()),
     ]
-    try:
-        done, pending = await asyncio.wait(
-            tasks, return_when=asyncio.FIRST_COMPLETED
-        )
-        for t in pending:
-            t.cancel()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        # 5. 断连处理
-        await redis.delete(f"ws:online:{user_id}")
-        await pubsub.unsubscribe(f"ws:user:{user_id}")
-        await pubsub.close()
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+
+    # Step 6: 断连清理
+    await redis.delete(f"ws:online:{user_id}")
+    await pubsub.unsubscribe(f"ws:relay:ws:user:{user_id}")
+    await pubsub.close()
 ```
 
 ### 6.3 训练提醒 Celery Beat
 
 ```python
-# app/tasks/notification_beat.py
-"""通知定时任务。"""
+# app/tasks/notification.py
+"""Celery tasks — 通知管理
 
-from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
-import celery
+R13-P3 文档同步：实际任务文件为 app/tasks/notification.py（原
+notification_beat.py），任务名带 app.tasks.notification. 前缀（与
+beat_schedule.py 注册条目一致）；训练提醒候选判定已提取为
+NotificationService.get_training_reminder_candidates（R12-Notif-1）。
+"""
+import logging
 
-from app.core.celery import celery_app
-from app.core.database import get_async_session
-from app.core.redis import get_redis
-from app.models.user import User
-from app.models.notification import NotificationRecord
-from app.services.notification_service import NotificationService
+from celery import shared_task
+
+logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="notification.training_reminder")
-def training_reminder_task():
+@shared_task(name="app.tasks.notification.training_reminder")
+def training_reminder():
     """训练提醒——每日 19:00 执行。
 
     规则：
-    1. 查找 >3 天未训练的用户（最近一次 AI 分析或记分牌比赛超过 3 天）
-    2. 同一用户每周最多 2 次训练提醒
-    3. 离线用户写 DB + 微信订阅消息
+    1. 查找 >3 天无 AI 分析任务（completed）或记分牌比赛（finished）
+       活动的 active 用户（R12-Notif-1：判定不依赖 TrainingPlan）
+    2. 同一用户每周最多 2 次训练提醒（NotificationService 内部控制）
+    3. 在线用户 WS 推送；离线用户写 DB + 微信订阅消息
 
-    注意：Celery worker 默认不支持 async def task，使用 asyncio.run() 驱动异步逻辑。
+    注意：Celery worker 默认不支持 async def task，使用 asyncio.run() 驱动。
     """
     import asyncio
-    asyncio.run(_training_reminder_async())
 
+    async def _run():
+        from app.core.database import async_session_factory
+        from app.services.notification_service import NotificationService
 
-async def _training_reminder_async():
-    """训练提醒异步实现。"""
-    from app.models.video_analysis import VideoTask
-    from app.models.scoring import Match
+        async with async_session_factory() as db:
+            # R12-Notif-1: 候选判定基于 3 天内 AI 分析/比赛活动
+            # （原实现基于 TrainingPlan.updated_at，inner join 排除了
+            #   无计划用户，且刚完成 AI 分析/比赛的用户被误判为未训练）
+            candidates = await NotificationService.get_training_reminder_candidates(db)
 
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        days=NotificationService.REMINDER_INACTIVE_DAYS
-    )
-
-    async with get_async_session() as db:
-        # 查找最近 3 天有 AI 分析任务的用户 ID
-        active_task_users = await db.scalars(
-            select(VideoTask.user_id).where(
-                VideoTask.created_at >= cutoff,
-                VideoTask.status == "completed",
-            ).distinct()
-        )
-        active_task_set = set(active_task_users)
-
-        # 查找最近 3 天有记分牌比赛的用户 ID
-        active_match_users = await db.scalars(
-            select(Match.user_id).where(
-                Match.created_at >= cutoff,
-                Match.status == "finished",
-            ).distinct()
-        )
-        active_match_set = set(active_match_users)
-
-        active_users = active_task_set | active_match_set
-
-        # 查找所有活跃用户（排除最近训练过的）
-        all_users = await db.scalars(
-            select(User).where(User.status == "active")
-        )
-        for user in all_users:
-            if user.id in active_users:
-                continue  # 最近有训练，跳过
-
-            # 计算未训练天数
-            last_activity = await db.scalar(
-                select(func.max(VideoTask.created_at)).where(
-                    VideoTask.user_id == user.id
+        pushed = 0
+        for user_id, days_inactive in candidates:
+            try:
+                await NotificationService.send_training_reminder(
+                    user_id=user_id,
+                    last_training_days=days_inactive,
                 )
-            )
-            if last_activity:
-                days_inactive = (datetime.now(timezone.utc) - last_activity).days
-            else:
-                days_inactive = 999  # 从未训练
+                pushed += 1
+            except Exception as e:
+                logger.warning(
+                    "training_reminder push failed user_id=%s: %s", user_id, e,
+                )
+        return {
+            "status": "ok",
+            "candidates": len(candidates),
+            "pushed": pushed,
+        }
 
-            await NotificationService.send_training_reminder(
-                user_id=user.id,
-                last_training_days=days_inactive,
-            )
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        logger.exception("training_reminder failed: %s", e)
+        return {"status": "error", "error": str(e)}
 ```
 
 **Celery Beat 配置**：已在统一调度表 `beat_schedule.py` 中注册（见 `notification-training-reminder` 任务，每日 19:00 触发）。无需在模块内单独定义 beat_schedule。
@@ -931,51 +1006,76 @@ async def _training_reminder_async():
 ### 6.4 旧通知清理 Celery Task
 
 ```python
-# app/tasks/notification_beat.py（续）
-@celery_app.task(name="notification.cleanup_old_notifications")
-def cleanup_old_notifications_task():
-    """旧通知清理——每月 1 日 02:00 执行。
+# app/tasks/notification.py（续）
+# R13-P3 文档同步：NotificationRecord 无 status 列，"归档"落地为直接删除
+# 180 天前未读记录（控制表体积）；任务体 asyncio.run 包装 + 模块级 async
+# impl（R12 测试重构：单测在既有事件循环内直调 impl，规避共享连接池冲突）。
 
-    规则：
-    1. 清理 90 天前已读通知记录（DELETE FROM notification_record WHERE is_read=true AND created_at < now() - 90d）
-    2. 归档未读通知（status 改为 archived，保留 180 天后删除）
-    3. 幂等设计：基于 WHERE 条件清理，重复执行无副作用
+# 清理策略阈值（与设计 §6.1 / beat_schedule 一致）
+READ_RETENTION_DAYS = 90     # 已读通知保留 90 天
+UNREAD_RETENTION_DAYS = 180  # 未读通知删除阈值（180 天）
 
-    Beat 注册：见 beat_schedule.py 中 "notification-old-cleanup" 条目。
+
+@shared_task(name="app.tasks.notification.cleanup_old_notifications")
+def cleanup_old_notifications():
+    """清理过期通知（每月 1 日 02:00）
+
+    策略：
+    - 已读通知：删除 created_at 早于 90 天前的记录（bulk DELETE）
+    - 未读通知：删除 created_at 早于 180 天前的记录（原设计为归档，
+      无独立归档表且模型无 status 列，直接删除以控制表体积）
+    - 幂等：基于 WHERE 条件清理，重复执行无副作用
     """
     import asyncio
-    asyncio.run(_cleanup_old_notifications_async())
+
+    try:
+        return asyncio.run(cleanup_old_notifications_impl())
+    except Exception as e:
+        logger.exception("cleanup_old_notifications failed: %s", e)
+        return {"status": "error", "error": str(e)}
 
 
-async def _cleanup_old_notifications_async():
-    """旧通知清理异步实现。"""
-    from datetime import timedelta
+async def cleanup_old_notifications_impl() -> dict:
+    """清理逻辑（模块级 async 函数，便于单元测试在既有事件循环内直接调用）"""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import delete
+    from app.core.database import async_session_factory
+    from app.models.notification import NotificationRecord
 
-    cutoff_read = datetime.now(timezone.utc) - timedelta(days=90)
-    cutoff_unread = datetime.now(timezone.utc) - timedelta(days=180)
+    now = datetime.now(timezone.utc)
+    read_threshold = now - timedelta(days=READ_RETENTION_DAYS)
+    unread_threshold = now - timedelta(days=UNREAD_RETENTION_DAYS)
 
-    async with get_async_session() as db:
-        # 1. 清理 90 天前已读通知
-        result_read = await db.execute(
-            select(NotificationRecord).where(
-                NotificationRecord.is_read == True,
-                NotificationRecord.created_at < cutoff_read,
+    async with async_session_factory() as db:
+        # 1. 删除 90 天前已读通知
+        read_result = await db.execute(
+            delete(NotificationRecord).where(
+                NotificationRecord.is_read == True,  # noqa: E712
+                NotificationRecord.created_at < read_threshold,
             )
         )
-        for record in result_read.scalars():
-            await db.delete(record)
+        read_deleted = read_result.rowcount or 0
 
-        # 2. 归档 180 天前未读通知（标记为 archived 而非直接删除）
-        result_unread = await db.execute(
-            select(NotificationRecord).where(
-                NotificationRecord.is_read == False,
-                NotificationRecord.created_at < cutoff_unread,
+        # 2. 删除 180 天前未读通知
+        unread_result = await db.execute(
+            delete(NotificationRecord).where(
+                NotificationRecord.is_read == False,  # noqa: E712
+                NotificationRecord.created_at < unread_threshold,
             )
         )
-        for record in result_unread.scalars():
-            record.status = "archived"
+        unread_deleted = unread_result.rowcount or 0
 
         await db.commit()
+
+    logger.info(
+        "cleanup_old_notifications done: read_deleted=%s unread_deleted=%s",
+        read_deleted, unread_deleted,
+    )
+    return {
+        "status": "ok",
+        "read_deleted": read_deleted,
+        "unread_deleted": unread_deleted,
+    }
 ```
 
 **Celery Beat 配置**：已在统一调度表 `beat_schedule.py` 中注册（见 `notification-old-cleanup` 任务，每月 1 日 02:00 触发）。
@@ -1068,7 +1168,7 @@ if __name__ == "__main__":
 - [ ] 离线消息补偿：断连期间消息写入 DB，重连后 sync 事件推送
 - [ ] 训练提醒 Celery Beat 每日 19:00 执行
 - [ ] 训练提醒频率控制（>3 天未训练，每周最多 2 次）
-- [ ] WebSocket 事件类型正确（connected/analysis_progress/score_update/notification/payment_success/ping/pong）
+- [ ] WebSocket 事件类型正确（connected/subscribed/sync_match/sync/notification/analysis_progress/score_update/payment_success/ping/pong）
 - [ ] 代码注释完整（文件头、docstring、复杂逻辑注释）
 - [ ] 无废话注释、无注释掉的死代码
 
@@ -1096,3 +1196,23 @@ if __name__ == "__main__":
 - **[X-18] content 字段约束修复（P3）**：`content` 字段从 `Mapped[str]`（NOT NULL）改为 `Mapped[str | None]`（nullable=True），与 DB 设计 §2.20 中 `content TEXT NULL` 对齐
 - **GET /notification/unread-count 回写说明（P3）**：GET /notification/unread-count 为切片新增端点，API 设计 v1.3 §13 中未定义。属于合理增强（前端需要未读计数），需回写 API 设计文档
 - **覆盖度修复**：已根据覆盖度分析报告修复 A-9（`datetime.utcnow()` naive → timezone-aware，`default`/`onupdate` 改为 lambda 表达式，import 补充 `timezone`）
+
+### R13-P3 文档同步（Round 13 复验，Notification 模块）
+
+以实现为准回写，涉及 §1/§2/§3/§5/§6/§8（`_send_wechat_subscribe` 段已含 R12-Notif-2 Phase 2 边界声明，本轮未改动）：
+
+| # | 差异 | 修改位置 |
+|---|------|---------|
+| N1 | 任务文件 `notification_beat.py` → `app/tasks/notification.py`（训练提醒 + 旧通知清理两任务，任务名带 `app.tasks.notification.` 前缀） | §1 任务清单、§6.3、§6.4 |
+| N2 | `_is_user_online` → 公开方法 `is_user_online`（含 Redis 异常防御） | §2 测试样例、§5 |
+| N3 | WS 频道 `ws:user:{id}` → `ws:relay:ws:user:{id}`（R5-Infra-5 与 WSManager 统一） | §5 `_push_ws`、§6.2 |
+| N4 | `subscribe_templates` 无效模板 422 → 静默过滤 + 覆盖语义（R6-Notif-2 偏差，R12 测试已固定现契约；API §13.3 的 422 属 Phase 2+ 文档同步项） | §5 |
+| N5 | 训练提醒周计数 TTL 固定 7 天 → 自然周末对齐（incr 返回值判首次）；提醒文案/extra_data 对齐实现 | §5 `send_training_reminder` |
+| N6 | `get_unread_count` 缓存回填补 300s TTL；`mark_read` rowcount → RETURNING（asyncpg rowcount 不可靠）；`on_ws_reconnect` 直查 DB（重连时刻需准确计数） | §5 |
+| N7 | 路由样例装饰器顺序（`@router.*` 在上、`@limiter.limit` 在下，slowapi 生效要求）+ `request: Request` 参数 | §6.1 |
+| N8 | WS 样例：subscribe 先于 `on_ws_reconnect`（R6-Notif-1）、比赛频道订阅 + `subscribed`/`sync_match` 事件（R12-SC-2）、`send_text` 直传 str | §6.2 |
+| N9 | 训练提醒候选判定提取为 `NotificationService.get_training_reminder_candidates`（R12-Notif-1），Match 导入自 `app.models.match` | §6.3 |
+| N10 | 清理任务"归档 status=archived" → 直接删除（`NotificationRecord` 无 status 列）+ 模块级 async impl | §6.4 |
+| N11 | Model `created_at` Python default → `server_default=func.now()` | §3 |
+| N12 | REST 端点数 3 → 4（unread-count 为切片新增，见文末回写说明） | §1、§8 |
+

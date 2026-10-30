@@ -25,6 +25,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.core.redis import get_redis
 from app.core.security import decode_token
 from app.services.notification_service import NotificationService
+from app.services.scoring_service import ScoringService
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,24 @@ async def websocket_endpoint(websocket: WebSocket):
                             "event": "subscribed",
                             "data": {"match_id": match_id},
                         })
+                        # R12-SC-2: 重连/订阅后推送 sync_match 全量同步（API §14.2/§14.4）
+                        # — 携带当前比分状态与得分序列，客户端无需逐条回放 score_update。
+                        # 非属主订阅（如观战）get_match_detail 404，跳过 sync（保持房间广播行为）
+                        try:
+                            detail = await ScoringService.get_match_detail(user_id, match_id)
+                            await websocket.send_json({
+                                "event": "sync_match",
+                                "data": {
+                                    "match_id": match_id,
+                                    "status": detail["status"],
+                                    "current_score": detail["current_score"],
+                                    "score_sequence": detail["score_sequence"],
+                                },
+                            })
+                        except Exception as e:
+                            logger.debug(
+                                "sync_match skipped", extra={"match_id": match_id, "error": str(e)}
+                            )
         except WebSocketDisconnect:
             return
         except Exception:

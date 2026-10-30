@@ -16,11 +16,11 @@
 | 1 | 定义 Model（training_plan / plan_adjustment；TrainingTemplate / RuleDefinition �?knowledge_base 模块定义�?| `app/models/training.py` | �?| �?|
 | 2 | 注册 Model | `app/models/__init__.py` | #1 | �?|
 | 3 | 定义 Schema | `app/schemas/training.py` | #1 | �?|
-| 4 | 实现 Service | `app/services/training_advice_service.py` | #1,#3 | �?|
-| 5 | 实现 API 路由 | `app/api/v1/training/advice_router.py` | #4 | �?|
+| 4 | 实现 Service | `app/services/training_service.py` | #1,#3 | �?|
+| 5 | 实现 API 路由 | `app/api/v1/training/router.py` | #4 | �?|
 | 6 | 注册 Router | `app/api/v1/__init__.py` | #5 | �?|
 | 7 | Alembic 迁移 | `alembic revision --autogenerate` + `upgrade` | #1 | �?|
-| 8 | 编写单元测试 | `tests/unit/test_training_advice.py` | #4 | �?|
+| 8 | 编写单元测试 | `tests/unit/test_training.py` | #4 | �?|
 | 9 | 编写冒烟测试 | `tests/smoke/training_advice_smoke_test.py` | #5 | �?|
 
 ---
@@ -30,7 +30,7 @@
 ### 测试文件结构
 
 ```python
-# tests/unit/test_training_advice.py
+# tests/unit/test_training.py
 """
 training_advice 模块 �?训练建议测试�?覆盖：建议生成、趋势对比、模板查询、方案调整历史、手动重新评估�?"""
 import pytest
@@ -518,347 +518,257 @@ class TrainingSessionCompleteResponse(BaseModel):
 
 ## 5. Service 实现
 
+> **R13-P3 文档同步（2026-10-29）**：本节原样例为初版设计稿（`training_advice_service.py` + `get_async_session()` + Service 内联规则引擎 `_match_rules`/`_compare` + `AppException` 无业务码 + 返回 Pydantic 响应模型），滞后于 R4-R7/R12 修复后的实现。以下代码已按实际实现 `app/services/training_service.py` 原样回写，关键契约差异：
+> - 规则引擎委托 `KnowledgeBaseService.match_rules(db, ctx)`（ctx = {metrics, trends, current_plan}），规则类型经 condition 的 `aggregation` 键判定（R2-KB-1），建议文本由知识库 `suggestion_template` 渲染；
+> - 业务错误码：40412（报告不存在/暂无分析报告）、40420（训练方案不存在）、40421（模板不存在，路由层抛出）、40422（训练单不存在）、40902（训练单已完成）、40301（非会员重新评估）；
+> - 建议 type 按规则类型判定（trend_improving→progress_confirm / trend_persistent→persistent_warning / 其余→new_issue），`first_analysis` 仅作为追加提示、不污染规则建议类型（R12-Training-B2）；
+> - `_evaluate_plan_effectiveness` 达标判定方向感知（`METRIC_DEFINITIONS` direction），stagnant 仅按 persistence_count ≥ 3 判定（R5-Prog-4）；
+> - `_generate_new_plan`：new_goal 方向感知（up×1.1 / down×0.9，R7-Train-1）；adjust 训练单 reps×1.2；escalate 仅诊断、不改写训练内容（R12-Training-B3）；深拷贝隔离 old/new 快照（R12-Training-D4）；
+> - `get_plan_adjustments` 非最新记录 version 取 `new_plan_snapshot.version`（R5-Train-3）；`_diff_snapshot` 含训练单数与 reps 变化（R5-Train-5）；
+> - Service 返回 dict（`app/schemas/training.py` 的 Schema 作为响应结构文档，路由以 `success(data=...)` 包装）；
+> - `complete_training_session` 深拷贝 + `flag_modified` 强制 JSONB 变更落库、训练单按 id/session_index 双键查找（R5-Train-4）、积分失败仅告警不阻塞。
+
 ```python
-# app/services/training_advice_service.py
 """
-训练建议业务逻辑层�?规则引擎匹配模式�?  1. 单次规则（single）：基于当前报告指标匹配
-  2. 趋势规则（trend_persistent）：问题持续 N 次未改善
-  3. 趋势规则（trend_improving）：指标在改善中
-  4. 方案有效性规则（plan_effectiveness / stagnant）：方案停滞需调整
-方案动态调整：
-  - 改善�?�?维持方案（maintain�?  - 停滞（连�?3 次无改善）→ 调整方案（adjust�?  - 退�?�?诊断原因（escalate�?  - 已达�?�?设新目标（new_goal�?"""
-import json
+app/services/training_service.py - 训练建议业务逻辑层
+
+依据：切片 07-training_advice/backend.md 4
+功能：基于报告的训练建议 + 综合建议 + 模板查询 + 方案调整 + 训练单管理
+"""
+
+import copy
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.database import get_async_session
+from app.core.database import async_session_factory
 from app.core.exceptions import AppException
+from app.models.knowledge_base import RuleDefinition, TrainingTemplate
+from app.models.progress import TechniqueTrend
+from app.models.training import PlanAdjustment, TrainingPlan
 from app.models.video_analysis import AnalysisReport
-from app.models.progress import ProgressSnapshot, TechniqueTrend
-from app.models.training import TrainingPlan, PlanAdjustment
-from app.models.knowledge_base import TrainingTemplate, RuleDefinition
-from app.schemas.training import (
-    TrainingAdviceResponse, DiagnosisItem, SuggestionItem, TrainingMethodItem,
-    TemplateBrief, TemplateDetail, TemplateListResponse,
-    PlanAdjustmentsResponse, AdjustmentItem,
-    ReEvaluateResponse,
-    TrainingSessionBrief, TrainingSessionListResponse, TrainingSessionCompleteResponse,
-)
+from app.services.knowledge_base_service import KnowledgeBaseService
 
-# 停滞判定阈�?STAGNANT_THRESHOLD = 3  # 连续 3 次无改善
+logger = logging.getLogger(__name__)
+
+STAGNANT_THRESHOLD = 3
 
 
 class TrainingAdviceService:
-    """训练建议业务逻辑层�?""
-
-    # ========== 基于报告的训练建�?==========
+    """训练建议业务逻辑层"""
 
     @staticmethod
-    async def get_advice_by_report(user_id: int, report_id: int) -> TrainingAdviceResponse:
-        """
-        基于指定分析报告的训练建议�?        流程�?          1. 验证报告属于当前用户
-          2. 判断是否首次分析
-          3. 读取报告指标 + 历史趋势数据
-          4. 调用规则引擎匹配问题模式
-          5. 生成差异化建议（进步确认 / 持续问题警告 / 新问题识别）
-        """
-        async with get_async_session() as db:
-            # 1. 验证报告
+    async def get_advice_by_report(user_id: int, report_id: int) -> dict:
+        async with async_session_factory() as db:
             report = await db.scalar(
                 select(AnalysisReport).where(
-                    and_(AnalysisReport.id == report_id,
-                         AnalysisReport.user_id == user_id)
+                    and_(AnalysisReport.id == report_id, AnalysisReport.user_id == user_id)
                 )
             )
             if not report:
-                raise AppException("报告不存�?, 404)
+                raise AppException("报告不存在", 404, code=40412)
 
-            # 2. 判断首次分析
-            report_count = await db.scalar(
-                select(func.count()).select_from(AnalysisReport)
-                .where(AnalysisReport.user_id == user_id)
+            # 是否首次分析
+            count = await db.scalar(
+                select(func.count()).select_from(AnalysisReport).where(AnalysisReport.user_id == user_id)
             ) or 0
-            is_first = report_count <= 1
+            is_first = count <= 1
 
-            # 3. 读取当前报告指标
-            result_data = report.result_data or {}
-            metrics = result_data.get("metrics", {})
+            # 提取指标
+            from app.services.progress_service import ProgressService
+            metrics = ProgressService._extract_metrics(report.result_data or {})
 
-            # 4. 读取历史趋势
+            # 获取趋势
             trends = await TrainingAdviceService._get_trends(db, user_id)
 
-            # 5. 匹配规则引擎
-            diagnosis, suggestions, training_methods, plan_template = (
-                await TrainingAdviceService._match_rules(
-                    db, metrics, trends, is_first
-                )
-            )
+            # 构建规则上下文
+            trend_ctx = {}
+            for t in trends:
+                trend_ctx[t.metric_name] = {
+                    "direction": t.trend or "",
+                    "persistence": t.persistence_count,
+                    "change_rate": t.change_rate or 0,
+                }
 
-        return TrainingAdviceResponse(
-            report_id=report_id,
-            is_first_analysis=is_first,
-            diagnosis=diagnosis,
-            suggestions=suggestions,
-            training_methods=training_methods,
-            training_plan_template=plan_template,
-        )
+            ctx = {"metrics": metrics, "trends": trend_ctx, "current_plan": None}
+
+            # 匹配规则
+            matches = await KnowledgeBaseService.match_rules(db, ctx)
+
+            diagnosis = []
+            suggestions = []
+            training_methods = []
+            plan_template = None
+
+            for m in matches:
+                # R4-Training-3: 基于当前 rule 的 field 从 trend_ctx 取对应趋势
+                trend_val = "new"
+                field = m.get("field")
+                if field and field in trend_ctx:
+                    trend_val = trend_ctx[field].get("direction", "new")
+
+                diagnosis.append({
+                    "problem_id": m["problem_id"],
+                    "problem_name": m["problem_name"],
+                    "severity": m["severity"],
+                    "trend": trend_val,
+                    "description": m["suggestion"],
+                })
+
+                # R12-Training-B2: 建议 type 按规则类型判定，首次分析不再批量改写
+                # （first_analysis 仅作为追加提示，不污染规则建议的类型语义）
+                if m["rule_type"] == "trend_improving":
+                    sug_type = "progress_confirm"
+                elif m["rule_type"] == "trend_persistent":
+                    sug_type = "persistent_warning"
+                else:
+                    sug_type = "new_issue"
+
+                suggestions.append({"type": sug_type, "text": m["suggestion"]})
+
+                for method_id in (m.get("training_methods") or []):
+                    # R4-Training-13: method name 去除 METHOD_ 前缀
+                    method_name = (
+                        method_id.replace("METHOD_", "", 1)
+                        if isinstance(method_id, str) and method_id.startswith("METHOD_")
+                        else method_id
+                    )
+                    training_methods.append({
+                        "method_id": method_id,
+                        "name": method_name,
+                        "description": "",
+                    })
+
+                if m.get("training_plan_template") and not plan_template:
+                    plan_template = m["training_plan_template"]
+
+            # R4-Training-11: 首次分析建议改为无条件追加
+            if is_first:
+                suggestions.append({
+                    "type": "first_analysis",
+                    "text": "这是您的首次分析，建议关注基本技术动作。",
+                })
+
+        return {
+            "report_id": report_id,
+            "is_first_analysis": is_first,
+            "diagnosis": diagnosis,
+            "suggestions": suggestions,
+            "training_methods": training_methods,
+            "training_plan_template": plan_template,
+        }
 
     @staticmethod
-    async def get_contextual_advice(user_id: int) -> TrainingAdviceResponse:
-        """综合训练建议（自动取最新报告）�?""
-        async with get_async_session() as db:
-            latest_report = await db.scalar(
+    async def get_contextual_advice(user_id: int) -> dict:
+        async with async_session_factory() as db:
+            latest = await db.scalar(
                 select(AnalysisReport)
                 .where(AnalysisReport.user_id == user_id)
                 .order_by(AnalysisReport.created_at.desc())
                 .limit(1)
             )
-            if not latest_report:
-                raise AppException("暂无分析报告，请先上传视频分�?, 404)
+            if not latest:
+                raise AppException("暂无分析报告", 404, code=40412)
 
-        return await TrainingAdviceService.get_advice_by_report(user_id, latest_report.id)
+        return await TrainingAdviceService.get_advice_by_report(user_id, latest.id)
 
-    # ========== 规则引擎 ==========
+    @staticmethod
+    async def generate_advice(user_id: int, report_id: int) -> dict:
+        """生成训练建议 — 委托给 get_advice_by_report（R4-Training-4）"""
+        return await TrainingAdviceService.get_advice_by_report(user_id, report_id)
 
     @staticmethod
     async def _get_trends(db: AsyncSession, user_id: int) -> list[TechniqueTrend]:
-        """获取用户所有技术指标趋势�?""
-        result = await db.execute(
+        rows = await db.execute(
             select(TechniqueTrend).where(TechniqueTrend.user_id == user_id)
         )
-        return list(result.scalars().all())
+        return list(rows.scalars().all())
 
     @staticmethod
-    async def _match_rules(
-        db: AsyncSession,
-        metrics: dict,
-        trends: list[TechniqueTrend],
-        is_first: bool,
-    ) -> tuple[list[DiagnosisItem], list[SuggestionItem], list[TrainingMethodItem], Optional[str]]:
-        """
-        规则引擎匹配�?        4 类匹配：单次 / 趋势改善 / 趋势持续 / 方案停滞
-        """
-        diagnosis = []
-        suggestions = []
-        training_methods = []
-        plan_template = None
-
-        # 读取所有活跃规�?        result = await db.execute(
-            select(RuleDefinition).where(RuleDefinition.is_active.is_(True))
-        )
-        rules = list(result.scalars().all())
-
-        trend_map = {t.metric_name: t for t in trends}
-
-        for rule in rules:
-            matched = False
-            condition = rule.condition or {}
-            field = condition.get("field")
-            operator = condition.get("operator")
-            threshold = condition.get("threshold")
-
-            if rule.rule_type == "single":
-                # 单次规则：检查当前指标�?                if field and field in metrics:
-                    value = metrics[field]
-                    matched = TrainingAdviceService._compare(value, operator, threshold)
-
-            elif rule.rule_type == "trend_persistent":
-                # 趋势持续规则：问题持�?N 次未改善
-                if field and field in trend_map:
-                    trend = trend_map[field]
-                    if trend.persistence_count >= (condition.get("min_persistence", 1)):
-                        matched = True
-
-            elif rule.rule_type == "trend_improving":
-                # 趋势改善规则：指标在改善�?                if field and field in trend_map:
-                    trend = trend_map[field]
-                    if trend.trend == "improving":
-                        matched = True
-
-            elif rule.rule_type == "stagnant":
-                # 停滞规则：连�?N 次无改善
-                if field and field in trend_map:
-                    trend = trend_map[field]
-                    if trend.persistence_count >= STAGNANT_THRESHOLD:
-                        matched = True
-
-            if matched:
-                diag_data = rule.diagnosis or {}
-                # 合并趋势信息
-                trend_val = "new"
-                if field and field in trend_map:
-                    trend_val = trend_map[field].trend or "new"
-
-                diagnosis.append(DiagnosisItem(
-                    problem_id=diag_data.get("problem_id", ""),
-                    problem_name=diag_data.get("problem_name", ""),
-                    severity=diag_data.get("severity", "medium"),
-                    trend=trend_val,
-                    description=diag_data.get("description", ""),
-                ))
-
-                # 生成建议文本
-                suggestion_type = "new_issue"
-                suggestion_text = diag_data.get("description", "")
-
-                if rule.rule_type == "trend_improving":
-                    suggestion_type = "progress_confirm"
-                    if field and field in trend_map:
-                        t = trend_map[field]
-                        suggestion_text = (
-                            f"你的{field}从{t.previous_value}提升到{t.current_value}�?
-                            f"进步明显"
-                        )
-                elif rule.rule_type == "trend_persistent":
-                    suggestion_type = "persistent_warning"
-                    if field and field in trend_map:
-                        t = trend_map[field]
-                        suggestion_text = (
-                            f"{diag_data.get('problem_name', field)}问题"
-                            f"已持�?{t.persistence_count} 次分析未改善�?
-                            f"建议调整训练方法"
-                        )
-
-                suggestions.append(SuggestionItem(
-                    type=suggestion_type,
-                    text=suggestion_text,
-                ))
-
-                # 训练方法
-                method_ids = rule.training_methods or []
-                for mid in method_ids:
-                    training_methods.append(TrainingMethodItem(
-                        method_id=mid,
-                        name=mid.replace("METHOD_", ""),
-                        description="",
-                    ))
-
-                if rule.training_plan_template and not plan_template:
-                    plan_template = rule.training_plan_template
-
-        # 首次分析提示
-        if is_first:
-            suggestions.append(SuggestionItem(
-                type="first_analysis",
-                text="首次分析，建议持续记录以获得趋势分析",
-            ))
-
-        return diagnosis, suggestions, training_methods, plan_template
-
-    @staticmethod
-    def _compare(value: float, operator: str, threshold: float) -> bool:
-        """比较运算符�?""
-        if operator == "lt":
-            return value < threshold
-        if operator == "lte":
-            return value <= threshold
-        if operator == "gt":
-            return value > threshold
-        if operator == "gte":
-            return value >= threshold
-        if operator == "eq":
-            return value == threshold
-        return False
-
-    # ========== 训练模板 ==========
-
-    @staticmethod
-    async def get_templates(
-        problem_id: Optional[str] = None,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> TemplateListResponse:
-        """训练方案模板列表�?""
-        async with get_async_session() as db:
+    async def get_templates(problem_id: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
+        async with async_session_factory() as db:
             qs = select(TrainingTemplate)
+            count_qs = select(func.count()).select_from(TrainingTemplate)
             if problem_id:
                 qs = qs.where(TrainingTemplate.problem_id == problem_id)
+                count_qs = count_qs.where(TrainingTemplate.problem_id == problem_id)
 
-            total = await db.scalar(
-                select(func.count()).select_from(qs.subquery())
-            ) or 0
+            total = await db.scalar(count_qs) or 0
+            qs = qs.order_by(TrainingTemplate.id).offset((page - 1) * page_size).limit(page_size)
+            rows = await db.execute(qs)
+            items = [
+                {"id": r.id, "template_code": r.template_code, "name": r.name, "problem_id": r.problem_id}
+                for r in rows.scalars().all()
+            ]
 
-            offset = (page - 1) * page_size
-            result = await db.execute(
-                qs.order_by(TrainingTemplate.created_at.desc())
-                .offset(offset).limit(page_size)
-            )
-            templates = result.scalars().all()
-
-        items = [TemplateBrief.model_validate(t) for t in templates]
-        return TemplateListResponse(
-            total=total, page=page, page_size=page_size, items=items,
-        )
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     @staticmethod
-    async def get_template_detail(template_id: int) -> TemplateDetail:
-        """模板详情�?""
-        async with get_async_session() as db:
-            template = await db.scalar(
+    async def get_template_detail(template_id: int) -> Optional[dict]:
+        async with async_session_factory() as db:
+            row = await db.scalar(
                 select(TrainingTemplate).where(TrainingTemplate.id == template_id)
             )
-            if not template:
-                raise AppException("模板不存�?, 404)
-
-        return TemplateDetail.model_validate(template)
-
-    # ========== 方案调整历史 ==========
+            if not row:
+                return None
+            return {
+                "id": row.id,
+                "template_code": row.template_code,
+                "name": row.name,
+                "problem_id": row.problem_id,
+                "template_data": row.template_data,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
 
     @staticmethod
-    async def get_plan_adjustments(user_id: int, plan_id: int) -> PlanAdjustmentsResponse:
-        """训练方案调整历史（版本化记录）�?""
-        async with get_async_session() as db:
-            # 验证方案属于当前用户
+    async def get_plan_adjustments(user_id: int, plan_id: int) -> dict:
+        async with async_session_factory() as db:
             plan = await db.scalar(
                 select(TrainingPlan).where(
-                    and_(TrainingPlan.id == plan_id,
-                         TrainingPlan.user_id == user_id)
+                    and_(TrainingPlan.id == plan_id, TrainingPlan.user_id == user_id)
                 )
             )
             if not plan:
-                raise AppException("训练方案不存�?, 404)
+                raise AppException("训练方案不存在", 404, code=40420)
 
-            # 查询调整记录
-            result = await db.execute(
+            rows = await db.execute(
                 select(PlanAdjustment)
                 .where(PlanAdjustment.training_plan_id == plan_id)
                 .order_by(PlanAdjustment.created_at.desc())
             )
-            adjustments = result.scalars().all()
+            all_rows = rows.scalars().all()
+            adjustments = [
+                {
+                    "id": r.id,
+                    # R5-Train-3: 非最新记录的 version 从 new_plan_snapshot 读取，避免用 r.id 作版本号
+                    "version": plan.version if i == 0 else (r.new_plan_snapshot or {}).get("version", r.id),
+                    "action": r.adjustment_action,
+                    "reason": r.adjustment_reason,
+                    "trigger_report_id": r.trigger_report_id,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "changes_summary": TrainingAdviceService._diff_snapshot(
+                        r.old_plan_snapshot, r.new_plan_snapshot
+                    ),
+                }
+                for i, r in enumerate(all_rows)
+            ]
 
-        items = []
-        for adj in adjustments:
-            # 计算 changes_summary（old/new diff�?            changes_summary = TrainingAdviceService._diff_snapshot(
-                adj.old_plan_snapshot, adj.new_plan_snapshot
-            )
-            items.append(AdjustmentItem(
-                id=adj.id,
-                version=plan.version if adj == adjustments[0] else adj.id,  # 版本�?                action=adj.adjustment_action,
-                reason=adj.adjustment_reason,
-                trigger_report_id=adj.trigger_report_id,
-                created_at=adj.created_at,
-                changes_summary=changes_summary,
-            ))
-
-        return PlanAdjustmentsResponse(
-            plan_id=plan_id,
-            current_version=plan.version,
-            adjustments=items,
-        )
+        return {"plan_id": plan_id, "current_version": plan.version, "adjustments": adjustments}
 
     @staticmethod
     def _diff_snapshot(old: dict | None, new: dict) -> str:
-        """计算 old/new 快照 diff 摘要�?""
+        """计算 old/new 快照 diff 摘要"""
         if not old:
             return "初始方案创建"
 
         changes = []
         # 对比 version
         if old.get("version") != new.get("version"):
-            changes.append(f"版本 {old.get('version', 1)} �?{new.get('version', 2)}")
+            changes.append(f"版本 {old.get('version', 1)} → {new.get('version', 2)}")
 
         # 对比 goal
         old_goal = old.get("goal", {})
@@ -867,451 +777,488 @@ class TrainingAdviceService:
             old_val = old_goal.get(key)
             new_val = new_goal.get(key)
             if old_val != new_val and old_val is not None and new_val is not None:
-                changes.append(f"{key}: {old_val} �?{new_val}")
+                changes.append(f"{key}: {old_val} → {new_val}")
 
-        return "; ".join(changes) if changes else "无变�?
+        # R5-Train-5: 对比 plan_data 中的 sessions/reps 变化
+        old_pd = old.get("plan_data", {}) or {}
+        new_pd = new.get("plan_data", {}) or {}
+        old_sessions = old_pd.get("sessions", []) or []
+        new_sessions = new_pd.get("sessions", []) or []
+        if len(old_sessions) != len(new_sessions):
+            changes.append(f"训练单数 {len(old_sessions)} → {len(new_sessions)}")
+        for idx in range(min(len(old_sessions), len(new_sessions))):
+            old_s = old_sessions[idx] if isinstance(old_sessions[idx], dict) else {}
+            new_s = new_sessions[idx] if isinstance(new_sessions[idx], dict) else {}
+            old_reps = old_s.get("reps")
+            new_reps = new_s.get("reps")
+            if old_reps is not None and new_reps is not None and old_reps != new_reps:
+                changes.append(f"训练单{idx + 1} reps: {old_reps} → {new_reps}")
 
-    # ========== 方案重新评估 ==========
+        return "; ".join(changes) if changes else "无变化"
 
     @staticmethod
-    async def re_evaluate_plan(user_id: int, plan_id: int) -> ReEvaluateResponse:
-        """
-        手动触发方案重新评估（会员功能）�?        评估逻辑�?          - 改善�?�?maintain（维持方案）
-          - 停滞（连�?3 次无改善）→ adjust（调整方案）
-          - 退�?�?escalate（诊断原因）
-          - 已达�?�?new_goal（设新目标）
-        每次调整生成 plan_adjustment 记录�?        """
-        from app.services.membership_service import MembershipService
-
-        async with get_async_session() as db:
-            # 权限检查：会员及以�?            membership = await MembershipService.check_membership(db, user_id)
-            if not membership.is_member:
-                raise AppException("此功能需要会员及以上等级", 403)
-
-            # 验证方案
+    async def re_evaluate_plan(user_id: int, plan_id: int) -> dict:
+        async with async_session_factory() as db:
             plan = await db.scalar(
                 select(TrainingPlan).where(
-                    and_(TrainingPlan.id == plan_id,
-                         TrainingPlan.user_id == user_id)
+                    and_(TrainingPlan.id == plan_id, TrainingPlan.user_id == user_id)
                 )
             )
             if not plan:
-                raise AppException("训练方案不存�?, 404)
+                raise AppException("训练方案不存在", 404, code=40420)
 
-            # 读取趋势数据
+            # R4-Training-7: 防御性 MembershipService 校验
+            from app.services.membership_service import MembershipService
+            membership = await MembershipService.check_membership(db, user_id)
+            if not membership.is_member:
+                raise AppException("非会员无法重新评估训练方案", 403, code=40301)
+
+            trends = await TrainingAdviceService._get_trends(db, user_id)
             goal_metrics = plan.goal_metrics or {}
-            trends_result = await db.execute(
-                select(TechniqueTrend).where(
-                    and_(
-                        TechniqueTrend.user_id == user_id,
-                        TechniqueTrend.metric_name.in_(
-                            list(goal_metrics.keys())
-                        ),
-                    )
-                )
-            )
-            trends = list(trends_result.scalars().all())
 
-            # 评估方案有效�?            action, reason = TrainingAdviceService._evaluate_plan_effectiveness(
-                plan, trends, goal_metrics
-            )
+            # R5-Train-1: 只保留 goal_metrics 中定义的指标，避免无关趋势影响评估
+            trends = [t for t in trends if t.metric_name in goal_metrics]
 
-            # 如果需要调整，生成 plan_adjustment 记录
+            action, reason = TrainingAdviceService._evaluate_plan_effectiveness(trends, goal_metrics)
+
             if action != "maintain":
+                # R4-Training-1: old/new snapshot 结构为 {version, goal, plan_data}
                 old_snapshot = {
                     "version": plan.version,
                     "goal": goal_metrics,
                     "plan_data": plan.plan_data,
                 }
-
+                # R5-Train-2: _generate_new_plan 返回完整 snapshot {version, goal, plan_data}
                 new_snapshot = TrainingAdviceService._generate_new_plan(
                     plan, trends, goal_metrics, action
                 )
 
                 adjustment = PlanAdjustment(
-                    training_plan_id=plan.id,
-                    trigger_report_id=None,  # 手动触发
+                    training_plan_id=plan_id,
+                    trigger_report_id=None,
                     old_plan_snapshot=old_snapshot,
                     new_plan_snapshot=new_snapshot,
                     adjustment_reason=reason,
                     adjustment_action=action,
                 )
                 db.add(adjustment)
-
-                # 更新方案
-                plan.version += 1
                 plan.plan_data = new_snapshot.get("plan_data", plan.plan_data)
+                plan.version += 1
+                # R5-Train-2: 用 _generate_new_plan 更新后的 goal 写入 plan.goal_metrics 列
                 plan.goal_metrics = new_snapshot.get("goal", goal_metrics)
-                plan.updated_at = datetime.now(timezone.utc)
-                await db.commit()
 
-        return ReEvaluateResponse(
-            plan_id=plan_id,
-            action=action,
-            reason=reason,
-        )
+            await db.commit()
+
+        return {"plan_id": plan_id, "action": action, "reason": reason}
 
     @staticmethod
-    def _evaluate_plan_effectiveness(
-        plan: TrainingPlan,
-        trends: list[TechniqueTrend],
-        goal_metrics: dict,
-    ) -> tuple[str, str]:
-        """
-        评估方案有效性，返回 (action, reason)�?        action: maintain / adjust / escalate / new_goal
-        """
+    def _evaluate_plan_effectiveness(trends: list, goal_metrics: dict) -> tuple:
+        # R4-Training-2: 空 trends 守卫
         if not trends:
-            return "maintain", "暂无足够趋势数据，维持当前方�?
+            return "maintain", "暂无足够趋势数据"
 
-        all_improving = True
-        all_stagnant = True
+        # 达标判断基于值：up direction current_value >= target; down direction current_value <= target
+        from app.services.progress_service import METRIC_DEFINITIONS
         all_achieved = True
-
         for trend in trends:
-            if trend.trend != "improving":
-                all_improving = False
-            if trend.persistence_count < STAGNANT_THRESHOLD:
-                all_stagnant = False
-            # 检查是否达�?            target = goal_metrics.get(trend.metric_name)
-            if target and trend.current_value is not None:
-                if trend.current_value < target:
-                    all_achieved = False
-            else:
+            target = goal_metrics.get(trend.metric_name)
+            if target is None or trend.current_value is None:
                 all_achieved = False
+                break
+            direction = METRIC_DEFINITIONS.get(trend.metric_name, {}).get("direction", "up")
+            if direction == "up" and trend.current_value < target:
+                all_achieved = False
+                break
+            elif direction == "down" and trend.current_value > target:
+                all_achieved = False
+                break
 
-        # 优先级：达标 > 退�?> 停滞 > 改善
+        declining = [t for t in trends if t.trend == "declining"]
+        # R5-Prog-4: stagnant 判定仅检查 persistence_count >= STAGNANT_THRESHOLD，
+        # 不再额外要求 trend == "stagnant"（与设计文档一致）
+        stagnant = [t for t in trends if t.persistence_count >= STAGNANT_THRESHOLD]
+
         if all_achieved:
-            return "new_goal", "已达标，建议设置新目�?
-
-        if any(t.trend == "declining" for t in trends):
-            return "escalate", "指标退步，需要诊断原�?
-
-        if all_stagnant:
-            return "adjust", f"方案停滞（连�?{STAGNANT_THRESHOLD} 次无改善），建议调整训练方法"
-
-        if all_improving:
-            return "maintain", "当前方案有效，指标持续改�?
-
-        return "maintain", "维持当前方案，继续观�?
+            return "new_goal", "已有指标达成目标，建议设定新目标"
+        if declining:
+            return "escalate", "指标下降趋势，建议升级训练强度"
+        if len(stagnant) == len(trends):
+            return "adjust", "连续多次无改善，建议调整方案"
+        return "maintain", "指标改善中，保持当前方案"
 
     @staticmethod
-    def _generate_new_plan(
-        plan: TrainingPlan,
-        trends: list[TechniqueTrend],
-        goal_metrics: dict,
-        action: str,
-    ) -> dict:
-        """根据调整动作生成新方案快照�?""
+    def _generate_new_plan(plan: TrainingPlan, trends: list, goal_metrics: dict, action: str) -> dict:
+        """根据调整动作生成新方案快照 — 返回 {version, goal, plan_data}（R5-Train-2）
+
+        - new_goal: 提升 goal_metrics 中各目标 10%（而非 plan_data.goal）
+        - adjust: 增加 plan_data.sessions 中 reps 20%
+        - R12-Training-B3: escalate 按 §8.6 设计为「诊断原因」动作，
+          不改写训练内容（设计 _generate_new_plan 无此分支），
+          诊断信息经 adjustment_reason 记录于 plan_adjustment
+        """
         new_version = plan.version + 1
+        # R5-Train-2: new_goal 动作修改 goal_metrics，复制后变更
         new_goal = dict(goal_metrics)
+        old_data = plan.plan_data or {}
+        # R12-Training-D4: 深拷贝后再变更 — 原先 dict(old_data) 浅拷贝后原地修改共享
+        # sessions 列表，committed_state 与 old_plan_snapshot 被同步污染（新旧相等），
+        # SQLAlchemy 相等性短路导致 plan_data 不进 UPDATE（reps 增幅不落库），
+        # 且调整历史 _diff_snapshot 显示"无变化"。
+        new_data = copy.deepcopy(old_data)
 
         if action == "new_goal":
-            # 达标 �?提升目标�?            for trend in trends:
-                metric = trend.metric_name
-                if metric in new_goal:
-                    old_target = new_goal[metric]
-                    new_goal[metric] = round(old_target * 1.1, 4)  # 提升 10%
-
+            # R7-Train-1: 方向感知 — up 指标 *1.1 提升；down 指标 *0.9 降低（更难）
+            from app.services.progress_service import METRIC_DEFINITIONS
+            for metric, target in new_goal.items():
+                if target is not None:
+                    direction = METRIC_DEFINITIONS.get(metric, {}).get("direction", "up")
+                    if direction == "up":
+                        new_goal[metric] = round(target * 1.1, 4)
+                    else:
+                        new_goal[metric] = round(target * 0.9, 4)
         elif action == "adjust":
-            # 停滞 �?调整训练方法（增加量�?            plan_data = dict(plan.plan_data or {})
-            sessions = plan_data.get("sessions", [])
-            for session in sessions:
-                if "reps" in session:
-                    session["reps"] = int(session["reps"] * 1.2)  # 增加 20%
-            plan_data["sessions"] = sessions
-            return {
-                "version": new_version,
-                "goal": new_goal,
-                "plan_data": plan_data,
-            }
+            sessions = new_data.get("sessions", [])
+            for s in sessions:
+                if isinstance(s, dict) and "reps" in s:
+                    s["reps"] = int(s["reps"] * 1.2)
+            new_data["sessions"] = sessions
+        # R12-Training-B3: escalate 无方案改写分支 — 走默认 return（内容不变，
+        # 仅 version +1 + adjustment_action/reason 记录诊断）
 
         return {
             "version": new_version,
             "goal": new_goal,
-            "plan_data": plan.plan_data,
+            "plan_data": new_data,
         }
 
-    # ========== 训练单管理（R-3 修复�?==========
-
     @staticmethod
-    # R20-P1-1: ? API ?8.7 ?? ?? ?? page/page_size ????
     async def list_training_sessions(
-        user_id: int, plan_id: int, page: int = 1, page_size: int = 20,
-    ) -> TrainingSessionListResponse:
-        """??????????????"""
-        async with get_async_session() as db:
+        user_id: int, plan_id: int, page: int = 1, page_size: int = 20
+    ) -> dict:
+        async with async_session_factory() as db:
             plan = await db.scalar(
                 select(TrainingPlan).where(
-                    and_(TrainingPlan.id == plan_id,
-                         TrainingPlan.user_id == user_id)
+                    and_(TrainingPlan.id == plan_id, TrainingPlan.user_id == user_id)
                 )
             )
             if not plan:
-                raise AppException("???????", 404)
+                raise AppException("训练方案不存在", 404, code=40420)
 
             plan_data = plan.plan_data or {}
             sessions = plan_data.get("sessions", [])
+            total = len(sessions)
 
-            # R20-P1-1: ? API ?8.7 ?? ?? ???? title?name, status?is_completed
-            # R21-P2-1: 补 session_index/reps 与 API §8.7 对齐
-            all_items = [
-                TrainingSessionBrief(
-                    id=s.get("id", i + 1),
-                    plan_id=plan_id,
-                    name=s.get("title", s.get("name", f"??? {i + 1}")),
-                    is_completed=s.get("status") == "completed" or s.get("is_completed", False),
-                    scheduled_date=s.get("scheduled_date"),
-                    completed_at=s.get("completed_at"),
-                    session_index=s.get("session_index", i + 1),  # R21-P2-1: 训练单序号（默认从1开始）
-                    reps=s.get("reps", 0),  # R21-P2-1: 建议训练次数
-                )
-                for i, s in enumerate(sessions)
-            ]
+            offset = (page - 1) * page_size
+            page_sessions = sessions[offset:offset + page_size]
 
-        # R20-P1-1: ? API ?8.7 ?? ?? ?????page ? 1 ???
-        total = len(all_items)
-        page_start = (page - 1) * page_size
-        page_end = page_start + page_size
-        items = all_items[page_start:page_end]
+            items = []
+            for i, s in enumerate(page_sessions):
+                if isinstance(s, dict):
+                    # 字段映射：title→name, status→is_completed（对齐 API §8.7）
+                    items.append({
+                        "id": s.get("id", offset + i + 1),
+                        "plan_id": plan_id,
+                        "name": s.get("title", s.get("name", f"训练单 {i+1}")),
+                        "is_completed": s.get("status") == "completed" or s.get("is_completed", False),
+                        "scheduled_date": s.get("scheduled_date"),
+                        "completed_at": s.get("completed_at"),
+                        "session_index": s.get("session_index", i + 1),
+                        "reps": s.get("reps", 0),
+                    })
 
-        return TrainingSessionListResponse(
-            plan_id=plan_id,
-            total=total,
-            page=page,
-            page_size=page_size,
-            items=items,  # R20-P1-1: sessions?items?API ?8.7 ?????
-        )
+        return {"plan_id": plan_id, "total": total, "page": page, "page_size": page_size, "items": items}
 
     @staticmethod
     async def complete_training_session(
-        user_id: int, plan_id: int, session_id: int,
-    ) -> TrainingSessionCompleteResponse:
-        """????????????????????"""
-        async with get_async_session() as db:
+        user_id: int, plan_id: int, session_id: int
+    ) -> dict:
+        async with async_session_factory() as db:
             plan = await db.scalar(
                 select(TrainingPlan).where(
-                    and_(TrainingPlan.id == plan_id,
-                         TrainingPlan.user_id == user_id)
+                    and_(TrainingPlan.id == plan_id, TrainingPlan.user_id == user_id)
                 )
             )
             if not plan:
-                raise AppException("???????", 404)
+                raise AppException("训练方案不存在", 404, code=40420)
 
-            plan_data = dict(plan.plan_data or {})
+            plan_data = copy.deepcopy(plan.plan_data or {})
             sessions = plan_data.get("sessions", [])
 
-            target = None
-            for s in sessions:
-                if s.get("id") == session_id:
-                    target = s
-                    break
-            if not target:
-                raise AppException("??????", 404)
+            # R5-Train-4: 按 id 或 session_index 查找，兼容无 id 的训练单
+            session = next(
+                (s for s in sessions if s.get("id") == session_id or s.get("session_index") == session_id),
+                None,
+            )
+            if session is None:
+                raise AppException("训练单不存在", 404, code=40422)
 
-            if target.get("status") == "completed":
-                raise AppException("??????", 409)
+            if session.get("status") == "completed":
+                raise AppException("已完成", 409, code=40902)
 
-            now = datetime.now(timezone.utc)
-            target["status"] = "completed"
-            target["completed_at"] = now.isoformat()
-            plan_data["sessions"] = sessions
+            session["status"] = "completed"
+            session["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-            total = len(sessions)
-            completed = sum(1 for s in sessions if s.get("status") == "completed")
-            plan_progress = completed / total if total > 0 else 0.0
+            completed = sum(1 for s in sessions if isinstance(s, dict) and s.get("status") == "completed")
+            progress = int(completed / len(sessions) * 100) if sessions else 0
 
-            if plan_progress >= 1.0:
+            if progress >= 100:
                 plan.status = "completed"
 
             plan.plan_data = plan_data
-            plan.updated_at = now
-            await db.commit()
+            flag_modified(plan, "plan_data")
 
-            # F3-2 ???gamification ????????????
-            # R20-P1-1: ? API ?8.8 ?? ?? ??????????
+            # 触发积分
             points_earned = 0
             try:
                 from app.services.gamification_service import GamificationService
-                add_result = await GamificationService.add_points(
-                    db, user_id=user_id, event_type="training_session", ref_id=session_id,
-                )
-                # ?? add_points ?? int ? dict ? None
-                if isinstance(add_result, int):
-                    points_earned = add_result
-                elif isinstance(add_result, dict):
-                    points_earned = int(add_result.get("points_earned", 0) or 0)
+                points_earned = await GamificationService.add_points(db, user_id, "training_session", session_id)
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error("gamification_add_points_failed", error=str(e), user_id=user_id)
+                logger.warning("training_points_failed", extra={"error": str(e)})
 
-        return TrainingSessionCompleteResponse(
-            session_id=session_id,
-            is_completed=True,  # R20-P1-1: ? is_completed ???API ?8.8 ?????
-            # R21-P2-2: plan_progress 类型 int 0-100 与 API §8.8 L2423 对齐（float 0.0-1.0 → int 百分比）
-            plan_progress=int(plan_progress * 100),
-            points_earned=points_earned,  # R20-P1-1: ? points_earned ???API ?8.8 ?????
-            completed_at=now,  # R20-P1-1: ?? completed_at?Service ???????
-        )
+            await db.commit()
+
+        return {
+            "session_id": session_id,
+            "is_completed": True,
+            "plan_progress": progress,
+            "points_earned": points_earned,
+            "completed_at": datetime.now(timezone.utc),
+        }
 ```
 ---
 
 ## 5.5 训练建议生成 Celery Task
 
+> **R13-P3 文档同步（2026-10-29）**：原样例为 `app/tasks/training_advice_beat.py`（`@celery_app.task` 无 bind/无重试 + 裸 `asyncio.run` + `_generate_advice_async` 无 WS 推送实现 + 触发方式写 send_task）。实际实现为 `app/tasks/training.py`，以下代码按实现原样回写：
+> - `@shared_task(bind=True, name="training_advice.generate_advice", max_retries=1, default_retry_delay=30)`；
+> - `_run_async` 兼容 eager 模式事件循环嵌套（try 仅包裹探测，R12-SUP-2）；
+> - 失败路径 `self.retry()`（不传 exc —— Celery 传 exc 时耗尽后重抛原异常而非 MaxRetriesExceededError，R12-SUP-1），耗尽后返回 `{"status": "error"}` 优雅降级；
+> - 生成完成后经 `NotificationService.push_ws_message` 推送 `advice_ready`（WS 推送为真实实现，原样例仅 docstring 声明）；
+> - 触发链路：`app/ai_pipeline/report_generator.py` L259-264（`_trigger_cascade` 内 `generate_advice_task.delay(user_id, report_id)` 投递，报告生成完成后级联触发，非 send_task）。
+
 ```python
-# app/tasks/training_advice_beat.py
-"""训练建议定时生成任务。"""
+"""
+app/tasks/training.py — 训练建议生成 Celery 任务
 
-from app.core.celery import celery_app
+依据：切片 07-training_advice/backend.md §5（generate_advice_task 定义）
+R12-Training-B1: 补齐缺失的 Celery 任务，接通"分析报告完成 → 异步生成训练建议 → WS 推送"链路
+事件驱动（分析流水线 Step 9 报告生成后触发），无需在 beat_schedule 注册定时触发。
+"""
+
+import asyncio
+import logging
+
+from celery import shared_task
+
+logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="training_advice.generate_advice")
-def generate_advice_task(user_id: int, report_id: int):
-    """训练建议生成——异步调用，分析报告完成后触发。
+def _run_async(coro):
+    """在 Celery 任务中运行异步协程 — 兼容 eager 模式下的事件循环嵌套"""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # 无运行中的事件循环，直接 asyncio.run。
+        # try 块只包裹探测：业务 RuntimeError 不得被误判为"无循环"后
+        # 对已消费协程再次 asyncio.run（会掩盖原始异常，见 ai_pipeline/tasks.py）
+        return asyncio.run(coro)
+    # 已有运行中的事件循环，在新线程中运行；业务异常经 future.result() 原样重抛
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(asyncio.run, coro)
+        return future.result()
+
+
+@shared_task(bind=True, name="training_advice.generate_advice", max_retries=1, default_retry_delay=30)
+def generate_advice_task(self, user_id: int, report_id: int):
+    """
+    训练建议生成 — 异步调用，分析报告完成后触发。
 
     逻辑：
     1. 接收 user_id + report_id，调用 TrainingAdviceService.generate_advice()
     2. 基于分析报告 + 历史趋势 + 知识库规则引擎生成个性化训练建议
     3. 生成完成后通过 WS 推送通知用户
 
-    注意：此任务为事件驱动（分析流水线完成后调用 send_task），
+    注意：此任务为事件驱动（分析流水线完成后 delay 触发），
     无需在 beat_schedule 中注册定时触发。
     """
-    import asyncio
-    asyncio.run(_generate_advice_async(user_id, report_id))
+    try:
+        _run_async(_generate_advice_async(user_id, report_id))
+        return {"status": "ok", "user_id": user_id, "report_id": report_id}
+    except Exception as exc:
+        logger.error(
+            "generate_advice_task_failed",
+            extra={"user_id": user_id, "report_id": report_id, "error": str(exc)},
+        )
+        # R12-AIPipeline-1: 失败路径显式重试（max_retries=1）。
+        # 注意不传 exc —— Celery 语义：传 exc 时耗尽后重抛原异常而非
+        # MaxRetriesExceededError，下方优雅降级分支将不可达。
+        try:
+            raise self.retry()
+        except self.MaxRetriesExceededError:
+            return {"status": "error", "error": str(exc)}
 
 
 async def _generate_advice_async(user_id: int, report_id: int):
-    """训练建议生成异步实现。"""
-    from app.services.training_advice_service import TrainingAdviceService
+    """训练建议生成异步实现 — 生成后 WS 推送通知"""
+    from app.services.training_service import TrainingAdviceService
+    from app.services.notification_service import NotificationService
 
-    await TrainingAdviceService.generate_advice(
-        user_id=user_id, report_id=report_id
-    )
+    advice = await TrainingAdviceService.generate_advice(user_id=user_id, report_id=report_id)
+
+    # WS 推送：训练建议已生成
+    try:
+        await NotificationService.push_ws_message(
+            user_id,
+            "advice_ready",
+            {
+                "report_id": report_id,
+                "is_first_analysis": advice.get("is_first_analysis", False),
+                "suggestion_count": len(advice.get("suggestions", [])),
+            },
+        )
+    except Exception as e:
+        logger.warning("advice_ready_ws_push_failed: %s", e)
 ```
 
 ---
 
 ## 6. API 路由实现
 
+> **R13-P3 文档同步（2026-10-29）**：原样例为 `advice_router.py`，以下按实际 `app/api/v1/training/router.py` 原样回写。原样例与实现的偏差（以实现为准）：
+> ① 装饰器顺序：路由装饰器在上、`@limiter.limit("100/minute")` 在下（slowapi 限流真实生效顺序，R12-Gam-13），原样例顺序相反（限流为死代码）；
+> ② 路由注册顺序：`/advice/contextual` 必须先于 `/advice/{report_id}` 注册，否则 `contextual` 被路径参数捕获返回 422，原样例注册顺序相反；
+> ③ `require_membership` 为 `app/core/deps.py` 无参异步依赖（用法 `Depends(require_membership)`，非会员 403 / code 40300），原样例 `require_membership("member")` 工厂签名不存在；
+> ④ 限流端点需 `request: Request` 参数（slowapi 要求）；
+> ⑤ `get_template_detail` 的 404（code 40421）在路由层抛出，Service 返回 None。
+
 ```python
-# app/api/v1/training/advice_router.py
-from fastapi import APIRouter, Depends, Query
+"""
+app/api/v1/training/router.py - 训练建议 API 路由
+
+依据：API 8 / 切片 07-training_advice/backend.md 6
+8 个端点：advice/{report_id} / advice/contextual / templates / templates/{id}
+          / plans/{id}/adjustments / plans/{id}/re-evaluate / plans/{id}/sessions / plans/{id}/sessions/{sid}/complete
+"""
+
+from fastapi import APIRouter, Depends, Query, Request
+
 from app.core.deps import get_current_user, require_membership
+from app.core.exceptions import AppException
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
-from app.services.training_advice_service import TrainingAdviceService
+from app.services.training_service import TrainingAdviceService
 
 router = APIRouter(prefix="/training", tags=["训练建议"])
 
-@limiter.limit("100/minute")
-@router.get("/advice/{report_id}", summary="基于分析报告的训练建�?)
-async def get_advice_by_report(
-    report_id: int,
-    user: User = Depends(get_current_user),
-):
-    """基于指定报告的训练建议（含历史趋势对比）�?""
-    data = await TrainingAdviceService.get_advice_by_report(user.id, report_id)
-    return success(data=data)
 
-@limiter.limit("100/minute")
 @router.get("/advice/contextual", summary="综合训练建议")
+@limiter.limit("100/minute")
 async def get_contextual_advice(
+    request: Request,
     user: User = Depends(get_current_user),
 ):
-    """基于最新报�?+ 历史趋势的综合建议（自动取最新报告）�?""
     data = await TrainingAdviceService.get_contextual_advice(user.id)
     return success(data=data)
 
+
+@router.get("/advice/{report_id}", summary="基于报告的训练建议")
 @limiter.limit("100/minute")
-@router.get("/templates", summary="训练方案模板列表")
+async def get_advice_by_report(
+    request: Request,
+    report_id: int,
+    user: User = Depends(get_current_user),
+):
+    data = await TrainingAdviceService.get_advice_by_report(user.id, report_id)
+    return success(data=data)
+
+
+@router.get("/templates", summary="训练模板列表")
+@limiter.limit("100/minute")
 async def get_templates(
-    problem_id: str | None = Query(default=None),
+    request: Request,
+    problem_id: str = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
-    user: User = Depends(get_current_user),
-    _membership = Depends(require_membership("member")),  # SEC-003 修复：会员权限守�?):
-    """训练方案模板列表（可按问题筛选）�?""
-    data = await TrainingAdviceService.get_templates(
-        problem_id=problem_id, page=page, page_size=page_size,
-    )
+    user: User = Depends(require_membership),
+):
+    data = await TrainingAdviceService.get_templates(problem_id=problem_id, page=page, page_size=page_size)
     return success(data=data)
 
+
+@router.get("/templates/{template_id}", summary="训练模板详情")
 @limiter.limit("100/minute")
-@router.get("/templates/{template_id}", summary="模板详情")
 async def get_template_detail(
+    request: Request,
     template_id: int,
-    user: User = Depends(get_current_user),
-    _membership = Depends(require_membership("member")),  # SEC-003 修复：会员权限守�?):
-    """训练方案模板详情�?""
+    user: User = Depends(require_membership),
+):
     data = await TrainingAdviceService.get_template_detail(template_id)
+    if not data:
+        raise AppException("模板不存在", 404, code=40421)
     return success(data=data)
 
+
+@router.get("/plans/{plan_id}/adjustments", summary="方案调整历史")
 @limiter.limit("100/minute")
-@router.get("/plans/{plan_id}/adjustments", summary="训练方案调整历史")
 async def get_plan_adjustments(
+    request: Request,
     plan_id: int,
-    user: User = Depends(get_current_user),
-    _membership = Depends(require_membership("member")),  # SEC-003 修复：会员权限守�?):
-    """训练方案调整历史（版本化记录）�?""
+    user: User = Depends(require_membership),
+):
     data = await TrainingAdviceService.get_plan_adjustments(user.id, plan_id)
     return success(data=data)
 
+
+@router.post("/plans/{plan_id}/re-evaluate", summary="重新评估方案")
 @limiter.limit("100/minute")
-@router.post("/plans/{plan_id}/re-evaluate", summary="手动触发方案重新评估")
 async def re_evaluate_plan(
+    request: Request,
     plan_id: int,
-    user: User = Depends(get_current_user),
-    _membership = Depends(require_membership("member")),  # SEC-003 修复：会员权限守卫
+    user: User = Depends(require_membership),
 ):
-    """会员手动触发方案重新评估�?""
     data = await TrainingAdviceService.re_evaluate_plan(user.id, plan_id)
-    return success(data=data, message="方案已重新评�?)
-
-
-@limiter.limit("100/minute")
-@router.get("/plans/{plan_id}/sessions", summary="?????")
-async def list_training_sessions(
-    plan_id: int,
-    page: int = Query(1, ge=1),  # R20-P1-1: ? API ?8.7 ?? ?? ? page ?????L2373?
-    page_size: int = Query(default=20, ge=1, le=50),  # R21-P3-1: 补 ge=1 约束（API §1.2 分页参数 MUST ge=1）  # R20-P1-1: ? API ?8.7 ?? ?? ? page_size ?????L2374?
-    user: User = Depends(get_current_user),
-    _membership = Depends(require_membership("member")),  # SEC-003 ?????????
-):
-    """??????????????R-3 ????5.11??"""
-    # R20-P1-1: ? API ?8.7 ?? ?? ?? page/page_size ? Service??????
-    data = await TrainingAdviceService.list_training_sessions(
-        user.id, plan_id, page=page, page_size=page_size,
-    )
     return success(data=data)
 
 
+@router.get("/plans/{plan_id}/sessions", summary="训练单列表")
 @limiter.limit("100/minute")
-@router.post("/plans/{plan_id}/sessions/{session_id}/complete", summary="?????")
+async def get_training_sessions(
+    request: Request,
+    plan_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50),
+    user: User = Depends(require_membership),
+):
+    data = await TrainingAdviceService.list_training_sessions(user.id, plan_id, page=page, page_size=page_size)
+    return success(data=data)
+
+
+@router.post("/plans/{plan_id}/sessions/{session_id}/complete", summary="完成训练单")
+@limiter.limit("100/minute")
 async def complete_training_session(
+    request: Request,
     plan_id: int,
     session_id: int,
-    user: User = Depends(get_current_user),
-    _membership = Depends(require_membership("member")),  # SEC-003 ?????????
+    user: User = Depends(require_membership),
 ):
-    """????????????????????R-3 ????5.12??"""
-    # R20-P1-1: ? API ?8.8 ?? ?? Service ?? is_completed + points_earned ??
     data = await TrainingAdviceService.complete_training_session(user.id, plan_id, session_id)
-    return success(data=data, message="??????")
+    return success(data=data)
 ```
 
-> **注意**：`require_membership("member")` 是权限依赖，确保只有会员及以上等级用户可以触发重新评估。SEC-003 修复后，以下 5 个端点也添加�?`require_membership("member")` 守卫：GET /templates、GET /templates/{id}、GET /plans/{id}/adjustments、GET /plans/{id}/sessions、POST /plans/{id}/sessions/{id}/complete。仅 GET /advice/{report_id} �?GET /advice/contextual 保持 `get_current_user`（登录即可）�?
-**Router 注册**（`app/api/v1/__init__.py`）：
+> **注意（R13-P3 文档同步）**：`require_membership` 是 `app/core/deps.py` 中的无参异步依赖（内部调用 `MembershipService.check_membership`，非会员抛 403 / code 40300），用法 `user: User = Depends(require_membership)`。受会员守卫端点共 **6 个**：GET /templates、GET /templates/{id}、GET /plans/{id}/adjustments、POST /plans/{id}/re-evaluate、GET /plans/{id}/sessions、POST /plans/{id}/sessions/{sid}/complete（原说明误计 5 个、遗漏 re-evaluate 自身；re-evaluate 另有 Service 层二次校验 403/40301，R4-Training-7 防御性双保险）。仅 GET /advice/{report_id} 与 GET /advice/contextual 保持 `get_current_user`（登录即可，与 API 设计 §8.1/§8.2 一致）。
+**Router 注册**（`app/api/v1/__init__.py`，R13-P3 文档同步 —— 实际文件名为 `router.py` 而非 `advice_router.py`）：
 ```python
-from app.api.v1.training.advice_router import router as training_advice_router
-api_router.include_router(training_advice_router)
+from app.api.v1.training.router import router as training_router
+api_router.include_router(training_router)
 ```
 
-> **说明**：training_advice �?training_plan 共用 `/training` 前缀。Phase 1 仅注�?advice_router，Phase 2 追加 plan_router。两者路由不冲突（advice 端点路径均含 `/advice` �?`/templates`，plan 端点路径�?`/plans`）�?
+> **说明（R13-P3 文档同步）**：training_advice 与 training_plan 共用 `/training` 前缀；实际实现将全部 8 个端点（/advice/{report_id}、/advice/contextual、/templates、/templates/{id}、/plans/{id}/adjustments、/plans/{id}/re-evaluate、/plans/{id}/sessions、/plans/{id}/sessions/{sid}/complete）统一收敛于单一 `app/api/v1/training/router.py`，原"Phase 1 仅注册 advice_router、Phase 2 追加 plan_router"的拆分说明已过时。advice 端点路径含 `/advice`、模板端点含 `/templates`、方案/训练单端点含 `/plans`，路由互不冲突；`/advice/contextual` 先于 `/advice/{report_id}` 注册（避免路径参数吞掉 contextual 返回 422）。
 ---
 
 ## 7. 冒烟测试脚本
+> **R13-P3 文档同步（2026-10-29）**：冒烟脚本 `tests/smoke/training_advice_smoke_test.py` 尚未实现（`tests/smoke/` 当前仅含 `__init__.py`，全项目冒烟测试均未落地），以下脚本保留为设计参考。单元层验收以 `pytest tests/unit/test_training.py`（17 测试）+ `tests/unit/test_supplements_p1.py::TestTrainingPermissionGuard`（D1 权限守卫）+ `tests/unit/test_supplements_p2.py`（D2 趋势建议 / D3 方案版本化与动作分支）为准。
 
 ```python
 # tests/smoke/training_advice_smoke_test.py
@@ -1414,8 +1361,8 @@ if __name__ == "__main__":
 
 ## 8. 验证清单
 
-- [ ] 单元测试全部通过：`pytest tests/unit/test_training_advice.py -v`
-- [ ] 冒烟测试通过：`python -m tests.smoke.training_advice_smoke_test`
+- [ ] 单元测试全部通过：`pytest tests/unit/test_training.py -v`（R13-P3 文档同步：实际测试文件为 test_training.py；权限守卫/趋势建议/方案版本化补充测试见 test_supplements_p1.py、test_supplements_p2.py）
+- [ ] 冒烟测试通过：`python -m tests.smoke.training_advice_smoke_test`（R13-P3 文档同步：脚本尚未实现，见 §7 注记）
 - [ ] Model 已在 `app/models/__init__.py` 中导�?- [ ] Router 已在 `app/api/v1/__init__.py` 中注�?- [ ] Alembic 迁移已生成并执行
 - [ ] 训练建议包含历史趋势对比内容（diagnosis.trend 字段�?- [ ] 首次分析标注 `is_first_analysis=True` 并包�?首次分析"提示
 - [ ] 规则引擎正确匹配 4 类模式（单次 / 趋势改善 / 趋势持续 / 停滞�?- [ ] 方案调整记录版本化保存（old/new 快照 + changes_summary diff�?- [ ] 手动重新评估的权限检查（会员及以上）

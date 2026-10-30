@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
+from app.api.v1.video_analysis.router import share_router as video_share_router
 from app.api.v1.ws import router as ws_router
 from app.core.config import settings
 from app.core.exceptions import (
@@ -124,6 +125,9 @@ app.add_exception_handler(Exception, generic_exception_handler)
 
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(ws_router)  # WebSocket 端点挂载在根路径 /ws
+# R12-VA-1: 公开分享路由挂载根路径 /share/{share_token}，与 create_share 生成的 URL 一致
+# （此前挂在 api_router 下导致实际路径 /api/v1/share/... 与生成的 /share/... 不匹配 → 404）
+app.include_router(video_share_router)
 
 
 # =================================================================

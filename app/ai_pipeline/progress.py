@@ -36,6 +36,45 @@ STEP_MESSAGES = {
 # 步骤权重（用于进度计算）
 STEP_WEIGHTS = {1: 10, 2: 5, 3: 15, 4: 10, 5: 5, 6: 10, 7: 10, 8: 5, 9: 20, 10: 10}
 
+# R12-VA-2: 任务状态机合法转换矩阵（设计文档 03-video_analysis/backend.md）
+# queued→failed：流水线启动失败（Celery 入队异常）为合法转换（R12 复验补充，
+# 消除 video_analysis_service 启动失败旁路直写 status 绕过矩阵校验）
+TASK_TRANSITIONS = {
+    "queued":     {"processing", "cancelled", "failed"},
+    "processing": {"completed", "failed"},
+    "completed":  set(),  # 终态
+    "failed":     {"queued"},  # 可重试
+    "cancelled":  set(),  # 终态
+}
+
+
+async def transition_task_status(db: AsyncSession, task_id: int, target: str) -> bool:
+    """
+    R12-VA-2: 任务状态机转换校验。
+
+    校验 current → target 是否合法：
+    - 合法：更新 status（completed/failed 同时写 completed_at），flush 后返回 True
+    - 非法（含任务不存在）：记录警告日志，不改状态，返回 False
+
+    调用方根据返回值决定后续动作（推送 WS / 中止流水线等）。
+    """
+    task = await db.get(VideoTask, task_id)
+    if task is None:
+        logger.warning("transition_task_status: task %s not found", task_id)
+        return False
+    current = task.status
+    if target not in TASK_TRANSITIONS.get(current, set()):
+        logger.warning(
+            "invalid task status transition skipped: task=%s %s -> %s",
+            task_id, current, target,
+        )
+        return False
+    task.status = target
+    if target in ("completed", "failed"):
+        task.completed_at = datetime.now(timezone.utc)
+    await db.flush()
+    return True
+
 
 class ProgressTracker:
     """流水线进度追踪器"""
@@ -128,47 +167,83 @@ class ProgressTracker:
                 .where(PipelineStep.task_id == task_id, PipelineStep.step_number == step)
                 .values(status="failed", error_message=error, completed_at=now)
             )
-            await db.execute(
-                update(VideoTask)
-                .where(VideoTask.id == task_id)
-                .values(status="failed", error_message=error)
-            )
+            # R12-VA-2: processing → failed 需状态机校验（终态任务不再翻转）
+            allowed = await transition_task_status(db, task_id, "failed")
+            if allowed:
+                task = await db.get(VideoTask, task_id)
+                if task:
+                    task.error_message = error
+                    await db.flush()
             await db.commit()
 
-            # WS 推送
+            if not allowed:
+                return
+
+            # WS 推送 + 离线兜底（R13-AIP-2 同型修复：失败通知离线用户落 DB）
             task = await db.get(VideoTask, task_id)
             if task:
-                await NotificationService.push_ws_message(
-                    task.user_id,
-                    "analysis_failed",
-                    {"task_id": task_id, "step": step, "error": error},
-                )
+                if await NotificationService.is_user_online(task.user_id):
+                    await NotificationService.push_ws_message(
+                        task.user_id,
+                        "analysis_failed",
+                        {"task_id": task_id, "step": step, "error": error},
+                    )
+                else:
+                    try:
+                        await NotificationService.send_notification(
+                            task.user_id,
+                            "analysis_failed",
+                            "视频分析失败",
+                            "很抱歉，您的视频分析未成功完成，分析额度已退还",
+                            extra_data={"task_id": task_id, "step": step},
+                        )
+                    except Exception as e:
+                        logger.warning("analysis_failed_offline_notify_failed", extra={
+                            "task_id": task_id, "user_id": task.user_id, "error": str(e),
+                        })
 
     @staticmethod
     async def on_task_complete(task_id: int, report_id: int) -> None:
         """任务完成"""
-        now = datetime.now(timezone.utc)
         async with async_session_factory() as db:
-            await db.execute(
-                update(VideoTask)
-                .where(VideoTask.id == task_id)
-                .values(
-                    status="completed",
-                    progress=1.0,
-                    current_step=10,
-                    completed_at=now,
-                )
-            )
+            # R12-VA-2: processing → completed 需状态机校验（终态任务不再翻转）
+            allowed = await transition_task_status(db, task_id, "completed")
+            if allowed:
+                task = await db.get(VideoTask, task_id)
+                if task:
+                    task.progress = 1.0
+                    task.current_step = 10
+                    await db.flush()
             await db.commit()
 
-            # WS 推送
+            if not allowed:
+                return
+
+            # WS 推送 + 离线兜底（R13-AIP-2: 设计 §5.4 级联第 4 步 —
+            # 在线 → WS 实时推送（保留 analysis_complete 事件契约）；
+            # 离线 → NotificationService.send_notification 落 DB + 未读计数
+            # + 微信订阅消息，用户下次打开小程序经通知列表触达）
             task = await db.get(VideoTask, task_id)
             if task:
-                await NotificationService.push_ws_message(
-                    task.user_id,
-                    "analysis_complete",
-                    {"task_id": task_id, "report_id": report_id},
-                )
+                if await NotificationService.is_user_online(task.user_id):
+                    await NotificationService.push_ws_message(
+                        task.user_id,
+                        "analysis_complete",
+                        {"task_id": task_id, "report_id": report_id},
+                    )
+                else:
+                    try:
+                        await NotificationService.send_notification(
+                            task.user_id,
+                            "analysis_complete",
+                            "视频分析完成",
+                            "您的视频分析报告已生成，点击查看分析详情",
+                            extra_data={"task_id": task_id, "report_id": report_id},
+                        )
+                    except Exception as e:
+                        logger.warning("analysis_complete_offline_notify_failed", extra={
+                            "task_id": task_id, "user_id": task.user_id, "error": str(e),
+                        })
 
     @staticmethod
     def _calc_progress(step: int, step_progress: int) -> float:

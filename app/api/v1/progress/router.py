@@ -18,8 +18,8 @@ from typing import Optional
 router = APIRouter(prefix="/progress", tags=["进度分析"])
 
 
-@limiter.limit("100/minute")
 @router.get("/snapshots", summary="快照列表")
+@limiter.limit("100/minute")
 async def list_snapshots(
     request: Request,
     period: str = Query(default="all", pattern="^(month|quarter|year|all)$"),
@@ -33,8 +33,8 @@ async def list_snapshots(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/technique-trends", summary="技术趋势")
+@limiter.limit("100/minute")
 async def get_technique_trends(
     request: Request,
     user: User = Depends(get_current_user),
@@ -43,8 +43,8 @@ async def get_technique_trends(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/technique-trends/{metric}", summary="单项趋势详情")
+@limiter.limit("100/minute")
 async def get_technique_trend_detail(
     request: Request,
     metric: str,
@@ -54,8 +54,8 @@ async def get_technique_trend_detail(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/comparison", summary="报告对比")
+@limiter.limit("100/minute")
 async def get_comparison(
     request: Request,
     report_a: int = Query(ge=1),
@@ -70,8 +70,8 @@ async def get_comparison(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/summary", summary="综合摘要")
+@limiter.limit("100/minute")
 async def get_summary(
     request: Request,
     user: User = Depends(get_current_user),
@@ -80,8 +80,8 @@ async def get_summary(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/problem-changes", summary="问题变化")
+@limiter.limit("100/minute")
 async def get_problem_changes(
     request: Request,
     user: User = Depends(get_current_user),

@@ -47,6 +47,9 @@ class Match(Base):
     current_score_opp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_server: Mapped[str | None] = mapped_column(String(10), nullable=True)  # user/opponent
     current_game: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # R12-SC-1: 多局赛制局分（bo3=2胜/bo5=3胜/bo7=4胜，bo1/custom 单局不累计）
+    games_won_user: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    games_won_opp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_win: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     final_score: Mapped[str | None] = mapped_column(String(20), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

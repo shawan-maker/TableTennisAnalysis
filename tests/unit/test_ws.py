@@ -112,6 +112,59 @@ def test_ws_ping_pong(ws_setup):
             assert pong["data"]["token_expired"] is False
 
 
+def test_ws_subscribe_sends_sync_match(ws_setup, monkeypatch):
+    """R12-SC-2: subscribe 比赛频道 → 推送 sync_match 全量同步（API §14.2/§14.4）
+
+    get_match_detail 以 monkeypatch 替换（WS 测试遵循仅 Redis+JWT 原则，
+    DB 查询路径由 scoring 测试覆盖）
+    """
+    from app.main import app
+    from app.core.security import create_access_token, generate_jti
+    from app.services.scoring_service import ScoringService
+
+    fake_detail = {
+        "status": "in_progress",
+        "current_score": "7:5",
+        "score_sequence": [
+            {"sequence": 1, "scorer": "user", "score_method": "loop",
+             "technique_action": None, "game_number": 1},
+            {"sequence": 2, "scorer": "opp", "score_method": "smash",
+             "technique_action": None, "game_number": 1},
+        ],
+    }
+
+    async def _fake_get_match_detail(user_id, match_id):
+        return fake_detail
+
+    monkeypatch.setattr(
+        ScoringService, "get_match_detail", staticmethod(_fake_get_match_detail)
+    )
+
+    token = create_access_token({"sub": "12345", "jti": generate_jti()})
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws", subprotocols=[f"jwt.{token}"]) as ws:
+            connected = ws.receive_json()
+            assert connected["event"] == "connected"
+
+            # 订阅比赛频道
+            ws.send_json({"event": "subscribe", "match_id": 2001})
+
+            subscribed = ws.receive_json()
+            assert subscribed["event"] == "subscribed"
+            assert subscribed["data"]["match_id"] == 2001
+
+            # R12-SC-2: 订阅后收到 sync_match 全量同步
+            sync = ws.receive_json()
+            assert sync["event"] == "sync_match"
+            data = sync["data"]
+            assert data["match_id"] == 2001
+            assert data["status"] == "in_progress"
+            assert data["current_score"] == "7:5"
+            assert len(data["score_sequence"]) == 2
+            assert data["score_sequence"][0]["scorer"] == "user"
+
+
 # =================================================================
 # 在线状态
 # =================================================================
@@ -205,3 +258,79 @@ def test_ws_relay_message(ws_setup):
             data = ws.receive_json()
             assert data["event"] == "test_message"
             assert data["data"]["msg"] == "hello world"
+
+
+# =================================================================
+# 比赛房间广播（R12-SC-5）
+# =================================================================
+
+def test_ws_match_room_broadcast(ws_setup):
+    """R12-SC-5: 订阅比赛频道 → ws_manager.broadcast_to_room 房间广播中继到客户端
+
+    覆盖完整生产链路（R5-Infra-5 频道命名一致性）：
+    ScoringService 记分 → ws_manager.broadcast_to_room("ws:match:{id}")
+    → Redis ws:relay:ws:match:{id} → 端点 subscribe 中继 → 客户端 score_update。
+    """
+    from app.main import app
+    from app.core.security import create_access_token, generate_jti
+    from app.core.websocket import manager as ws_manager
+    from app.core import redis as redis_module
+
+    token = create_access_token({"sub": "12345", "jti": generate_jti()})
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws", subprotocols=[f"jwt.{token}"]) as ws:
+            ws.receive_json()  # connected
+
+            # 订阅比赛 3001 频道（用户 12345 无该比赛 → sync_match 404 跳过，
+            # 仅有 subscribed 确认，房间广播行为不受影响）
+            ws.send_json({"event": "subscribe", "match_id": 3001})
+            subscribed = ws.receive_json()
+            assert subscribed["event"] == "subscribed"
+            assert subscribed["data"]["match_id"] == 3001
+
+            # 等待 pubsub 订阅就绪
+            time.sleep(0.5)
+
+            # 用真实生产广播器发布（ScoringService L323 同款调用）。
+            # 每次发布前重置 Redis 模块单例：广播器经 get_redis() 取连接，
+            # 每次 asyncio.run 使用全新事件循环 —— 需要独立连接池；
+            # 发布后同样重置，避免遗留绑定到已关闭循环的连接池。
+            # （端点已持有的旧 pubsub/redis 引用不受影响 — Redis 服务端
+            # pubsub 投递与发布方连接的事件循环归属无关）
+            async def _broadcast(room_id: str, message: str):
+                redis_module._redis_client = None
+                redis_module._redis_pool = None
+                await ws_manager.broadcast_to_room(room_id, message)
+                redis_module._redis_client = None
+                redis_module._redis_pool = None
+
+            ws_message = json.dumps({
+                "event": "score_update",
+                "data": {
+                    "match_id": 3001,
+                    "current_score": "8:5",
+                    "scorer": "user",
+                    "score_method": "loop",
+                },
+            })
+
+            asyncio.run(_broadcast("ws:match:3001", ws_message))
+
+            # 客户端收到房间广播中继的 score_update
+            data = ws.receive_json()
+            assert data["event"] == "score_update"
+            assert data["data"]["match_id"] == 3001
+            assert data["data"]["current_score"] == "8:5"
+
+            # 未订阅的另一比赛房间广播不被中继（频道隔离）
+            asyncio.run(_broadcast(
+                "ws:match:9999",
+                json.dumps({"event": "score_update", "data": {"match_id": 9999}}),
+            ))
+            # 留出投递时间窗：若 9999 被错误中继，消息将先于 pong 排队
+            time.sleep(0.5)
+
+            ws.send_json({"event": "ping"})
+            pong = ws.receive_json()
+            assert pong["event"] == "pong"

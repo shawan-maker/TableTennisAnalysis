@@ -15,24 +15,38 @@ from pydantic import BaseModel, Field
 # =============================================================================
 
 class WechatLoginRequest(BaseModel):
-    """微信小程序登录请求"""
+    """微信小程序登录请求
 
-    code: str = Field(..., min_length=1, description="wx.login() 返回的 code")
+    R13-Auth-N2: code 移除 min_length 约束 — API §2.1 契约为 400 +
+    "登录凭证不能为空"（service 层校验，原 Schema 先行 422 导致设计 400
+    分支死代码，与 R12-User-3 rating 同型修复）
+    """
+
+    code: str = Field(..., description="wx.login() 返回的 code")
     nickname: Optional[str] = Field(default=None, max_length=64)
     avatar_url: Optional[str] = Field(default=None, max_length=512)
 
 
 class PhoneLoginRequest(BaseModel):
-    """手机号验证码登录请求"""
+    """手机号验证码登录请求
 
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
-    code: str = Field(..., pattern=r"^\d{6}$", description="6 位验证码")
+    R13-Auth-N2: phone/code 移除 pattern 约束 — API §2.2 契约为 400 +
+    中文消息（手机号格式不正确/验证码错误或已过期），service 层校验。
+    非 6 位数字的 code 归入"验证码错误或已过期"语义。
+    """
+
+    phone: str = Field(..., description="手机号")
+    code: str = Field(..., description="6 位验证码")
 
 
 class SendSmsRequest(BaseModel):
-    """发送短信验证码请求"""
+    """发送短信验证码请求
 
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$")
+    R13-Auth-N2: phone 移除 pattern 约束 — API §2.3 契约为 400 +
+    "手机号格式不正确"（service 层校验）
+    """
+
+    phone: str = Field(..., description="手机号")
 
 
 class RefreshTokenRequest(BaseModel):

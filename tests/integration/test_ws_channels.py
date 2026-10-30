@@ -23,6 +23,39 @@ def _make_token(user_id: int) -> str:
     return create_access_token({"sub": str(user_id), "jti": generate_jti()})
 
 
+async def _poll_pubsub_message(pubsub, budget: float = 2.0):
+    """R13-WS-Test-1: budget 秒内轮询 pubsub 直至收到首条业务消息。
+
+    redis-py 7.1.0 的 get_message() 为即时非阻塞轮询（内部 async_timeout(0)
+    立即取消读取并返回 None），不能包在 asyncio.wait_for 里期望阻塞等待 ——
+    Python 3.11 嵌套 asyncio.timeout 会丢失外层 wait_for 定时器（挂死），
+    且内层协程瞬间完成时超时永不触发。改为固定预算 + 50ms 间隔轮询。
+    返回首条 type=message 消息 dict，预算耗尽返回 None。
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + budget
+    while loop.time() < deadline:
+        msg = await pubsub.get_message(ignore_subscribe_messages=True)
+        if msg and msg["type"] == "message":
+            return msg
+        await asyncio.sleep(0.05)
+    return None
+
+
+async def _poll_pubsub_messages(pubsub, want: int, budget: float = 2.0):
+    """R13-WS-Test-1: budget 秒内轮询收集至多 want 条业务消息（收满提前退出）。"""
+    messages = []
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + budget
+    while len(messages) < want and loop.time() < deadline:
+        msg = await pubsub.get_message(ignore_subscribe_messages=True)
+        if msg and msg["type"] == "message":
+            messages.append(msg["data"])
+        else:
+            await asyncio.sleep(0.05)
+    return messages
+
+
 @pytest_asyncio.fixture
 async def ws_user(db_session):
     """创建测试用户"""
@@ -60,16 +93,8 @@ class TestWSMessagePush:
             user_id, "test_event", {"key": "value"}
         )
 
-        # 等待消息到达
-        msg = None
-        for _ in range(10):
-            msg = await asyncio.wait_for(
-                pubsub.get_message(ignore_subscribe_messages=True),
-                timeout=2.0,
-            )
-            if msg and msg["type"] == "message":
-                break
-            await asyncio.sleep(0.1)
+        # 等待消息到达（R13-WS-Test-1: 改截止时间轮询，见 _poll_pubsub_message）
+        msg = await _poll_pubsub_message(pubsub, budget=2.0)
 
         await pubsub.unsubscribe(channel)
         await pubsub.close()
@@ -101,18 +126,12 @@ class TestWSMessagePush:
         # 向 B 推送消息
         await NotificationService.push_ws_message(user_b.id, "b_event", {"msg": "for B"})
 
-        # A 的频道不应收到消息
-        try:
-            msg = await asyncio.wait_for(
-                pubsub_a.get_message(ignore_subscribe_messages=True),
-                timeout=1.0,
-            )
-            # 如果有消息，应该是空或者不属于 B 的事件
-            if msg and msg["type"] == "message":
-                data = json.loads(msg["data"])
-                assert data["event"] != "b_event"
-        except asyncio.TimeoutError:
-            pass  # 预期：A 没收到消息
+        # A 的频道不应收到消息（R13-WS-Test-1: 改截止时间轮询）
+        msg = await _poll_pubsub_message(pubsub_a, budget=0.5)
+        # 如果有消息，应该是空或者不属于 B 的事件
+        if msg is not None:
+            data = json.loads(msg["data"])
+            assert data["event"] != "b_event"
 
         await pubsub_a.unsubscribe(channel_a)
         await pubsub_a.close()
@@ -194,18 +213,12 @@ class TestWSReconnectCompensation:
         await NotificationService.on_ws_reconnect(user.id)
         await asyncio.sleep(0.3)
 
-        # 收集推送的消息
-        messages = []
-        try:
-            while len(messages) < 5:
-                msg = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True),
-                    timeout=2.0,
-                )
-                if msg and msg["type"] == "message":
-                    messages.append(json.loads(msg["data"]))
-        except asyncio.TimeoutError:
-            pass
+        # 收集推送的消息（R13-WS-Test-1: 改截止时间轮询 — 原 while+len 模式
+        # 依赖 wait_for 超时退出，redis-py 7.1.0 get_message 即时返回导致无限热循环挂死）
+        messages = [
+            json.loads(raw)
+            for raw in await _poll_pubsub_messages(pubsub, want=5, budget=2.0)
+        ]
 
         await pubsub.unsubscribe(channel)
         await pubsub.close()
@@ -239,18 +252,12 @@ class TestWSReconnectCompensation:
         # 触发重连补偿
         await NotificationService.on_ws_reconnect(ws_user.id)
 
-        # 应无消息推送
-        try:
-            msg = await asyncio.wait_for(
-                pubsub.get_message(ignore_subscribe_messages=True),
-                timeout=1.0,
-            )
-            if msg and msg["type"] == "message":
-                # 如果有消息，不应是通知推送
-                data = json.loads(msg["data"])
-                assert data.get("event") not in ("notification", "system_notification")
-        except asyncio.TimeoutError:
-            pass  # 预期：无消息
+        # 应无消息推送（R13-WS-Test-1: 改截止时间轮询）
+        msg = await _poll_pubsub_message(pubsub, budget=0.5)
+        if msg is not None:
+            # 如果有消息，不应是通知推送
+            data = json.loads(msg["data"])
+            assert data.get("event") not in ("notification", "system_notification")
 
         await pubsub.unsubscribe(channel)
         await pubsub.close()
@@ -315,16 +322,8 @@ class TestWSSendNotificationChannel:
             user.id, "test_online", "在线测试标题", "在线测试内容"
         )
 
-        # 应收到 WS 消息
-        msg = None
-        for _ in range(10):
-            msg = await asyncio.wait_for(
-                pubsub.get_message(ignore_subscribe_messages=True),
-                timeout=2.0,
-            )
-            if msg and msg["type"] == "message":
-                break
-            await asyncio.sleep(0.1)
+        # 应收到 WS 消息（R13-WS-Test-1: 改截止时间轮询）
+        msg = await _poll_pubsub_message(pubsub, budget=2.0)
 
         await pubsub.unsubscribe(channel)
         await pubsub.close()

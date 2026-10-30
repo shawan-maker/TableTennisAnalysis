@@ -32,8 +32,8 @@ class ReportGenerator:
         # 1. 聚合 result_data
         result_data = ReportGenerator._aggregate_result_data(step_results)
 
-        # 2. 生成 report_text
-        report_text = await ReportGenerator._generate_report_text(result_data, task_id)
+        # 2. 生成 report_text（R12-AIPipeline-4: 返回值携带实际生成方式标志）
+        report_text, used_llm = await ReportGenerator._generate_report_text(result_data, task_id)
 
         # 3. 写入 AnalysisReport
         async with async_session_factory() as db:
@@ -47,6 +47,8 @@ class ReportGenerator:
                 # 更新
                 existing.result_data = result_data
                 existing.report_text = report_text
+                # R12-AIPipeline-4: 重新生成时同样按实际生成方式记录
+                existing.is_llm_generated = used_llm
                 await db.commit()
                 report_id = existing.id
             else:
@@ -55,7 +57,11 @@ class ReportGenerator:
                     user_id=task.user_id,
                     result_data=result_data,
                     report_text=report_text,
-                    is_llm_generated=settings.LLM_ENABLED,
+                    # R12-AIPipeline-4: is_llm_generated 按实际生成方式记录 —
+                    # LLM 调用成功为 True；失败降级模板/熔断降级/LLM 未启用为 False。
+                    # 原实现直接写 settings.LLM_ENABLED 配置静态值，
+                    # LLM_ENABLED=True 但 LLM 故障降级模板时数据飞轮口径失真
+                    is_llm_generated=used_llm,
                     annotated_video_url=step_results.get(10, {}).get("annotated_video_url"),
                     cover_image_url=step_results.get(1, {}).get("cover_image_url"),
                 )
@@ -65,7 +71,7 @@ class ReportGenerator:
                 report_id = report.id
 
         # 4. 触发级联（try/except 不阻塞）
-        await ReportGenerator._trigger_cascade(task_id, report_id, task.user_id)
+        await ReportGenerator._trigger_cascade(task_id, report_id, task.user_id, result_data)
 
         return {
             "report_id": report_id,
@@ -136,19 +142,36 @@ class ReportGenerator:
         }
 
     @staticmethod
-    async def _generate_report_text(result_data: dict, task_id: int) -> dict:
+    async def _generate_report_text(result_data: dict, task_id: int) -> tuple[dict, bool]:
         """
-        生成报告文字：LLM 优先 → 规则引擎降级
+        生成报告文字：LLM 优先 → 规则引擎降级。
+
+        R12-AIPipeline-4: 返回 (report_text, used_llm) —
+        used_llm 按实际生成方式记录（LLM 成功 True / 降级模板 False），
+        供 generate() 写入 is_llm_generated 字段，数据飞轮口径保真。
         """
         if settings.LLM_ENABLED and settings.LLM_API_URL:
+            # R12-AIPipeline-8: LLM 路径前置熔断检查（设计 §5.5 _generate_report_text 样例）—
+            # 熔断中直接降级模板生成，不调用 LLM；成功/失败计入共享 ai_inference 熔断器
+            from app.ai_pipeline.circuit_breaker import AICircuitBreaker
+
+            cb = AICircuitBreaker("ai_inference")
+            if not await cb.allow_request():
+                logger.warning("llm_circuit_open_fallback_to_template", extra={
+                    "task_id": task_id,
+                })
+                return ReportGenerator._generate_template_report(result_data), False
             try:
-                return await ReportGenerator._generate_llm_report(result_data)
+                llm_result = await ReportGenerator._generate_llm_report(result_data)
+                await cb.record_success()
+                return llm_result, True
             except Exception as e:
+                await cb.record_failure()
                 logger.warning("llm_report_failed_fallback_to_template", extra={
                     "error": str(e), "task_id": task_id
                 })
 
-        return ReportGenerator._generate_template_report(result_data)
+        return ReportGenerator._generate_template_report(result_data), False
 
     @staticmethod
     async def _generate_llm_report(result_data: dict) -> dict:
@@ -212,13 +235,16 @@ class ReportGenerator:
         }
 
     @staticmethod
-    async def _trigger_cascade(task_id: int, report_id: int, user_id: int) -> None:
+    async def _trigger_cascade(
+        task_id: int, report_id: int, user_id: int, result_data: dict | None = None,
+    ) -> None:
         """
         级联触发（try/except 不阻塞）：
-        - 训练建议（S4 实现）
-        - 进度快照（S4 实现）
+        - 训练建议（R12-Training-B1: Celery 异步生成 + WS 推送）
+        - 进度快照（R12-Prog-1: 报告完成后自动生成 ProgressSnapshot）
         - 游戏化积分
-        - 通知推送
+        - 看板缓存失效（R12-Dash-1: 分析完成后清除 dashboard 缓存）
+        - 通知推送（WS 消息已在 ProgressTracker 中处理）
         """
         # 游戏化积分
         try:
@@ -230,5 +256,26 @@ class ReportGenerator:
         except Exception as e:
             logger.error("cascade_gamification_failed", extra={"error": str(e)})
 
-        # 通知推送 — WS 消息已在 ProgressTracker 中处理
-        # 训练建议 / 进度快照 — S4 实现
+        # R12-Training-B1: 训练建议异步生成（eager 模式同步执行，生产模式投递队列）
+        try:
+            from app.tasks.training import generate_advice_task
+            generate_advice_task.delay(user_id, report_id)
+        except Exception as e:
+            logger.error("cascade_generate_advice_failed", extra={"error": str(e)})
+
+        # R12-Prog-1 → R13-AIP-1: 进度快照生成 — 按 ai_pipeline.md 反幻觉约束
+        # （"级联链必须异步触发，禁止同步阻塞流水线"）改 Celery 投递
+        # （progress_analysis.generate_snapshot，设计 §5.4 第 2 步）
+        try:
+            from app.tasks.progress import generate_snapshot_task
+            generate_snapshot_task.delay(user_id, report_id, result_data or {})
+        except Exception as e:
+            logger.error("cascade_generate_snapshot_failed", extra={"error": str(e)})
+
+        # R12-Dash-1 → R13-AIP-1: 看板缓存失效 — 同上改 Celery 投递
+        # （dashboard.bust_cache，设计 §5.4 第 3 步）
+        try:
+            from app.tasks.dashboard import bust_cache_task
+            bust_cache_task.delay(user_id, "analysis_complete")
+        except Exception as e:
+            logger.error("cascade_bust_cache_failed", extra={"error": str(e)})

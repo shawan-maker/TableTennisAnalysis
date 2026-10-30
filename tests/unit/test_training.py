@@ -167,7 +167,10 @@ async def test_get_advice_by_report(client, auth_headers, auth_user, db_session,
     assert data["is_first_analysis"] is True
     assert len(data["diagnosis"]) >= 1
     assert len(data["suggestions"]) >= 1
-    assert data["suggestions"][0]["type"] == "first_analysis"
+    # Training-B2：type 由规则判定，first_analysis 仅作为追加提示（不批量改写规则建议类型）
+    types = {s["type"] for s in data["suggestions"]}
+    assert "first_analysis" in types  # 首次分析提示存在
+    assert types - {"first_analysis"}  # 规则建议类型未被污染（如 new_issue 等）
 
 
 @pytest.mark.asyncio

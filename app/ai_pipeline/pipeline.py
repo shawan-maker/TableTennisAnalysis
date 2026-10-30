@@ -7,13 +7,10 @@ Phase 1：顺序执行（parallel 优化留 S6）
 """
 
 import logging
-from datetime import datetime, timezone
-
-from sqlalchemy import update
 
 from app.core.celery import celery_app
 from app.core.database import async_session_factory
-from app.models.video_analysis import PipelineStep, VideoTask
+from app.models.video_analysis import PipelineStep
 from app.ai_pipeline.tasks import run_pipeline, run_pipeline_async
 
 logger = logging.getLogger(__name__)
@@ -62,12 +59,14 @@ class PipelineOrchestrator:
 
         # 更新任务状态为 processing
         async with async_session_factory() as db:
-            await db.execute(
-                update(VideoTask)
-                .where(VideoTask.id == task_id)
-                .values(status="processing")
-            )
+            # R12-VA-2: queued → processing 需状态机校验，非法转换中止流水线
+            from app.ai_pipeline.progress import transition_task_status
+            allowed = await transition_task_status(db, task_id, "processing")
             await db.commit()
+            if not allowed:
+                raise ValueError(
+                    f"task {task_id} 不允许从当前状态转换为 processing（已终态或不存在）"
+                )
 
         if celery_app.conf.task_always_eager:
             # eager 模式：直接 await（同一事件循环内）

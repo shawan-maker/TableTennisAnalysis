@@ -120,6 +120,11 @@ async def test_h5_token_one_time_use(client, auth_user):
     assert "Token 已使�? in resp3.json()["message"]
 ```
 
+> **P3 文档同步（R12 复验批次 1）**：实际测试文件已演进，与上方先行样例的差异：
+> - **R13-P3 文档同步（Auth-P2-N2 已修复）**：`test_wechat_login_empty_code` / `test_phone_login_invalid_format` 样例断言 400 + 中文消息，修复后与实现一致 —— Request Schema 移除 `min_length`/`pattern` 先行约束，改由 Service 层校验返回 400 + 中文 message（wechat-login code 空「登录凭证不能为空」、phone-login/send-sms 手机号「手机号格式不正确」，常量 `PHONE_PATTERN`），对齐 API 设计 §2.1/§2.2/§2.3 错误表。测试锁定：`tests/unit/test_auth.py` `TestAuth400ChineseMessages`（3 测试）
+> - h5-exchange 二次使用：样例断言消息「Token 已使用」；实现统一返回「H5 Token 已过期，请重新操作」（401 状态码一致，仅消息文案差异）
+> - 实际测试分布：`tests/unit/test_auth.py`（/me、H5 Token 一次性使用 401、consent 流程、send-sms 60s 防刷 429、phone-login 验证码错误 400）；R12 补充测试位于 `tests/unit/test_supplements_p1.py` — `TestAuthRefreshLogout`（refresh 成功 + 旧 token 黑名单 401 / 非法 token 401 / access_token 不能当 refresh 用 / logout 双 token 撤销，L1337）、`TestWechatLogin`（新用户创建 / 复用不覆盖昵称 / banned 403 / pending_deletion 403，L1403）、`TestWechatLoginBanned`（L530）、`TestConsentPolicyVersionValidation`（policy_version 非法 422 且不产生同意记录，L1556）
+
 ---
 
 ## 3. Model（复�?user 模块�?
@@ -140,7 +145,8 @@ auth 模块不独立定�?Model，复�?`app/models/user.py` 中的 `User` 表
 ### 3.1 ConsentLog Model（PIPL-001 修复）
 
 ```python
-# app/models/consent_log.py
+# app/models/user.py（P3 文档同步（R12 复验批次 1）：ConsentLog 实际定义于 user.py 与 User 同文件；
+# 代码导入为 from app.models.user import ConsentLog，字段与索引定义同下）
 from sqlalchemy import BigInteger, String, ForeignKey, Index, DateTime, Boolean, Text
 from datetime import datetime
 
@@ -198,7 +204,8 @@ class LogoutRequest(BaseModel):
 # --- PIPL-001 修复：用户同意记录 ---
 class ConsentRequest(BaseModel):
     """用户同意隐私政策请求。"""
-    consent_type: str = Field(..., max_length=32, description="同意类型，如 privacy_policy")
+    # P3 文档同步（R12）：实现为 Literal 枚举约束（app/schemas/auth.py，非法值 422）
+    consent_type: Literal["privacy_policy", "user_agreement", "data_processing"] = Field(..., description="同意类型")
     policy_version: str = Field(..., max_length=16, description="政策版本号")
 
 class ConsentResponse(BaseModel):
@@ -242,6 +249,12 @@ class CurrentUserResponse(BaseModel):
 ---
 
 ## 5. Service 实现
+
+> **P3 文档同步（R12 复验批次 1）**：以下样例与实际实现（`app/services/auth_service.py`）存在 4 处 API 命名级差异，以实现为准：
+> 1. 会话工厂：样例 `get_async_session()` → 实际 `async_session_factory()`（`from app.core.database import async_session_factory`）
+> 2. refresh token 解码：样例 `decode_token(refresh_token)` → 实际 `decode_refresh_token(refresh_token)`（refresh 专用解码器；`refresh_token` 与 `logout` 两处均已使用，logout 处样例保留旧写法未逐一回改，见实现 auth_service.py L256/L311）
+> 3. jti 生成：样例 `str(uuid.uuid4())` → 实际 `generate_jti()`（`app.core.security` 统一函数）
+> 4. ConsentLog 导入：样例 `from app.models.consent_log import ConsentLog` → 实际 `from app.models.user import ConsentLog`
 
 ```python
 # app/services/auth_service.py
@@ -311,11 +324,14 @@ class AuthService:
                 await db.refresh(user)
             elif user.status == "pending_deletion":
                 raise AppException("您的账号正在注销中，请先撤销注销", 403)
+            elif user.status == "banned":
+                raise AppException("您的账号已被封禁", 403)
 
             # 3. 存储 session_key �?Redis
             redis = await get_redis()
             await redis.setex(
-                f"wx:session_key:{user.id}", AuthService.SESSION_KEY_TTL, session_key
+                # R13-P3文档同步：键参数按 REDIS-I 键表与实现为 {openid}，原样例 {user.id} 为笔误
+                f"wx:session_key:{openid}", AuthService.SESSION_KEY_TTL, session_key
             )
 
             # 4. 签发 JWT
@@ -357,6 +373,10 @@ class AuthService:
                 db.add(user)
                 await db.commit()
                 await db.refresh(user)
+            elif user.status == "pending_deletion":
+                raise AppException("您的账号正在注销中，请先撤销注销", 403)
+            elif user.status == "banned":
+                raise AppException("您的账号已被封禁", 403)
 
             access_token = create_access_token({"sub": str(user.id), "jti": str(uuid.uuid4())})
             refresh_token = create_refresh_token({"sub": str(user.id), "jti": str(uuid.uuid4())})
@@ -384,55 +404,52 @@ class AuthService:
         import random
         code = f"{random.randint(0, 999999):06d}"
         redis = await get_redis()
-        # 限流检�?        last_sent = await redis.get(f"sms:sent:{phone}")
+        # 防刷限制：同一手机号 60 秒内只能发一次（key: sms:sent:{phone}，60 秒 TTL）
+        last_sent = await redis.get(f"sms:sent:{phone}")
         if last_sent:
-            raise AppException("验证码已发送，�?1 分钟后重�?, 429)
-        # 存储验证�?
+            raise AppException("验证码发送过于频繁，请 60 秒后重试", 429)
+        # 存储验证码（5 分钟有效）
         await redis.setex(f"sms:code:{phone}", AuthService.SMS_CODE_TTL, code)
-        await redis.setex(f"sms:sent:{phone}", 60, "1")  # 1 分钟限流
-        # 调用阿里云短信服务发送验证码
-        # 实现说明：生产环境通过阿里云 dysmsapi 发送，此处封装为独立方法便于 mock 测试
-        # 依赖环境变量：ALIYUN_SMS_ACCESS_KEY / ALIYUN_SMS_SECRET / ALIYUN_SMS_SIGN_NAME / ALIYUN_SMS_TEMPLATE_CODE
-        await AuthService._send_aliyun_sms(phone, code)
-�?        return {"expire_seconds": AuthService.SMS_CODE_TTL}
+        await redis.setex(f"sms:sent:{phone}", 60, "1")  # 60 秒防刷标记
+        # 发送短信：SMS_MOCK=true（Phase 1 默认）日志输出验证码；false 时走阿里云通道（Phase 2 接入）
+        if settings.SMS_MOCK:
+            import logging
+            logging.getLogger(__name__).info("SMS mock mode: phone=%s code=%s", phone, code)
+        else:
+            await AuthService._send_aliyun_sms(phone, code)
+        return {"expire_seconds": AuthService.SMS_CODE_TTL}
     @staticmethod
     async def _send_aliyun_sms(phone: str, code: str) -> None:
-        """调用阿里云短信服务发送验证码（封装为独立方法便于 mock 测试）。
-
-        生产环境依赖环境变量：
-            ALIYUN_SMS_ACCESS_KEY / ALIYUN_SMS_SECRET
-            ALIYUN_SMS_SIGN_NAME / ALIYUN_SMS_TEMPLATE_CODE
-        开发环境可通过 SMS_MOCK=true 跳过实际发送，仅打印日志。
-        """
-        import os
-        if os.getenv("SMS_MOCK", "true").lower() == "true":
-            print(f"[SMS MOCK] phone={phone}, code={code}")
-            return
-
-        from alibabacloud_dysmsapi20170525.client import Client
-        from alibabacloud_tea_openapi import models as open_api_models
-        from alibabacloud_dysmsapi20170525 import models as dysmsapi_models
-
-        config = open_api_models.Config(
-            access_key_id=os.getenv("ALIYUN_SMS_ACCESS_KEY"),
-            access_key_secret=os.getenv("ALIYUN_SMS_SECRET"),
-            endpoint="dysmsapi.aliyuncs.com",
+        """调用阿里云短信 API 发送验证码"""
+        # P3 文档同步（R12）：文档原为完整 alibabacloud SDK 实现；实际实现为框架桩
+        # （logging.warning 占位），真实 SDK 接入在 Phase 2；且仅在 SMS_MOCK=false 时被调用
+        import logging
+        logging.getLogger(__name__).warning(
+            "Aliyun SMS not configured. phone=%s code=%s", phone, code
         )
-        client = Client(config)
-        send_req = dysmsapi_models.SendSmsRequest(
-            phone_numbers=phone,
-            sign_name=os.getenv("ALIYUN_SMS_SIGN_NAME", "乒乓智分析"),
-            template_code=os.getenv("ALIYUN_SMS_TEMPLATE_CODE"),
-            template_param=json.dumps({"code": code}),
-        )
-        resp = await client.send_sms_with_options_async(send_req, None)
-        if resp.body.code != "OK":
-            raise AppException(f"短信发送失败: {resp.body.message}", 502)
+        # R12-Auth-1（Phase 2 外联边界确认）：阿里云 SMS SDK 接入属 Phase 2 范围，
+        # Phase 1 保持告警日志桩，接入 SDK 后取消下方注释并实现 502 错误码
+        # from aliyunsdkcore.client import AcsClient
+        # from aliyunsdkcore.request import CommonRequest
+        # client = AcsClient(settings.ALIYUN_SMS_ACCESS_KEY, settings.ALIYUN_SMS_SECRET, "cn-hangzhou")
+        # request = CommonRequest()
+        # request.set_method("POST")
+        # request.set_domain("dysmsapi.aliyuncs.com")
+        # request.set_version("2017-05-25")
+        # request.set_action_name("SendSms")
+        # request.add_query_param("PhoneNumbers", phone)
+        # request.add_query_param("SignName", settings.ALIYUN_SMS_SIGN_NAME)
+        # request.add_query_param("TemplateCode", settings.ALIYUN_SMS_TEMPLATE_CODE)
+        # request.add_query_param("TemplateParam", json.dumps({"code": code}))
+        # response = client.do_action_with_exception(request)
+        # if response["Code"] != "OK":
+        #     raise AppException("短信发送失败", 502, code=ERR_THIRD_PARTY)
 
     @staticmethod
     async def refresh_token(refresh_token: str) -> RefreshResponse:
         """刷新 access_token�?""
-        payload = decode_token(refresh_token)
+        # P3 文档同步（R12）：实现使用 decode_refresh_token（refresh 专用解码器）
+        payload = decode_refresh_token(refresh_token)
         if not payload or payload.get("type") != "refresh":
             raise AppException("请重新登�?, 401)
 
@@ -462,26 +479,33 @@ class AuthService:
 
     # --- PIPL-001 修复：用户同意记录 ---
 
-    CURRENT_POLICY_VERSION = "1.0"  # 隐私政策版本号
+    # R12-Auth-3: 版本号统一为 "v1.0"（与 API 设计 §2.9/§2.10 示例、前端切片 PRIVACY_POLICY_VERSION 一致）
+    CURRENT_POLICY_VERSION = "v1.0"  # 隐私政策版本号
 
     @staticmethod
-    async def check_consent(user_id: int) -> dict:
-        """检查用户是否已同意当前版本隐私政策。"""
+        async def check_consent(user_id: int, consent_type: Optional[str] = "privacy_policy") -> dict:
+        """检查用户是否已同意当前版本隐私政策。
+
+        R4-Auth-2/R5-Auth-4: 接受 consent_type 参数（默认 "privacy_policy"，登录流程只检查隐私政策）；
+        consent_type=None 时不限类型，返回任意类型的最新同意记录。
+        """
         from sqlalchemy import select
-        from app.core.database import get_async_session
+        from app.core.database import async_session_factory
         from app.models.consent_log import ConsentLog
-        async with get_async_session() as db:
-            result = await db.execute(
+        async with async_session_factory() as db:
+            stmt = (
                 select(ConsentLog)
                 .where(
                     ConsentLog.user_id == user_id,
-                    ConsentLog.consent_type == "privacy_policy",
                     ConsentLog.policy_version == AuthService.CURRENT_POLICY_VERSION,
                     ConsentLog.withdrawn_at.is_(None),
                 )
                 .order_by(ConsentLog.consent_at.desc())
                 .limit(1)
             )
+            if consent_type is not None:
+                stmt = stmt.where(ConsentLog.consent_type == consent_type)
+            result = await db.execute(stmt)
             record = result.scalar_one_or_none()
             if record:
                 return {"consented": True, "consent_at": record.consent_at.isoformat(), "policy_version": record.policy_version}
@@ -492,21 +516,48 @@ class AuthService:
         user_id: int,
         consent_type: str,
         policy_version: str,
-        ip_address: str | None = None,
-        user_agent: str | None = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> dict:
-        """记录用户同意隐私政策（PIPL 第 14 条合规）。"""
-        from app.core.database import get_async_session
+        """记录用户同意隐私政策（PIPL 第 14 条合规）。
+
+        R5-Auth-3: upsert — 同 user_id + consent_type + policy_version 的未撤回记录
+        存在则更新 consent_at，不存在才新建。
+        R12-Auth-4: policy_version 合法性校验 — 仅接受当前政策版本（CURRENT_POLICY_VERSION），
+        防止无效版本写入导致 check_consent 永远无法命中（requires_consent 循环）。
+        """
+        if policy_version != AuthService.CURRENT_POLICY_VERSION:
+            raise AppException("政策版本不正确，请同意最新版隐私政策", 422, code=ERR_VALIDATION)
+
+        from sqlalchemy import select
+        from app.core.database import async_session_factory
         from app.models.consent_log import ConsentLog
-        async with get_async_session() as db:
-            record = ConsentLog(
-                user_id=user_id,
-                consent_type=consent_type,
-                policy_version=policy_version,
-                ip_address=ip_address,
-                user_agent=user_agent,
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(ConsentLog).where(
+                    ConsentLog.user_id == user_id,
+                    ConsentLog.consent_type == consent_type,
+                    ConsentLog.policy_version == policy_version,
+                    ConsentLog.withdrawn_at.is_(None),
+                )
             )
-            db.add(record)
+            record = result.scalar_one_or_none()
+
+            if record is not None:
+                # 存在则更新 consent_at 及上下文信息
+                record.consent_at = datetime.now(timezone.utc)
+                record.ip_address = ip_address
+                record.user_agent = user_agent
+            else:
+                # 不存在才新建
+                record = ConsentLog(
+                    user_id=user_id,
+                    consent_type=consent_type,
+                    policy_version=policy_version,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+                db.add(record)
             await db.commit()
             await db.refresh(record)
             return {"consented": True, "consent_at": record.consent_at.isoformat(), "policy_version": record.policy_version}
@@ -583,24 +634,50 @@ class AuthService:
 ```python
 # app/core/deps.py
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """全局认证依赖：解码 JWT → 查询 User → 状态检查 → 返回 User。"""
-    payload = decode_access_token(token)
+    """全局认证依赖：解码 JWT → 查询 User → 状态检查 → JWT 黑名单检查 → 返回 User。"""
+    if credentials is None:
+        raise AppException("请先登录", 401, code=ERR_UNAUTHORIZED)
+    payload = decode_access_token(credentials.credentials)
     user_id = int(payload["sub"])
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise AppException("用户不存在", 401, code=40100)
-    
-    # 用户状态检查（PIPL 合规：非 active 状态拒绝业务操作）
-    if user.status == "pending_deletion":
-        raise AppException("您的账号正在注销中，请先撤销注销", 403, code=40300)
+        raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
+
+    # 用户状态检查（PIPL 合规：deleted/banned/pending_deletion 状态拒绝业务操作）
+    # R6-Auth-1: pending_deletion 用户拒绝业务操作（注销冷静期内仅允许撤销注销端点）
+    if user.status == "deleted":
+        raise AppException("用户不存在", 401, code=ERR_UNAUTHORIZED)
     if user.status == "banned":
-        raise AppException("您的账号已被封禁", 403, code=40300)
-    
+        raise AppException("您的账号已被封禁", 403, code=ERR_FORBIDDEN)
+    if user.status == "pending_deletion":
+        raise AppException("账号已申请注销，请撤销注销后操作", 403, code=ERR_FORBIDDEN)
+
+    # 检查 JWT 黑名单（Redis）
+    redis_client = await get_redis()
+    jti = payload.get("jti")
+    if jti:
+        blacklisted = await redis_client.get(f"jwt:blacklist:{jti}")
+        if blacklisted:
+            raise AppException("登录已过期，请重新登录", 401, code=ERR_UNAUTHORIZED)
+
     return user
+
+
+# R6-Auth-1：注销撤销专用依赖 — deleted/banned 拒绝，pending_deletion 放行
+async def get_current_user_allow_pending(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    """与 get_current_user 相同，但允许 pending_deletion 状态用户通过。
+
+    注销撤销端点（/users/account/cancel-deletion）和重复注销检测端点（/users/account）
+    需要此依赖以允许 pending_deletion 用户访问。
+    """
+    # ...（deleted/banned 拒绝逻辑与 get_current_user 相同，跳过 pending_deletion 检查）
 ```
 
 **覆盖范围**：以下 33 处 `Depends(get_current_user)` 自动生效，无需逐模块修改：
@@ -611,7 +688,7 @@ async def get_current_user(
 - 01-auth 自身：5 处（logout/me/h5-token/consent/consent-status）
 - 02-user：1 处（profile 等端点）
 
-**例外**：auth 的 `wechat-login` 和 `phone-login` 不经过 `get_current_user`（它们是登录入口），其 pending_deletion 检查已在 AuthService.wechat_login L312 实现。
+**例外**：auth 的 `wechat-login` 和 `phone-login` 不经过 `get_current_user`（它们是登录入口），其 pending_deletion/banned 检查已在 AuthService.wechat_login / phone_login 登录链路实现（403，见 §5 样例）。
 
 ---
 
@@ -619,50 +696,60 @@ async def get_current_user(
 
 ```python
 # app/api/v1/auth/router.py
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user
 from app.core.database import get_db
 from app.core.response import success
+from app.core.limiter import limiter, RateLimits
 from app.models.user import User
 from app.schemas.auth import (
     WechatLoginRequest, PhoneLoginRequest, SendSmsRequest,
-    RefreshTokenRequest, H5ExchangeRequest,
+    RefreshTokenRequest, H5ExchangeRequest, LogoutRequest, ConsentRequest,
 )
-from app.core.limiter import limiter
 from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["认证"])
 
-@limiter.limit("10/minute")
-@router.post("/wechat-login", summary="微信小程序登�?)
-async def wechat_login(body: WechatLoginRequest):
+# P3 文档同步（R12）：装饰器顺序约束 — @router.post 在上、@limiter.limit 紧随其下；
+# 顺序颠倒时路由表注册的是未包装原函数，限流永不生效（slowapi 死代码）。
+# 限流值经 app/core/limiter.py 的 RateLimits 常量统一管理；slowapi 默认按 IP（get_remote_address）限流。
+
+@router.post("/wechat-login", summary="微信小程序登录")
+@limiter.limit(RateLimits.WECHAT_LOGIN)          # 10/minute
+async def wechat_login(body: WechatLoginRequest, request: Request):
     data = await AuthService.wechat_login(body)
     return success(data=data, message="登录成功")
 
-@limiter.limit("5/minute")
 @router.post("/phone-login", summary="手机号验证码登录")
-async def phone_login(body: PhoneLoginRequest):
+@limiter.limit(RateLimits.PHONE_LOGIN)           # 5/minute
+async def phone_login(body: PhoneLoginRequest, request: Request):
     data = await AuthService.phone_login(body)
     return success(data=data, message="登录成功")
 
-@limiter.limit("1/minute", key_func=lambda r: r.state.phone)
-@router.post("/send-sms", summary="发送短信验证码")
-async def send_sms(body: SendSmsRequest):
-    data = await AuthService.send_sms(body.phone)
-    return success(data=data, message="验证码已发�?)
+# 端点层按 IP 限流 1/minute；同手机号 60s 防刷在 Service 层 Redis（见 §5 send_sms）
 
-@limiter.limit("100/minute")
+# R13-Auth-N1: phone-login 验证码尝试限制 — 5 次错误/5 分钟窗口（sms:attempts:{phone}）
+# 达到上限返回 429 ERR_RATE_LIMITED（「验证码错误次数过多，请 5 分钟后再试」）；
+# 验证码校验成功/过期后计数清零。常量 SMS_CODE_MAX_ATTEMPTS=5（auth_service.py）
+@router.post("/send-sms", summary="发送短信验证码")
+@limiter.limit(RateLimits.SEND_SMS)
+async def send_sms(body: SendSmsRequest, request: Request):
+    data = await AuthService.send_sms(body.phone)
+    return success(data=data, message="验证码已发送")
+
 @router.post("/refresh", summary="刷新 access_token")
-async def refresh_token(body: RefreshTokenRequest):
+@limiter.limit(RateLimits.DEFAULT)               # 100/minute
+async def refresh_token(body: RefreshTokenRequest, request: Request):
     data = await AuthService.refresh_token(body.refresh_token)
     return success(data=data)
 
-@limiter.limit("100/minute")
 @router.post("/logout", summary="登出")
+@limiter.limit(RateLimits.DEFAULT)
 async def logout(
     user: User = Depends(get_current_user),
-    body: LogoutRequest = None,
+    request: Request = None,
+    body: LogoutRequest | None = None,
 ):
     """登出：同时撤销 access_token 和 refresh_token（SEC-001 修复）。"""
     await AuthService.logout(
@@ -672,11 +759,12 @@ async def logout(
     )
     return success(message="登出成功")
 
-@limiter.limit("100/minute")
 @router.get("/me", summary="获取当前登录用户信息")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     from app.services.membership_service import MembershipService
     membership = await MembershipService.get_current_membership(db, user.id)
@@ -685,25 +773,26 @@ async def get_me(
         "nickname": user.nickname,
         "avatar_url": user.avatar_url,
         "has_profile": user.kqs_rating is not None,
-        "membership_tier": membership.tier,
-        "membership_expire_at": membership.expire_at,
+        # P3 文档同步（R12）：实现为 None 保护（无订阅时返回 null，防止 AttributeError）
+        "membership_tier": membership.tier if membership else None,
+        "membership_expire_at": membership.expire_at if membership else None,
     })
 
-@limiter.limit("100/minute")
 @router.post("/h5-token", summary="生成 H5 降级临时 Token")
-async def generate_h5_token(user: User = Depends(get_current_user)):
+@limiter.limit(RateLimits.DEFAULT)
+async def generate_h5_token(user: User = Depends(get_current_user), request: Request = None):
     data = await AuthService.generate_h5_token(user.id)
     return success(data=data)
 
-@limiter.limit("10/minute")  # R19-P1-1 修复：与 API §1.5 / §2.8 保持一致（原 100/minute 误用全局默认值）
 @router.post("/h5-exchange", summary="H5 Token 换 JWT")
-async def exchange_h5_token(body: H5ExchangeRequest):
+@limiter.limit(RateLimits.H5_EXCHANGE)           # 10/minute（R19-P1-1）
+async def exchange_h5_token(body: H5ExchangeRequest, request: Request):
     data = await AuthService.exchange_h5_token(body.token)
     return success(data=data)
 
 # --- PIPL-001：用户同意隐私政策 ---
-@limiter.limit("10/minute")
 @router.post("/consent", summary="记录用户同意隐私政策")
+@limiter.limit(RateLimits.CONSENT)               # 10/minute
 async def record_consent(
     user: User = Depends(get_current_user),
     body: ConsentRequest = None,
@@ -721,11 +810,16 @@ async def record_consent(
     )
     return success(data=data, message="同意已记录")
 
-@limiter.limit("100/minute")
 @router.get("/consent-status", summary="查询用户同意状态")
-async def get_consent_status(user: User = Depends(get_current_user)):
+@limiter.limit(RateLimits.DEFAULT)
+# P3 文档同步（R12）：实际签名含 consent_type Query 参数（R4-Auth-2，API §2.10），request 为必填首位参数
+async def get_consent_status(
+    request: Request,
+    consent_type: Optional[str] = Query(default=None, description="同意类型，如 privacy_policy"),
+    user: User = Depends(get_current_user),
+):
     """查询当前用户是否已同意最新版隐私政策。"""
-    data = await AuthService.check_consent(user.id)
+    data = await AuthService.check_consent(user.id, consent_type)
     return success(data=data)
 ```
 

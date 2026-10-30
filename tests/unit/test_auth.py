@@ -174,12 +174,14 @@ async def test_send_sms_rate_limit(client):
 
 @pytest.mark.asyncio
 async def test_send_sms_invalid_phone(client):
-    """非法手机号返回 422"""
+    """非法手机号返回 400（R13-Auth-N2: Schema pattern 移除，service 层校验
+    返回 400 + 中文消息，对齐 API §2.3 契约）"""
     resp = await client.post(
         "/api/v1/auth/send-sms",
         json={"phone": "12345"},
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 400
+    assert resp.json()["message"] == "手机号格式不正确"
 
 
 @pytest.mark.asyncio
@@ -235,3 +237,99 @@ async def test_phone_login_expired_code(client):
         json={"phone": "13500135000", "code": "123456"},
     )
     assert resp.status_code == 400
+
+
+# =====================================================================
+# R13-Auth-N1 / R13-Auth-N2: 验证码尝试限制 + 400 中文消息契约
+# =====================================================================
+
+class TestPhoneLoginAttemptLimit:
+    """R13-Auth-N1: 验证码错误尝试次数限制（API §2.2 契约 429）"""
+
+    async def test_attempt_limit_429_after_5_failures(self, client):
+        """5 次错误验证码后第 6 次尝试（即使验证码正确）返回 429"""
+        from app.core.redis import get_redis
+
+        phone = "13800138001"
+        # 发送验证码并读取
+        await client.post("/api/v1/auth/send-sms", json={"phone": phone})
+        redis = await get_redis()
+        code = await redis.get("sms:code:" + phone)
+        assert code is not None
+
+        # 5 次错误尝试（每次 400）
+        for i in range(5):
+            resp = await client.post(
+                "/api/v1/auth/phone-login",
+                json={"phone": phone, "code": "999999"},
+            )
+            assert resp.status_code == 400, f"第 {i + 1} 次错误尝试应返回 400"
+
+        # 第 6 次（携带正确验证码）→ 429（锁定）
+        resp = await client.post(
+            "/api/v1/auth/phone-login",
+            json={"phone": phone, "code": code},
+        )
+        assert resp.status_code == 429
+        assert resp.json()["message"] == "验证码尝试次数过多，请稍后重试"
+
+        # 清理锁定键
+        await redis.delete("sms:attempts:" + phone)
+
+    async def test_success_login_clears_attempt_counter(self, client):
+        """验证码正确登录后尝试计数被清除（新验证码重新计数）"""
+        from app.core.redis import get_redis
+
+        phone = "13800138002"
+        await client.post("/api/v1/auth/send-sms", json={"phone": phone})
+        redis = await get_redis()
+        code = await redis.get("sms:code:" + phone)
+
+        # 1 次错误 + 1 次正确
+        resp_err = await client.post(
+            "/api/v1/auth/phone-login",
+            json={"phone": phone, "code": "999999"},
+        )
+        assert resp_err.status_code == 400
+        attempts_after_err = await redis.get("sms:attempts:" + phone)
+        assert attempts_after_err is not None, "错误尝试后应有计数"
+
+        resp_ok = await client.post(
+            "/api/v1/auth/phone-login",
+            json={"phone": phone, "code": code},
+        )
+        assert resp_ok.status_code == 200
+        attempts_after_ok = await redis.get("sms:attempts:" + phone)
+        assert attempts_after_ok is None, "登录成功后尝试计数应被清除"
+
+
+class TestAuth400ChineseMessages:
+    """R13-Auth-N2: 三端点 400 中文消息契约（API §2.1/§2.2/§2.3）"""
+
+    async def test_wechat_login_empty_code_400(self, client):
+        """wechat-login code 为空 → 400 + "登录凭证不能为空"（API §2.1）"""
+        resp = await client.post(
+            "/api/v1/auth/wechat-login",
+            json={"code": ""},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "登录凭证不能为空"
+
+    async def test_phone_login_invalid_phone_400(self, client):
+        """phone-login 非法手机号 → 400 + "手机号格式不正确"（API §2.2）"""
+        resp = await client.post(
+            "/api/v1/auth/phone-login",
+            json={"phone": "12345", "code": "123456"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "手机号格式不正确"
+
+    async def test_phone_login_non_digit_code_400(self, client):
+        """phone-login 非 6 位数字验证码 → 400 "验证码错误或已过期"
+        （Schema pattern 移除后归入验证码错误语义）"""
+        resp = await client.post(
+            "/api/v1/auth/phone-login",
+            json={"phone": "13900139000", "code": "abc123"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "验证码错误或已过期"

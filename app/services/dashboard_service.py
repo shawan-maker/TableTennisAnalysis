@@ -58,6 +58,13 @@ class DashboardService:
         """概览卡片：胜率/分析次数/训练频次/连续天数/趋势。缓存 5min。"""
         redis = await get_redis()
         cache_key = f"dashboard:overview:{user_id}"
+
+        # R12-Dash-2: 降级用户只读检查（TD-2 / membership apply_downgrade_policy 写入）
+        # 降级用户返回简化看板：仅基础统计（不含训练建议摘要等会员专属数据），实时计算不缓存
+        readonly = await redis.get(f"downgrade:report:readonly:{user_id}")
+        if readonly is not None:
+            return await DashboardService._get_readonly_overview(user_id)
+
         cached = await redis.get(cache_key)
         if cached:
             return json.loads(cached)
@@ -121,6 +128,44 @@ class DashboardService:
 
         await redis.setex(cache_key, CACHE_TTL_OVERVIEW, json.dumps(result, default=str))
         return result
+
+    @staticmethod
+    async def _get_readonly_overview(user_id: int) -> dict:
+        """
+        R12-Dash-2: 降级用户简化看板 — 仅基础统计，不含训练建议摘要（会员专属）。
+        apply_downgrade_policy 设置 downgrade:report:readonly:{uid} 后生效。
+        """
+        async with async_session_factory() as db:
+            wins = await db.scalar(
+                select(func.count()).select_from(MatchRecord).where(
+                    and_(MatchRecord.user_id == user_id, MatchRecord.is_win.is_(True))
+                )
+            ) or 0
+            losses = await db.scalar(
+                select(func.count()).select_from(MatchRecord).where(
+                    and_(MatchRecord.user_id == user_id, MatchRecord.is_win.is_(False))
+                )
+            ) or 0
+            total_matches = wins + losses
+            win_rate = round(wins / total_matches, 2) if total_matches > 0 else 0.0
+
+            analysis_count = await db.scalar(
+                select(func.count()).select_from(AnalysisReport).where(
+                    AnalysisReport.user_id == user_id
+                )
+            ) or 0
+
+        return {
+            "win_rate": win_rate,
+            "wins": wins,
+            "losses": losses,
+            "analysis_count": analysis_count,
+            "training_frequency_per_week": 0,
+            "streak_days": 0,
+            "trend": "flat",
+            "latest_advice_summary": None,
+            "is_readonly": True,
+        }
 
     # ========== 战绩趋势 ==========
 

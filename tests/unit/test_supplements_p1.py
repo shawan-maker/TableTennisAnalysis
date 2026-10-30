@@ -348,8 +348,11 @@ class TestUserIsolation:
         headers_b = {"Authorization": f"Bearer {token_b}"}
 
         # 用户 B 查看用户 A 的记录详情
-        resp = await client.get(f"/api/v1/match-data/{record.id}", headers=headers_b)
+        # R12-MatchData-D1: URL 补 /records 段 — 原先缺段命中不存在的路由，
+        # 404 由路由层返回（假阳性），未真正走到属主校验
+        resp = await client.get(f"/api/v1/match-data/records/{record.id}", headers=headers_b)
         assert resp.status_code == 404, f"用户 B 不应访问用户 A 的记录，状态码={resp.status_code}"
+        assert resp.json()["code"] == 40413  # ERR_RECORD_NOT_FOUND（属主校验 404）
 
 
 # ============================================================================
@@ -369,11 +372,11 @@ class TestTrainingPermissionGuard:
         token = create_access_token({"sub": str(user.id), "jti": generate_jti()})
         headers = {"Authorization": f"Bearer {token}"}
 
-        # 免费用户访问训练建议
-        resp = await client.get("/api/v1/training/advice/contextual", headers=headers)
-        # 可能返回 403（会员守卫）或 404（无报告），都说明非会员无法正常访问
-        assert resp.status_code in (403, 404), \
-            f"免费用户不应正常访问训练端点，状态码={resp.status_code}"
+        # R12-Training-D1: 改用带 require_membership 守卫的 /templates 端点 —
+        # 原先用的 /advice/contextual 无会员守卫，404（无报告）掩盖了假阳性
+        resp = await client.get("/api/v1/training/templates", headers=headers)
+        assert resp.status_code == 403, \
+            f"免费用户应被会员守卫 403 拒绝，状态码={resp.status_code}"
 
     async def test_training_member_can_access(self, client, db_session, seed_tiers_for_p1):
         """会员用户可正常访问训练端点"""
@@ -392,10 +395,10 @@ class TestTrainingPermissionGuard:
         token = create_access_token({"sub": str(user.id), "jti": generate_jti()})
         headers = {"Authorization": f"Bearer {token}"}
 
-        resp = await client.get("/api/v1/training/advice/contextual", headers=headers)
-        # 会员可访问，可能返回 404（无报告）但不应 403
-        assert resp.status_code != 403, \
-            f"会员用户不应被 403 拒绝，状态码={resp.status_code}"
+        # 与 403 测试同一守卫端点：会员应 200（空模板列表也算正常访问）
+        resp = await client.get("/api/v1/training/templates", headers=headers)
+        assert resp.status_code == 200, \
+            f"会员用户应正常访问模板列表，状态码={resp.status_code}"
 
 
 # ============================================================================
@@ -470,3 +473,1301 @@ class TestProgressForecast:
             assert forecast["forehand_ratio"]["predicted_weeks_to_target"] is None, \
                 "direction=down 且 slope>0（恶化）时不应预测达标"
         # 若被 R² 过滤掉也是合理结果
+
+
+# ============================================================================
+# R12-Admin-1: 禁用管理员权限绕过修复测试
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestAdminSessionIsActiveCheck:
+    """R12-Admin-1: get_admin_session 每请求校验 is_active"""
+
+    async def test_disabled_admin_session_revoked(self, client, db_session, admin_with_pwd):
+        """管理员被禁用后旧 session 立即失效 → 403，且 session 被清除"""
+        from app.services.admin_service import AdminService
+
+        # 1. 正常登录获取 session
+        data = await AdminService.login("p1_admin", "Admin@123")
+        token = data.session_token
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 登录后正常访问（基线验证）
+        resp0 = await client.get("/api/v1/admin/configs", headers=headers)
+        assert resp0.status_code == 200, f"禁用前应正常访问，状态码={resp0.status_code}"
+
+        # 2. 禁用管理员（不删除 Redis session —— 模拟管理后台直接改 DB）
+        admin_with_pwd.is_active = False
+        db_session.add(admin_with_pwd)
+        await db_session.commit()
+
+        # 3. 旧 session 访问 → 403（禁用立即生效，无需等待 30min TTL 过期）
+        resp1 = await client.get("/api/v1/admin/configs", headers=headers)
+        assert resp1.status_code == 403, \
+            f"禁用管理员旧 session 应返回 403，实际={resp1.status_code}"
+
+        # 4. session 应已被清除 → 再次访问 401
+        resp2 = await client.get("/api/v1/admin/configs", headers=headers)
+        assert resp2.status_code == 401, \
+            f"session 清除后应返回 401，实际={resp2.status_code}"
+
+    async def test_active_admin_session_works(self, client, db_session, admin_with_pwd):
+        """活跃管理员 session 正常通过（回归保护）"""
+        from app.services.admin_service import AdminService
+
+        data = await AdminService.login("p1_admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {data.session_token}"}
+
+        resp = await client.get("/api/v1/admin/configs", headers=headers)
+        assert resp.status_code == 200
+
+
+# ============================================================================
+# R12-Auth-2: wechat_login 封禁用户拦截 + Auth-7 wechat-login 覆盖缺口
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestWechatLoginBanned:
+    """R12-Auth-2: wechat_login 登录入口拦截 banned 用户"""
+
+    def _mock_wx(self, openid):
+        """构造 code2session mock 返回指定 openid"""
+        mock = AsyncMock()
+        mock.return_value = {"openid": openid, "session_key": "sk_test"}
+        return mock
+
+    async def test_wechat_login_banned_rejected(self, client, db_session):
+        """banned 用户通过 wechat-login 登录 → 403"""
+        from app.services.auth_service import AuthService
+
+        # 1. 创建 banned 用户
+        user = User(openid="wx_banned_openid", nickname="封禁用户", status="banned")
+        db_session.add(user)
+        await db_session.commit()
+
+        # 2. mock code2session 返回该用户 openid
+        with patch.object(
+            AuthService, "_call_wechat_code2session", new=self._mock_wx("wx_banned_openid")
+        ):
+            resp = await client.post(
+                "/api/v1/auth/wechat-login",
+                json={"code": "mock_code"},
+            )
+
+        assert resp.status_code == 403, \
+            f"banned 用户微信登录应返回 403，实际={resp.status_code}"
+
+    async def test_wechat_login_new_user_success(self, client, db_session):
+        """Auth-7 缺口补充：新用户微信登录成功 → 200 + token"""
+        from app.services.auth_service import AuthService
+
+        with patch.object(
+            AuthService, "_call_wechat_code2session", new=self._mock_wx("wx_new_openid_001")
+        ):
+            resp = await client.post(
+                "/api/v1/auth/wechat-login",
+                json={"code": "mock_code", "nickname": "新球友"},
+            )
+
+        assert resp.status_code == 200, f"新用户微信登录应成功，实际={resp.status_code}"
+        data = resp.json()["data"]
+        assert data["access_token"]
+        assert data["refresh_token"]
+        assert data["user"]["nickname"] == "新球友"
+        # 新用户需同意隐私政策
+        assert data["requires_consent"] is True
+
+    async def test_wechat_login_existing_user_no_recreate(self, client, db_session):
+        """已有活跃用户重复微信登录不重复建号"""
+        from app.services.auth_service import AuthService
+
+        user = User(openid="wx_existing_openid", nickname="老用户", status="active")
+        db_session.add(user)
+        await db_session.commit()
+        uid = user.id
+
+        with patch.object(
+            AuthService, "_call_wechat_code2session", new=self._mock_wx("wx_existing_openid")
+        ):
+            resp = await client.post(
+                "/api/v1/auth/wechat-login",
+                json={"code": "mock_code"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["user"]["id"] == uid
+
+
+# ============================================================================
+# R12-Payment-1: 续期订单退款撤销权益修复测试
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestRenewalOrderSubscriptionId:
+    """R12-Payment-1: 续期分支回填 order.subscription_id"""
+
+    async def test_renewal_backfills_subscription_id(self, db_session):
+        """续期订单回填 subscription_id → 退款时可撤销权益"""
+        from app.services.payment_service import PaymentService
+        from app.models.payment import Order
+        from app.models.membership import Subscription
+
+        user = User(openid="p1_renew_user", nickname="续费用户", status="active")
+        db_session.add(user)
+        await db_session.flush()
+
+        # 既有活跃订阅（10 天后到期）
+        now = datetime.now(timezone.utc)
+        sub = Subscription(
+            user_id=user.id, tier="member", status="active",
+            start_at=now - timedelta(days=20),
+            expire_at=now + timedelta(days=10),
+        )
+        db_session.add(sub)
+        await db_session.flush()
+
+        # 续期订单
+        order = Order(
+            user_id=user.id,
+            order_no="PP20260101RENEW01",
+            product_type="membership", amount_cents=1900,
+            status="paid", paid_at=now,
+            extra_data={"tier": "member", "period_days": 30, "period": "monthly"},
+        )
+        db_session.add(order)
+        await db_session.commit()
+        await db_session.refresh(order)
+        await db_session.refresh(sub)
+
+        assert order.subscription_id is None  # 前置：续期订单初始未关联
+
+        # 执行续期
+        await PaymentService._create_or_renew_subscription(db_session, order)
+
+        # R12-Payment-1 核心断言：续期分支回填 subscription_id
+        assert order.subscription_id == sub.id, \
+            "续期订单必须回填 subscription_id，否则退款无法撤销权益"
+        # 订阅到期时间延长 30 天（从原到期日起算）
+        await db_session.flush()  # _create_or_renew_subscription 仅改内存，需 flush 后 refresh 才能从 DB 读回
+        await db_session.refresh(sub)
+        expected_expire = (now + timedelta(days=10)) + timedelta(days=30)
+        assert abs((sub.expire_at - expected_expire).total_seconds()) < 60, \
+            "续期应从原到期时间顺延，而非从当前时间起算"
+
+    async def test_first_purchase_sets_subscription_id(self, db_session):
+        """回归保护：首次购买仍正常回填"""
+        from app.services.payment_service import PaymentService
+        from app.models.payment import Order
+
+        user = User(openid="p1_firstbuy_user", nickname="首购用户", status="active")
+        db_session.add(user)
+        await db_session.flush()
+
+        order = Order(
+            user_id=user.id,
+            order_no="PP20260101FIRST01",
+            product_type="membership", amount_cents=1900,
+            status="paid", paid_at=datetime.now(timezone.utc),
+            extra_data={"tier": "member", "period_days": 30, "period": "monthly"},
+        )
+        db_session.add(order)
+        await db_session.commit()
+        await db_session.refresh(order)
+
+        await PaymentService._create_or_renew_subscription(db_session, order)
+
+        assert order.subscription_id is not None, "首购订单应回填新建订阅 ID"
+
+
+# ============================================================================
+# R12-Membership-1: get_quota expired 误报无限额度修复测试
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestQuotaExpiredMembership:
+    """R12-Membership-1: expired 订阅按免费 3 次/日计算额度"""
+
+    async def test_expired_member_quota_is_free_limit(self, db_session):
+        """expired 订阅（tier=member）的 get_quota 应返回免费 3 次/日，而非 -1 无限"""
+        from app.services.membership_service import MembershipService
+
+        user = User(openid="p1_quota_expired", nickname="过期会员", status="active")
+        db_session.add(user)
+        await db_session.flush()
+
+        now = datetime.now(timezone.utc)
+        sub = Subscription(
+            user_id=user.id, tier="member", status="expired",
+            start_at=now - timedelta(days=40),
+            expire_at=now - timedelta(days=5),  # 已过期 5 天
+        )
+        db_session.add(sub)
+        await db_session.commit()
+
+        quota = await MembershipService.get_quota(db_session, user.id)
+
+        # R12-Membership-1 核心断言：expired 会员不享受无限额度
+        assert quota.tier == "free" or quota.daily_limit == 3, \
+            f"expired 会员应按免费额度处理，实际 tier={quota.tier} limit={quota.daily_limit}"
+        assert quota.daily_limit != -1, \
+            f"expired 会员不应返回 -1 无限额度，实际={quota.daily_limit}"
+
+    async def test_active_member_quota_unlimited(self, db_session):
+        """回归保护：active 会员仍返回无限额度"""
+        from app.services.membership_service import MembershipService
+
+        user = User(openid="p1_quota_active", nickname="活跃会员", status="active")
+        db_session.add(user)
+        await db_session.flush()
+
+        now = datetime.now(timezone.utc)
+        sub = Subscription(
+            user_id=user.id, tier="member", status="active",
+            start_at=now - timedelta(days=5),
+            expire_at=now + timedelta(days=25),
+        )
+        db_session.add(sub)
+        await db_session.commit()
+
+        quota = await MembershipService.get_quota(db_session, user.id)
+        assert quota.daily_limit == -1, "active 会员应保持无限额度"
+
+
+# ============================================================================
+# R12-VA-2: 任务状态机校验修复测试
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestTaskStateMachine:
+    """R12-VA-2: TASK_TRANSITIONS 矩阵校验"""
+
+    async def _create_task(self, db_session, status="queued"):
+        """创建指定状态的 VideoTask（含真实 FileRecord 满足 FK 约束）"""
+        from app.models.video_analysis import VideoTask, FileRecord
+
+        user = User(openid=f"p1_task_{status}_{id(db_session) % 10000}", nickname="任务用户", status="active")
+        db_session.add(user)
+        await db_session.flush()
+
+        file_record = FileRecord(
+            user_id=user.id,
+            oss_key=f"videos/test/file_{user.id}.mp4",
+            file_size=1048576,  # 1MB（满足 ck_file_size_range 下限）
+            file_type="mp4",
+            status="uploaded",
+        )
+        db_session.add(file_record)
+        await db_session.flush()
+
+        task = VideoTask(
+            task_uuid=f"uuid-{status}-{user.id}",
+            user_id=user.id, file_id=file_record.id,
+            oss_key=f"videos/test/file_{user.id}.mp4",
+            status=status, total_steps=10,
+        )
+        db_session.add(task)
+        await db_session.commit()
+        await db_session.refresh(task)
+        return task
+
+    async def test_valid_transition_queued_to_processing(self, db_session):
+        """合法转换 queued → processing"""
+        from app.ai_pipeline.progress import transition_task_status
+
+        task = await self._create_task(db_session, "queued")
+        assert await transition_task_status(db_session, task.id, "processing") is True
+        assert task.status == "processing"
+
+    async def test_valid_chain_queued_processing_completed(self, db_session):
+        """合法链 queued → processing → completed"""
+        from app.ai_pipeline.progress import transition_task_status
+
+        task = await self._create_task(db_session, "queued")
+        assert await transition_task_status(db_session, task.id, "processing") is True
+        assert await transition_task_status(db_session, task.id, "completed") is True
+        assert task.status == "completed"
+        assert task.completed_at is not None
+
+    async def test_invalid_completed_to_failed(self, db_session):
+        """非法转换 completed → failed 被拒绝（终态不可翻转）"""
+        from app.ai_pipeline.progress import transition_task_status
+
+        task = await self._create_task(db_session, "completed")
+        assert await transition_task_status(db_session, task.id, "failed") is False
+        assert task.status == "completed", "终态 completed 不应被改写为 failed"
+
+    async def test_invalid_cancelled_to_processing(self, db_session):
+        """非法转换 cancelled → processing 被拒绝"""
+        from app.ai_pipeline.progress import transition_task_status
+
+        task = await self._create_task(db_session, "cancelled")
+        assert await transition_task_status(db_session, task.id, "processing") is False
+        assert task.status == "cancelled", "终态 cancelled 不应被改写"
+
+    async def test_invalid_queued_to_completed(self, db_session):
+        """非法转换 queued → completed 被拒绝（必须先 processing）"""
+        from app.ai_pipeline.progress import transition_task_status
+
+        task = await self._create_task(db_session, "queued")
+        assert await transition_task_status(db_session, task.id, "completed") is False
+        assert task.status == "queued"
+
+    async def test_failed_can_retry_to_queued(self, db_session):
+        """failed → queued 合法（可重试）"""
+        from app.ai_pipeline.progress import transition_task_status
+
+        task = await self._create_task(db_session, "failed")
+        assert await transition_task_status(db_session, task.id, "queued") is True
+        assert task.status == "queued"
+
+    async def test_nonexistent_task_returns_false(self, db_session):
+        """不存在的任务返回 False 不抛异常"""
+        from app.ai_pipeline.progress import transition_task_status
+
+        assert await transition_task_status(db_session, 999999, "processing") is False
+
+
+# ============================================================================
+# R12-SC-1: 多局赛制推进修复测试
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestMultiGameProgression:
+    """R12-SC-1: bo3/bo5/bo7 达赛制局数自动结束，局间推进正确"""
+
+    async def _create_bo3_match(self, client, headers):
+        """创建并开始 bo3 比赛"""
+        resp = await client.post(
+            "/api/v1/scoring/matches",
+            headers=headers,
+            json={"opponent_name": "多局对手", "format": "bo3", "target_score": 11},
+        )
+        assert resp.status_code == 200
+        match_id = resp.json()["data"]["match_id"]
+        resp = await client.post(f"/api/v1/scoring/matches/{match_id}/start", headers=headers)
+        assert resp.status_code == 200
+        return match_id
+
+    async def test_bo3_first_game_advances_to_game2(self, client, auth_headers):
+        """bo3 赢下第一局 → current_game=2、当前局比分清零"""
+        match_id = await self._create_bo3_match(client, auth_headers)
+
+        # 第一局 11:0（11 分即胜，差≥2）
+        data = None
+        for _ in range(11):
+            resp = await client.post(
+                f"/api/v1/scoring/matches/{match_id}/score",
+                headers=auth_headers,
+                json={"scorer": "user", "score_method": "rally_point"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()["data"]
+
+        # R12-SC-1 核心断言：局推进
+        assert data["game_number"] == 2, f"赢下第一局后应推进到第 2 局，实际={data['game_number']}"
+        assert data["score"] == "0:0", f"新一局比分应清零，实际={data['score']}"
+        assert data["match_finished"] is False, "bo3 赢 1 局（需 2 局）不应结束全场"
+
+        # 比赛详情确认局分已累计
+        resp = await client.get(f"/api/v1/scoring/matches/{match_id}", headers=auth_headers)
+        detail = resp.json()["data"]
+        assert detail["current_game"] == 2
+
+    async def test_bo3_two_games_wins_auto_finish(self, client, auth_headers, db_session):
+        """bo3 连赢 2 局 → 全场自动结束（status=finished、final_score=2:0、is_win=True）"""
+        from app.models.match import Match
+        from sqlalchemy import select as sa_select
+
+        match_id = await self._create_bo3_match(client, auth_headers)
+
+        # 第一局 11:0
+        for _ in range(11):
+            resp = await client.post(
+                f"/api/v1/scoring/matches/{match_id}/score",
+                headers=auth_headers,
+                json={"scorer": "user", "score_method": "rally_point"},
+            )
+            assert resp.status_code == 200
+
+        # 第二局 11:0 → 达 2 局 → 自动结束
+        last_data = None
+        for _ in range(11):
+            resp = await client.post(
+                f"/api/v1/scoring/matches/{match_id}/score",
+                headers=auth_headers,
+                json={"scorer": "user", "score_method": "rally_point"},
+            )
+            assert resp.status_code == 200
+            last_data = resp.json()["data"]
+
+        # R12-SC-1 核心断言：自动结束
+        assert last_data["match_finished"] is True, "bo3 连赢 2 局应自动结束全场"
+        assert last_data["match_status"] == "finished"
+
+        # DB 验证：局分判定 + 最终比分
+        result = await db_session.execute(sa_select(Match).where(Match.id == match_id))
+        match = result.scalar_one()
+        assert match.status == "finished"
+        assert match.is_win is True
+        assert match.final_score == "2:0", f"final_score 应为局分 2:0，实际={match.final_score}"
+        assert match.games_won_user == 2
+        assert match.games_won_opp == 0
+
+    async def test_cross_game_undo_rejected(self, client, auth_headers):
+        """局结束后撤销致胜球 → 400（局分已记录不可跨局撤销）"""
+        match_id = await self._create_bo3_match(client, auth_headers)
+
+        # 赢下第一局（11:0）→ 推进到第 2 局
+        for _ in range(11):
+            resp = await client.post(
+                f"/api/v1/scoring/matches/{match_id}/score",
+                headers=auth_headers,
+                json={"scorer": "user", "score_method": "rally_point"},
+            )
+            assert resp.status_code == 200
+
+        # 撤销最后一球（第一局致胜球）→ 应被拒绝
+        resp = await client.post(
+            f"/api/v1/scoring/matches/{match_id}/undo", headers=auth_headers
+        )
+        assert resp.status_code == 400, \
+            f"跨局撤销应返回 400，实际={resp.status_code} {resp.text}"
+
+    async def test_bo1_single_game_auto_finish(self, client, auth_headers, db_session):
+        """bo1 单局结束即全场结束（回归保护 bo1 行为）"""
+        from app.models.match import Match
+        from sqlalchemy import select as sa_select
+
+        resp = await client.post(
+            "/api/v1/scoring/matches",
+            headers=auth_headers,
+            json={"opponent_name": "单局对手", "format": "bo1", "target_score": 11},
+        )
+        match_id = resp.json()["data"]["match_id"]
+        await client.post(f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers)
+
+        last_data = None
+        for _ in range(11):
+            resp = await client.post(
+                f"/api/v1/scoring/matches/{match_id}/score",
+                headers=auth_headers,
+                json={"scorer": "user", "score_method": "rally_point"},
+            )
+            assert resp.status_code == 200
+            last_data = resp.json()["data"]
+
+        # bo1：1 局即全场结束
+        assert last_data["match_finished"] is True, "bo1 赢 1 局应结束全场"
+        assert last_data["match_status"] == "finished"
+
+        result = await db_session.execute(sa_select(Match).where(Match.id == match_id))
+        match = result.scalar_one()
+        assert match.status == "finished"
+        # bo1 局分 1:0（games_won 计 1，final_score 取局分）
+        assert match.final_score == "1:0"
+        assert match.is_win is True
+
+
+# ============================================================================
+# R12-Prog-2: resolved 趋势类型
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestTrendResolved:
+    """R12-Prog-2: current=None 时趋势判定 — 历史有值→resolved，无历史→new"""
+
+    async def test_resolved_when_history_exists(self, db_session):
+        from app.services.progress_service import ProgressService
+
+        result = ProgressService._calculate_trend(
+            1, "backhand_ratio", None, [0.2, 0.25], 0.35
+        )
+        assert result["trend"] == "resolved"
+        assert result["persistence_count"] == 0
+
+    async def test_new_when_no_history(self, db_session):
+        from app.services.progress_service import ProgressService
+
+        result = ProgressService._calculate_trend(
+            1, "backhand_ratio", None, [], 0.35
+        )
+        assert result["trend"] == "new"
+
+    async def test_normal_value_trend_unchanged(self, db_session):
+        """回归：current 非 None 的正常判定路径不受影响"""
+        from app.services.progress_service import ProgressService
+
+        result = ProgressService._calculate_trend(
+            1, "backhand_ratio", 0.25, [0.2, 0.22], 0.35
+        )
+        assert result["trend"] == "improving"
+
+    async def test_update_trends_persists_resolved(self, db_session):
+        """集成：指标消失后落库 resolved 且 change_rate=None（原 None-float TypeError）"""
+        from app.models.video_analysis import AnalysisReport, VideoTask, FileRecord
+        from app.models.progress import TechniqueTrend
+        from app.services.progress_service import ProgressService
+        from sqlalchemy import and_
+
+        user = User(openid="p1_resolved_001", nickname="趋势用户", status="active")
+        db_session.add(user)
+        await db_session.flush()
+
+        async def _report(idx, result_data):
+            file_record = FileRecord(
+                user_id=user.id, oss_key=f"resolved/{user.id}/{idx}",
+                file_size=1048576, file_type="mp4", status="uploaded",
+            )
+            db_session.add(file_record)
+            await db_session.flush()
+            task = VideoTask(
+                user_id=user.id, file_id=file_record.id,
+                oss_key=f"resolved/{user.id}/{idx}",
+                status="completed", task_uuid=f"resolved-{user.id}-{idx}", progress=100,
+            )
+            db_session.add(task)
+            await db_session.flush()
+            report = AnalysisReport(
+                task_id=task.id, user_id=user.id, result_data=result_data,
+                report_text={"summary": f"报告{idx}", "issues": [], "suggestions": []},
+                is_llm_generated=False,
+            )
+            db_session.add(report)
+            await db_session.flush()
+            return report
+
+        # 快照 1/2：反手比率 0.20 / 0.25；快照 3：反手比率消失（None）
+        r1 = await _report(1, {"technique_stats": {"backhand_ratio": 0.20, "forehand_ratio": 0.5}})
+        r2 = await _report(2, {"technique_stats": {"backhand_ratio": 0.25, "forehand_ratio": 0.5}})
+        r3 = await _report(3, {"technique_stats": {"forehand_ratio": 0.6}})
+        await db_session.commit()
+
+        await ProgressService.generate_snapshot(user.id, r1.id, r1.result_data)
+        await ProgressService.generate_snapshot(user.id, r2.id, r2.result_data)
+        await ProgressService.generate_snapshot(user.id, r3.id, r3.result_data)
+
+        tt = await db_session.scalar(
+            select(TechniqueTrend).where(
+                and_(
+                    TechniqueTrend.user_id == user.id,
+                    TechniqueTrend.metric_name == "backhand_ratio",
+                )
+            )
+        )
+        assert tt is not None
+        assert tt.trend == "resolved"
+        assert tt.current_value is None
+        assert tt.change_rate is None
+
+
+# ============================================================================
+# R12-KB-2: severity 取自 diagnosis JSONB
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestKnowledgeSeveritySource:
+    """R12-KB-2: 规则引擎 severity 取自 diagnosis JSONB，而非 condition"""
+
+    async def _add_rule(self, db, rule_id, diagnosis, condition_extra=None):
+        from app.models.knowledge_base import RuleDefinition
+
+        cond = {"metric": "backhand_ratio", "operator": "<", "threshold": 0.30}
+        if condition_extra:
+            cond.update(condition_extra)
+        rule = RuleDefinition(
+            rule_id=rule_id, rule_name=f"规则{rule_id}", rule_type="single",
+            condition=cond, diagnosis=diagnosis,
+            training_methods=None, training_plan_template=None,
+            adjustment_action="adjust", is_active=True,
+        )
+        db.add(rule)
+        await db.flush()
+        return rule
+
+    async def test_severity_from_diagnosis_not_condition(self, db_session):
+        from app.services.knowledge_base_service import KnowledgeBaseService
+
+        # condition 声明 severity=low，diagnosis 声明 severity=high → 应取 high
+        await self._add_rule(
+            db_session, "RULE_SEV_HIGH",
+            diagnosis={"problem_id": "P_SEV", "problem_name": "测试",
+                       "severity": "high", "suggestion_template": "模板"},
+            condition_extra={"severity": "low"},
+        )
+        results = await KnowledgeBaseService.match_rules(
+            db_session, {"metrics": {"backhand_ratio": 0.2}, "trends": {}}
+        )
+        assert len(results) == 1
+        assert results[0]["severity"] == "high"
+
+    async def test_severity_default_medium_without_diagnosis_key(self, db_session):
+        from app.services.knowledge_base_service import KnowledgeBaseService
+
+        await self._add_rule(
+            db_session, "RULE_SEV_MED",
+            diagnosis={"problem_id": "P_SEV2", "problem_name": "测试2",
+                       "suggestion_template": "模板"},
+            condition_extra={"severity": "low"},
+        )
+        results = await KnowledgeBaseService.match_rules(
+            db_session, {"metrics": {"backhand_ratio": 0.2}, "trends": {}}
+        )
+        assert len(results) == 1
+        assert results[0]["severity"] == "medium"
+
+
+# ============================================================================
+# R12-Admin-2: create_category 重复检查
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestAdminCreateCategoryConflict:
+    """R12-Admin-2: 重复 name/code 创建分类返回 409（原 IntegrityError 500）"""
+
+    @pytest_asyncio.fixture(scope="function")
+    async def kb_admin_headers(self, db_session):
+        """知识库 admin 端点认证（AdminUser session 体系，非 User JWT）"""
+        from app.services.admin_service import AdminService
+
+        admin = AdminUser(
+            username="p1_kb_admin",
+            password_hash=pwd_context.hash("Admin@123"),
+            role="super_admin",
+            is_active=True,
+        )
+        db_session.add(admin)
+        await db_session.commit()
+        data = await AdminService.login("p1_kb_admin", "Admin@123")
+        return {"Authorization": f"Bearer {data.session_token}"}
+
+    async def _create(self, client, kb_admin_headers, name, code):
+        return await client.post(
+            "/api/v1/admin/knowledge/categories",
+            json={"name": name, "code": code},
+            headers=kb_admin_headers,
+        )
+
+    async def test_duplicate_name_and_code_returns_409(self, client, kb_admin_headers):
+        resp = await self._create(client, kb_admin_headers, "重复分类", "dup_code")
+        assert resp.status_code == 200
+
+        resp2 = await self._create(client, kb_admin_headers, "重复分类", "dup_code")
+        assert resp2.status_code == 409
+
+    async def test_duplicate_name_only_returns_409(self, client, kb_admin_headers):
+        await self._create(client, kb_admin_headers, "同名分类", "code_a")
+        resp = await self._create(client, kb_admin_headers, "同名分类", "code_b")
+        assert resp.status_code == 409
+
+    async def test_duplicate_code_only_returns_409(self, client, kb_admin_headers):
+        await self._create(client, kb_admin_headers, "分类甲", "same_code")
+        resp = await self._create(client, kb_admin_headers, "分类乙", "same_code")
+        assert resp.status_code == 409
+
+    async def test_distinct_category_created_ok(self, client, kb_admin_headers):
+        await self._create(client, kb_admin_headers, "分类一", "code_one")
+        resp = await self._create(client, kb_admin_headers, "分类二", "code_two")
+        assert resp.status_code == 200
+
+
+# ============================================================================
+# R12-Notif-1: 训练提醒候选判定
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestTrainingReminderCandidates:
+    """R12-Notif-1: 候选=3 天内无 AI 分析(completed)/比赛(finished)活动的用户"""
+
+    async def _make_user(self, db, openid):
+        u = User(openid=openid, nickname=openid, status="active")
+        db.add(u)
+        await db.flush()
+        return u
+
+    async def test_recent_ai_activity_excluded(self, db_session):
+        from app.services.notification_service import NotificationService
+        from app.models.video_analysis import VideoTask, FileRecord
+
+        now = datetime.now(timezone.utc)
+        user_a = await self._make_user(db_session, "p1_remind_task_user")
+        file_record = FileRecord(
+            user_id=user_a.id, oss_key=f"remind/{user_a.id}",
+            file_size=1048576, file_type="mp4", status="uploaded",
+        )
+        db_session.add(file_record)
+        await db_session.flush()
+        task = VideoTask(
+            user_id=user_a.id, file_id=file_record.id,
+            oss_key=f"remind/{user_a.id}",
+            status="completed", task_uuid=f"remind-{user_a.id}",
+            created_at=now - timedelta(days=1),
+        )
+        db_session.add(task)
+        idle = await self._make_user(db_session, "p1_remind_idle_user")
+        await db_session.commit()
+
+        candidates = await NotificationService.get_training_reminder_candidates(db_session)
+        cand_map = dict(candidates)
+        assert user_a.id not in cand_map  # 3 天内有 AI 分析 → 排除
+        assert idle.id in cand_map
+
+    async def test_recent_match_activity_excluded(self, db_session):
+        from app.services.notification_service import NotificationService
+        from app.models.match import Match
+
+        now = datetime.now(timezone.utc)
+        user_b = await self._make_user(db_session, "p1_remind_match_user")
+        db_session.add(Match(
+            user_id=user_b.id, status="finished",
+            created_at=now - timedelta(days=1),
+        ))
+        await db_session.commit()
+
+        candidates = await NotificationService.get_training_reminder_candidates(db_session)
+        cand_map = dict(candidates)
+        assert user_b.id not in cand_map  # 3 天内有比赛 → 排除
+
+    async def test_old_activity_still_candidate(self, db_session):
+        """5 天前的 AI 分析不排除用户（>3 天阈值），天数按最近分析时间计算"""
+        from app.services.notification_service import NotificationService
+        from app.models.video_analysis import VideoTask, FileRecord
+
+        now = datetime.now(timezone.utc)
+        user_c = await self._make_user(db_session, "p1_remind_old_user")
+        file_record = FileRecord(
+            user_id=user_c.id, oss_key=f"remind/old/{user_c.id}",
+            file_size=1048576, file_type="mp4", status="uploaded",
+        )
+        db_session.add(file_record)
+        await db_session.flush()
+        task = VideoTask(
+            user_id=user_c.id, file_id=file_record.id,
+            oss_key=f"remind/old/{user_c.id}",
+            status="completed", task_uuid=f"remind-old-{user_c.id}",
+            created_at=now - timedelta(days=5),
+        )
+        db_session.add(task)
+        await db_session.commit()
+
+        candidates = await NotificationService.get_training_reminder_candidates(db_session)
+        cand_map = dict(candidates)
+        assert user_c.id in cand_map
+        assert cand_map[user_c.id] == 5
+
+    async def test_never_analyzed_days_999(self, db_session):
+        from app.services.notification_service import NotificationService
+
+        user = await self._make_user(db_session, "p1_remind_new_user")
+        await db_session.commit()
+
+        candidates = await NotificationService.get_training_reminder_candidates(db_session)
+        cand_map = dict(candidates)
+        assert cand_map[user.id] == 999
+
+
+# ============================================================================
+# R12-Gam-1: 徽章种子预置
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestBadgeSeedDefinitions:
+    """R12-Gam-1: BADGE_SEEDS 幂等预置 6 个基础徽章（原零引用死代码）"""
+
+    async def test_seed_inserts_six_badges(self, db_session):
+        from app.services.gamification_service import BadgeService
+        from sqlalchemy import func
+
+        result = await BadgeService.seed_badge_definitions(db_session)
+        assert result["inserted"] == 6
+        assert result["updated"] == 0
+
+        count = await db_session.scalar(
+            select(func.count()).select_from(BadgeDefinition)
+        )
+        assert count == 6
+
+        defs = (
+            await db_session.scalars(
+                select(BadgeDefinition).order_by(BadgeDefinition.sort_order)
+            )
+        ).all()
+        assert [d.sort_order for d in defs] == list(range(6))
+        assert all(d.is_active for d in defs)
+        assert {d.id for d in defs} == {
+            "first_analysis", "first_match", "streak_7",
+            "streak_30", "analysis_10", "match_50",
+        }
+
+    async def test_seed_idempotent_and_updates_drift(self, db_session):
+        from app.services.gamification_service import BadgeService
+        from sqlalchemy import func
+
+        await BadgeService.seed_badge_definitions(db_session)
+        # 第二次执行：无变更 → 全部 skipped
+        result = await BadgeService.seed_badge_definitions(db_session)
+        assert result["inserted"] == 0
+        assert result["updated"] == 0
+        assert result["skipped"] == 6
+
+        # 人为漂移一个徽章（改 icon + 停用）→ seed 修复回 seed 定义
+        badge = await db_session.scalar(
+            select(BadgeDefinition).where(BadgeDefinition.id == "streak_7")
+        )
+        badge.icon = "X"
+        badge.is_active = False
+        await db_session.flush()
+
+        result = await BadgeService.seed_badge_definitions(db_session)
+        assert result["updated"] == 1
+        assert badge.icon == "🔥"
+        assert badge.is_active is True
+
+        # 表内仍只有 6 条（无重复）
+        count = await db_session.scalar(
+            select(func.count()).select_from(BadgeDefinition)
+        )
+        assert count == 6
+
+
+# ============================================================================
+# R12-Auth-8/9: refresh / logout 端点覆盖
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestAuthRefreshLogout:
+    """R12-Auth-8/9: refresh 刷新与 logout 撤销链路（SEC-001）"""
+
+    async def test_refresh_success_and_old_token_revoked(self, client, auth_headers, auth_user):
+        """合法 refresh_token 换新 token；旧 refresh_token 进黑名单不可复用"""
+        resp = await client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": auth_user["refresh_token"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["access_token"]
+        assert data["refresh_token"]
+        assert data["refresh_token"] != auth_user["refresh_token"]
+
+        # 旧 refresh_token 已进黑名单 → 再刷 401
+        resp2 = await client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": auth_user["refresh_token"]},
+        )
+        assert resp2.status_code == 401
+
+    async def test_refresh_invalid_token_rejected(self, client):
+        """非法字符串做 refresh_token → 401"""
+        resp = await client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": "not-a-jwt"}
+        )
+        assert resp.status_code == 401
+
+    async def test_refresh_access_token_not_accepted(self, client, auth_user):
+        """access_token 不能当 refresh_token 用（type 校验）"""
+        resp = await client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": auth_user["access_token"]},
+        )
+        assert resp.status_code == 401
+
+    async def test_logout_revokes_both_tokens(self, client, auth_headers, auth_user):
+        """logout 后 access_token 与 refresh_token 双双失效（SEC-001）"""
+        resp = await client.post(
+            "/api/v1/auth/logout",
+            headers=auth_headers,
+            json={
+                "access_token": auth_user["access_token"],
+                "refresh_token": auth_user["refresh_token"],
+            },
+        )
+        assert resp.status_code == 200
+
+        # access_token 已撤销 → /me 401
+        resp_me = await client.get("/api/v1/auth/me", headers=auth_headers)
+        assert resp_me.status_code == 401
+
+        # refresh_token 已撤销 → 刷新 401
+        resp_refresh = await client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": auth_user["refresh_token"]},
+        )
+        assert resp_refresh.status_code == 401
+
+
+# ============================================================================
+# R12-Auth-7: wechat-login 端点覆盖（code2session mock）
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestWechatLogin:
+    """R12-Auth-7: 微信小程序登录 — 新用户创建/复用 + 封禁/注销中拦截（R12-Auth-2）"""
+
+    @staticmethod
+    def _mock_code2session(openid: str):
+        async def _mock(code: str) -> dict:
+            return {"openid": openid, "session_key": "test-session-key"}
+        return _mock
+
+    async def test_wechat_login_creates_new_user(self, client, monkeypatch, db_session):
+        from app.services.auth_service import AuthService
+
+        monkeypatch.setattr(
+            AuthService, "_call_wechat_code2session",
+            self._mock_code2session("wx-openid-new-001"),
+        )
+        resp = await client.post(
+            "/api/v1/auth/wechat-login", json={"code": "any-code"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["access_token"]
+        assert data["refresh_token"]
+        # 未传 nickname → 默认"球友"
+        assert data["user"]["nickname"] == "球友"
+
+        # DB 验证：openid 用户已创建且状态正常
+        user = (
+            await db_session.execute(
+                select(User).where(User.openid == "wx-openid-new-001")
+            )
+        ).scalar_one_or_none()
+        assert user is not None
+        assert user.status == "active"
+
+    async def test_wechat_login_existing_user_not_duplicated(
+        self, client, monkeypatch, db_session
+    ):
+        from app.services.auth_service import AuthService
+
+        existing = User(
+            openid="wx-openid-exist-001", nickname="老球友", status="active"
+        )
+        db_session.add(existing)
+        await db_session.commit()
+
+        monkeypatch.setattr(
+            AuthService, "_call_wechat_code2session",
+            self._mock_code2session("wx-openid-exist-001"),
+        )
+        resp = await client.post(
+            "/api/v1/auth/wechat-login",
+            json={"code": "any-code", "nickname": "新昵称"},
+        )
+        assert resp.status_code == 200
+        # 已存在用户不重复创建，昵称不被请求参数覆盖
+        data = resp.json()["data"]
+        assert data["user"]["nickname"] == "老球友"
+
+    async def test_wechat_login_banned_403(self, client, monkeypatch, db_session):
+        """R12-Auth-2: 登录入口拦截封禁用户（与 phone_login 一致）"""
+        from app.services.auth_service import AuthService
+
+        banned = User(
+            openid="wx-openid-banned-001", nickname="封禁用户", status="banned"
+        )
+        db_session.add(banned)
+        await db_session.commit()
+
+        monkeypatch.setattr(
+            AuthService, "_call_wechat_code2session",
+            self._mock_code2session("wx-openid-banned-001"),
+        )
+        resp = await client.post("/api/v1/auth/wechat-login", json={"code": "any"})
+        assert resp.status_code == 403
+
+    async def test_wechat_login_pending_deletion_403(
+        self, client, monkeypatch, db_session
+    ):
+        from app.services.auth_service import AuthService
+
+        pending = User(
+            openid="wx-openid-pending-001", nickname="注销中", status="pending_deletion"
+        )
+        db_session.add(pending)
+        await db_session.commit()
+
+        monkeypatch.setattr(
+            AuthService, "_call_wechat_code2session",
+            self._mock_code2session("wx-openid-pending-001"),
+        )
+        resp = await client.post("/api/v1/auth/wechat-login", json={"code": "any"})
+        assert resp.status_code == 403
+
+
+# ============================================================================
+# R12-Payment-2: 支付回调验签失败（安全关键）
+# ============================================================================
+
+@pytest.mark.asyncio
+class TestPaymentNotifySignature:
+    """R12-Payment-2: 回调验签失败 → 400 FAIL，订单不被误处理"""
+
+    async def test_invalid_signature_returns_fail_and_skips_processing(
+        self, client, db_session, monkeypatch
+    ):
+        import json as _json
+
+        from app.core.config import settings
+        from app.models.payment import Order
+
+        # 关闭 MOCK：走真实验签路径（Redis 无平台证书 → 验签必失败）
+        monkeypatch.setattr(settings, "WECHAT_PAY_MOCK", False)
+
+        user = User(openid="p1_notify_user", nickname="回调用户", status="active")
+        db_session.add(user)
+        await db_session.flush()
+        order = Order(
+            user_id=user.id, order_no="R12SIG0001",
+            product_type="membership", amount_cents=1900, status="pending",
+        )
+        db_session.add(order)
+        await db_session.commit()
+
+        body = _json.dumps({
+            "event_type": "TRANSACTION.SUCCESS",
+            "resource": {
+                "out_trade_no": "R12SIG0001",
+                "transaction_id": "wx_bad_sig_001",
+                "trade_state": "SUCCESS",
+                "amount": {"total": 1900},
+            },
+        })
+        resp = await client.post(
+            "/api/v1/payment/notify",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Wechatpay-Signature": "invalid-signature",
+                "Wechatpay-Serial": "INVALID_SERIAL",
+                "Wechatpay-Nonce": "test_nonce",
+                "Wechatpay-Timestamp": "1700000000",
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "FAIL"
+
+        # 验签失败：订单保持 pending（未被误标记为已支付）
+        await db_session.refresh(order)
+        assert order.status == "pending"
+        assert order.paid_at is None
+
+
+@pytest.mark.asyncio
+class TestConsentPolicyVersionValidation:
+    """R12-Auth-4: policy_version 合法性校验 — 非当前版本 422，不产生无效同意记录"""
+
+    async def test_invalid_policy_version_rejected_422(self, client, auth_headers):
+        """非当前政策版本 → 422，且不产生同意记录"""
+        resp = await client.post(
+            "/api/v1/auth/consent",
+            json={"consent_type": "privacy_policy", "policy_version": "0.9"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["code"] == 42200
+
+        # 无效版本不产生同意记录：consent-status 保持未同意
+        status = await client.get(
+            "/api/v1/auth/consent-status", headers=auth_headers
+        )
+        assert status.json()["data"]["consented"] is False
+
+    async def test_invalid_policy_version_writes_no_consent_log(
+        self, client, auth_headers
+    ):
+        """无效版本 POST 后 consent_log 无记录（防无效同意记录入库）"""
+        resp = await client.post(
+            "/api/v1/auth/consent",
+            json={"consent_type": "privacy_policy", "policy_version": "9.9.9"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+        # 库中无记录：consent-status 保持未同意且版本为 null
+        status = await client.get(
+            "/api/v1/auth/consent-status", headers=auth_headers
+        )
+        data = status.json()["data"]
+        assert data["consented"] is False and data["policy_version"] is None
+
+    async def test_valid_policy_version_accepted_and_matches_status(
+        self, client, auth_headers
+    ):
+        """当前版本 v1.0 → 200，consent-status 翻转为已同意（check_consent 可命中）"""
+        resp = await client.post(
+            "/api/v1/auth/consent",
+            json={"consent_type": "privacy_policy", "policy_version": "v1.0"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"]["consented"] is True
+
+        status = await client.get(
+            "/api/v1/auth/consent-status", headers=auth_headers
+        )
+        data = status.json()["data"]
+        assert data["consented"] is True
+        assert data["policy_version"] == "v1.0"
+
+
+@pytest.mark.asyncio
+class TestRatingRangeValidation:
+    """R12-User-3/4: rating 超范围 → 400（API §3.3 错误表），非 Schema 422"""
+
+    @pytest.mark.parametrize("bad_rating", [499, 3001, 0, 99999])
+    async def test_rating_out_of_range_returns_400(self, client, auth_headers, bad_rating):
+        resp = await client.patch(
+            "/api/v1/users/rating",
+            headers=auth_headers,
+            json={"rating": bad_rating, "source": "manual"},
+        )
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["code"] == 40000
+        assert "500-3000" in body["message"]
+
+    @pytest.mark.parametrize("good_rating", [500, 3000])
+    async def test_rating_boundary_values_accepted(self, client, auth_headers, good_rating):
+        """边界值 500/3000 合法"""
+        resp = await client.patch(
+            "/api/v1/users/rating",
+            headers=auth_headers,
+            json={"rating": good_rating, "source": "manual"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"]["new_rating"] == good_rating
+
+
+class TestEscalateActionNoRewrite:
+    """R12-Training-B3: escalate 为「诊断原因」动作，不改写训练内容（设计 §8.6 无此分支）"""
+
+    @staticmethod
+    def _make_plan():
+        from app.models.training import TrainingPlan
+
+        plan = TrainingPlan(user_id=1, template_id=None)
+        plan.version = 1
+        plan.plan_data = {
+            "sessions": [{"name": "正手攻球", "reps": 10}, {"name": "反手拨球", "reps": 20}],
+            "goal": {"forehand_consistency": 0.7},
+        }
+        return plan
+
+    def test_escalate_keeps_sessions_unchanged(self):
+        from app.services.training_service import TrainingAdviceService
+
+        plan = self._make_plan()
+        goal_metrics = {"forehand_consistency": 0.7}
+        result = TrainingAdviceService._generate_new_plan(plan, [], goal_metrics, "escalate")
+        # escalate 不改写训练内容：reps 原样
+        assert result["plan_data"]["sessions"][0]["reps"] == 10
+        assert result["plan_data"]["sessions"][1]["reps"] == 20
+        # 仅版本递增 + 诊断由 adjustment_reason 承载
+        assert result["version"] == 2
+        assert result["goal"] == goal_metrics
+
+    def test_adjust_still_increases_reps(self):
+        """对照：adjust 仍按设计 reps*1.2"""
+        from app.services.training_service import TrainingAdviceService
+
+        plan = self._make_plan()
+        result = TrainingAdviceService._generate_new_plan(
+            plan, [], {"forehand_consistency": 0.7}, "adjust"
+        )
+        assert result["plan_data"]["sessions"][0]["reps"] == 12
+        assert result["plan_data"]["sessions"][1]["reps"] == 24
+
+
+@pytest.mark.asyncio
+class TestAIPipelineCircuitBreaker:
+    """R12-AIPipeline-7/8/11: 共享 ai_inference 熔断器 + LLM 降级 + Step 9 时序"""
+
+    async def test_five_failures_open_shared_breaker(self):
+        """连续 5 次失败 → open（共享键 ai_inference）"""
+        from app.ai_pipeline.circuit_breaker import AICircuitBreaker, CircuitState
+
+        cb = AICircuitBreaker("ai_inference")
+        for _ in range(5):
+            await cb.record_failure()
+        assert await cb.get_state() == CircuitState.OPEN
+        assert await cb.allow_request() is False
+        await cb.record_success()  # 清理，恢复 closed
+
+    async def test_success_resets_failure_counter(self):
+        """成功一次即重置计数"""
+        from app.ai_pipeline.circuit_breaker import AICircuitBreaker, CircuitState
+
+        cb = AICircuitBreaker("ai_inference")
+        for _ in range(3):
+            await cb.record_failure()
+        await cb.record_success()
+        assert await cb.get_state() == CircuitState.CLOSED
+        # 计数清零：再 4 次失败不熔断
+        for _ in range(4):
+            await cb.record_failure()
+        assert await cb.get_state() == CircuitState.CLOSED
+        await cb.record_success()
+
+    async def test_llm_open_breaker_falls_back_to_template(self, monkeypatch):
+        """R12-AIPipeline-8: 熔断 open → 直接模板生成，不调用 LLM"""
+        from app.ai_pipeline.circuit_breaker import AICircuitBreaker
+        from app.ai_pipeline.report_generator import ReportGenerator
+        from app.core.config import settings
+
+        cb = AICircuitBreaker("ai_inference")
+        for _ in range(5):
+            await cb.record_failure()
+
+        monkeypatch.setattr(settings, "LLM_ENABLED", True)
+        monkeypatch.setattr(settings, "LLM_API_URL", "http://llm.test")
+
+        async def _must_not_call(result_data):
+            raise AssertionError("熔断 open 时不得调用 LLM")
+
+        monkeypatch.setattr(ReportGenerator, "_generate_llm_report", staticmethod(_must_not_call))
+
+        result, used_llm = await ReportGenerator._generate_report_text(
+            {"technique_stats": {"forehand_loop": 10, "backhand_block": 2}}, task_id=1
+        )
+        # 模板降级产物
+        assert "summary" in result and "issues" in result
+        # R12-AIPipeline-4: 熔断降级模板 → used_llm=False（按实际生成方式记录）
+        assert used_llm is False
+        await cb.record_success()  # 清理
+
+    async def test_exec_step_uses_shared_ai_inference_name(self, monkeypatch):
+        """R12-AIPipeline-7: _exec_step 实例化共享 ai_inference 熔断器（非 step_name）"""
+        import contextlib
+
+        import app.ai_pipeline.tasks as tasks_mod
+
+        seen_names = []
+        real_init = tasks_mod.AICircuitBreaker.__init__
+
+        def _spy_init(self, service_name):
+            seen_names.append(service_name)
+            real_init(self, service_name)
+
+        monkeypatch.setattr(tasks_mod.AICircuitBreaker, "__init__", _spy_init)
+
+        async def _noop(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(tasks_mod.ProgressTracker, "on_step_start", staticmethod(_noop))
+        monkeypatch.setattr(tasks_mod.ProgressTracker, "on_step_complete", staticmethod(_noop))
+        monkeypatch.setattr(tasks_mod.ProgressTracker, "on_step_failed", staticmethod(_noop))
+
+        @contextlib.asynccontextmanager
+        async def _fake_factory(*args, **kwargs):
+            yield None
+
+        monkeypatch.setattr(tasks_mod, "async_session_factory", _fake_factory)
+
+        step_results = {}
+        await tasks_mod._exec_step(
+            1, 1, "video_preprocessing", lambda: {"ok": True}, step_results
+        )
+        assert seen_names == ["ai_inference"]
+        assert step_results[1] == {"ok": True}

@@ -263,3 +263,36 @@ async def test_tier_cache(client, auth_headers, seed_tiers, db_session):
     assert resp2.status_code == 200
     data2 = resp2.json()["data"]
     assert len(data2["tiers"]) == 4
+
+
+# === R13-Mbr-N1: 额度 Redis key 跨模块一致性（回归锁定） ===
+
+@pytest.mark.asyncio
+async def test_quota_key_format_consistent_across_modules(client, auth_headers, seed_tiers, test_user):
+    """R13-Mbr-N1 回归：扣减方（video_analysis/ai_pipeline）与读取方（membership/user quota）
+    必须使用同一 Redis key —— 架构 §6.4 契约 yyyymmdd 紧凑格式。
+
+    原缺陷：读取方用 isoformat()（带连字符），扣减方用 %Y%m%d（紧凑格式），
+    导致 GET /membership/quota 的 used_today 恒 0。
+    """
+    from app.core.redis import get_redis
+
+    redis = await get_redis()
+    tz_cst = timezone(timedelta(hours=8))
+    today = datetime.now(tz_cst).strftime("%Y%m%d")
+
+    # 模拟扣减方写入（video_analysis_service._check_free_quota 同款 key）
+    key = f"quota:analysis:{test_user.id}:{today}"
+    await redis.set(key, "2")
+
+    try:
+        resp = await client.get("/api/v1/membership/quota", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        # 免费额度 3 次/日，已扣减 2 次 → 剩余 1（修复前恒 remaining=3）
+        assert data["used_today"] == 2, (
+            f"读取方应看到扣减方写入的计数（yyyymmdd key），实际 used_today={data['used_today']}"
+        )
+        assert data["remaining"] == 1
+    finally:
+        await redis.delete(key)

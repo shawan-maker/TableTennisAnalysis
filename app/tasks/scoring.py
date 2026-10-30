@@ -20,7 +20,8 @@ def cleanup_abandoned_matches():
     """
     logger.info("Running cleanup_abandoned_matches")
     try:
-        return asyncio.run(_cleanup_abandoned_matches_async())
+        from app.core.redis import run_isolated
+        return asyncio.run(run_isolated(_cleanup_abandoned_matches_async()))
     except RuntimeError as e:
         # 已在 event loop 中（罕见情况，如 eager + uvicorn 同线程）
         logger.error("cleanup_abandoned_matches_event_loop_error", extra={"error": str(e)})

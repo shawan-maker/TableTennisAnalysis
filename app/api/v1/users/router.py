@@ -25,8 +25,8 @@ from app.services.user_service import UserService
 router = APIRouter(prefix="/users", tags=["用户"])
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/profile", summary="获取个人档案")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_profile(
     request: Request,
     user: User = Depends(get_current_user),
@@ -38,8 +38,8 @@ async def get_profile(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.patch("/profile", summary="更新个人档案")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_profile(
     body: ProfileUpdateRequest,
     request: Request,
@@ -52,8 +52,8 @@ async def update_profile(
 
 
 # R6-User-2: /users/quota 端点未在 API §3 设计文档中记录（已知文档偏差，代码实现先行）
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/quota", summary="获取免费分析额度")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_quota(
     request: Request,
     user: User = Depends(get_current_user),
@@ -63,8 +63,8 @@ async def get_quota(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.patch("/rating", summary="更新开球网积分")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_rating(
     body: RatingUpdateRequest,
     request: Request,
@@ -76,8 +76,8 @@ async def update_rating(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/rating-history", summary="积分历史记录")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_rating_history(
     request: Request,
     page: int = Query(default=1, ge=1),
@@ -90,8 +90,8 @@ async def get_rating_history(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/big-data", summary="乒乓大数据（趣味统计）")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_big_data(
     request: Request,
     user: User = Depends(get_current_user),
@@ -102,8 +102,8 @@ async def get_big_data(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.delete("/account", summary="用户注销（72h 冷静期）")
+@limiter.limit(RateLimits.DEFAULT)
 async def delete_account(
     body: AccountDeletionRequest,
     request: Request,
@@ -115,8 +115,8 @@ async def delete_account(
     return success(data=data, message="注销申请已提交，72 小时内可撤销")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/account/cancel-deletion", summary="撤销注销申请")
+@limiter.limit(RateLimits.DEFAULT)
 async def cancel_deletion(
     request: Request,
     user: User = Depends(get_current_user_allow_pending),
@@ -127,8 +127,8 @@ async def cancel_deletion(
     return success(data=data, message="注销已撤销，账号恢复正常")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/export-data", summary="发起个人数据导出（PIPL）")
+@limiter.limit(RateLimits.DEFAULT)
 async def export_data(
     request: Request,
     user: User = Depends(get_current_user),
@@ -139,8 +139,8 @@ async def export_data(
     return success(data=data, message="导出任务已创建，完成后将通过通知告知您")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/export-data/{task_id}", summary="查询导出状态 + 下载链接")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_export_status(
     task_id: str,
     request: Request,

@@ -259,6 +259,58 @@ async def test_update_record_score_recalc_is_win(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_update_record_single_score_recalc(client, auth_headers):
+    """R12-MatchData-B2: 仅变更一个比分也重算 is_win（OR 语义）
+    R13-MatchData-1: PATCH 合并比分新增赛制校验 — 定局赛制（bo1/bo3/bo5/bo7）
+    的合法比分对均无法通过单边改分翻转胜负（如 bo5 3:1 改 my_score=0 → 0:1
+    非合法 bo5 比分 → 422），故用 custom 赛制（唯一约束为非平局）验证
+    单边改分翻转胜负的 OR 语义重算"""
+    resp1 = await client.post(
+        "/api/v1/match-data/records",
+        headers=auth_headers,
+        json={"opponent_name": "单改对手", "my_score": 3, "opponent_score": 1, "format": "custom"},
+    )
+    record_id = resp1.json()["data"]["id"]
+    assert resp1.json()["data"]["is_win"] is True
+
+    # 仅把 my_score 从 3 改为 0（原 3:1 胜 → 0:1 负，custom 仅要求非平局）
+    resp2 = await client.patch(
+        f"/api/v1/match-data/records/{record_id}",
+        headers=auth_headers,
+        json={"my_score": 0},
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["data"]["is_win"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_record_is_win_not_acceptable(client, auth_headers):
+    """R12-MatchData-B1: is_win 禁止前端传入，服务端忽略并自动计算"""
+    resp1 = await client.post(
+        "/api/v1/match-data/records",
+        headers=auth_headers,
+        json={"opponent_name": "防篡改对手", "my_score": 3, "opponent_score": 1, "format": "bo5"},
+    )
+    record_id = resp1.json()["data"]["id"]
+
+    # 旧客户端传入 is_win=false 试图篡改 → 忽略，仍是 3:1 胜
+    resp2 = await client.patch(
+        f"/api/v1/match-data/records/{record_id}",
+        headers=auth_headers,
+        json={"is_win": False},
+    )
+    # is_win 非法字段被忽略后无有效更新字段 → 422
+    assert resp2.status_code == 422
+
+    # 详情仍为胜
+    resp3 = await client.get(
+        f"/api/v1/match-data/records/{record_id}", headers=auth_headers
+    )
+    assert resp3.status_code == 200
+    assert resp3.json()["data"]["is_win"] is True
+
+
+@pytest.mark.asyncio
 async def test_update_record_not_found(client, auth_headers):
     """编辑不存在的记录返回 404"""
     resp = await client.patch(

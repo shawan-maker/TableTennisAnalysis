@@ -21,7 +21,7 @@
 
 | # | 任务 | 文件 | 依赖 | 状态 |
 |---|------|------|------|------|
-| 1 | 定义 Model | `app/models/scoring.py` | 无 | ☐ |
+| 1 | 定义 Model | `app/models/match.py` | 无 | ☐ |
 | 2 | 注册 Model | `app/models/__init__.py` | #1 | ☐ |
 | 3 | 定义 Schema | `app/schemas/scoring.py` | #1 | ☐ |
 | 4 | 实现 Service | `app/services/scoring_service.py` | #2,#3 | ☐ |
@@ -297,6 +297,49 @@ async def test_abandon_and_resume_flow(scoring_ctx):
     assert resume.status_code == 200
     assert resume.json()["data"]["status"] == "in_progress"
     assert "resumed_at" in resume.json()["data"]
+
+
+# === 6. R12 修复增量测试（R13-P3 文档同步 SC-9：补记于切片，实际位于
+#        tests/unit/test_scoring.py / test_supplements_p2.py / test_ws.py） ===
+@pytest.mark.asyncio
+async def test_multi_game_progression_and_auto_finish(scoring_ctx):
+    """R12-SC-1: 多局推进 — bo1 记满 target_score（领先 2 分）→ 全场自动结束。
+
+    断言：最后一致胜分响应 match_finished=True / match_status=finished；
+    Match 冗余字段 games_won_user 累计、final_score 按局分（"1:0"）。
+    ⚠ R13 复验发现（测试缺口，已上报）：tests/unit/test_scoring.py 尚无多局
+    推进用例（全部用例单局内记分或手动 finish，未覆盖 games_won 累计/
+    current_game 递增/自动 finish/跨局撤销保护），此为待补项非既有实现。
+    """
+    ...
+
+
+@pytest.mark.asyncio
+async def test_undo_cross_game_rejected(scoring_ctx):
+    """R12-SC-1: 跨局撤销保护 — 已结束上一局的致胜球不可撤销（400）。
+
+    ⚠ R13 复验发现（测试缺口，同上）：尚未覆盖，待补。
+    """
+    ...
+
+
+def test_ws_subscribe_sends_sync_match(ws_setup, monkeypatch):
+    """R12-SC-2: subscribe 比赛频道 → 推送 sync_match 全量同步（API §14.2/§14.4）。
+
+    实际测试：tests/unit/test_ws.py L115（get_match_detail 以 monkeypatch 替换，
+    DB 查询路径由 scoring 测试覆盖）。
+    """
+    ...
+
+
+def test_ws_match_room_broadcast(ws_setup):
+    """R12-SC-5: 订阅比赛频道 → ws_manager.broadcast_to_room 房间广播中继到客户端。
+
+    覆盖完整生产链路：ScoringService 记分 → ws_manager.broadcast_to_room("ws:match:{id}")
+    → Redis ws:relay:ws:match:{id} → 端点 subscribe 中继 → 客户端 score_update；
+    含未订阅房间的频道隔离断言。实际测试：tests/unit/test_ws.py L267。
+    """
+    ...
 ```
 
 ---
@@ -304,7 +347,9 @@ async def test_abandon_and_resume_flow(scoring_ctx):
 ## 3. Model 实现
 
 ```python
-# app/models/scoring.py
+# app/models/match.py
+# R13-P3 文档同步（SC-6）：实际实现文件为 app/models/match.py（非本切片原命名的
+# app/models/scoring.py — match_data 模块复用同一 Model，文件按表域命名）
 """
 记分牌模块数据模型。
 包含：Match（比赛）、ScoreRecord（逐球得分记录）、MatchStatistic（比赛统计）。
@@ -323,7 +368,7 @@ class Match(Base):
     """记分牌实时比赛实体。"""
     __tablename__ = "match"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=[REDACTED], autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), comment="创建者用户ID")  # R26-P3-26: 移除冗余 index=True（idx_match_user_created 已覆盖）
     opponent_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="对手姓名")
     opponent_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="对手积分")
@@ -337,6 +382,11 @@ class Match(Base):
     current_score_opp: Mapped[int] = mapped_column(Integer, default=0, comment="当前对手得分")
     current_game: Mapped[int] = mapped_column(Integer, default=1, comment="当前局数")
     current_server: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, comment="当前发球方: user/opponent")
+    # R13-P3 文档同步（SC-6，对齐 R12-SC-1 修复后实现）：补多局赛制局分字段
+    # （bo3=2胜/bo5=3胜/bo7=4胜，bo1/custom 单局不累计；
+    #   score() 局结束时累计，finish_match 按局分判定 is_win/final_score）
+    games_won_user: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    games_won_opp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # Redis 缓存的比分序列快照（冗余字段，Redis 为权威源）
     score_sequence: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, comment="比分序列缓存，Redis 镜像")
     is_win: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, comment="是否胜利")
@@ -397,7 +447,7 @@ class MatchStatistic(Base):
 ```
 
 **实现后必须**：
-- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.scoring import Match, ScoreRecord, MatchStatistic`
+- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.match import Match, ScoreRecord, MatchStatistic`（R13-P3 文档同步 SC-6：实际文件为 match.py）
 - [ ] 运行 `alembic revision --autogenerate -m "add_scoring_tables"`
 - [ ] 运行 `alembic upgrade head`
 
@@ -597,6 +647,11 @@ class ScoringService:
     # Redis Key 统一使用 f-string 内联构造（如 f"scoring:match:{match_id}:seq"）
     # 不再使用类常量模板 + .format()，与全项目风格保持一致
 
+    # R13-P3 文档同步（SC-7，对齐 R12-SC-1 修复后实现）：补 GAMES_TO_WIN 常量
+    # 赢够此局数比赛自动结束（bo3=3局2胜/bo5=5局3胜/bo7=7局4胜），
+    # bo1/custom 视为单局（game_ended 即全场结束）
+    GAMES_TO_WIN = {"bo1": 1, "bo3": 2, "bo5": 3, "bo7": 4}
+
     @staticmethod
     async def _get_match_or_404(match_id: int, user_id: int, db: AsyncSession) -> Match:
         """获取比赛，不存在或不属于当前用户则抛 404。"""
@@ -766,19 +821,43 @@ class ScoringService:
                 or (score_opp >= match.target_score and score_opp - score_user >= 2)
             )
 
-            # 6.1 判断是否需要换边
+            # 6.1 判断是否需要换边（R13-P3 文档同步 SC-7：在多局推进**前**计算 —
+            #     用本局实际比分，避免推进清零后 0:0 参与判定）
             should_change_sides = ScoringService._should_change_sides(
                 score_user, score_opp, match.target_score, game_ended,
             )
 
+            # 6.2 R12-SC-1: 多局赛制推进
+            #     局结束 → 累计局分（Match.games_won_user/games_won_opp）
+            #     达赛制局数（bo3=2/bo5=3/bo7=4，bo1/custom=1）→ 全场自动结束（复用 finish_match）
+            #     否则 → current_game += 1、当前局比分清零、发球权重置
+            # R13-P3 文档同步（SC-7）：record_game_number 在推进前保存 —
+            #     致胜球属于其结束的那一局（推进后 current_game 已 +1）
+            record_game_number = match.current_game
+            games_to_win = ScoringService.GAMES_TO_WIN.get(match.format, 1)
+            match_finished = False
+            if game_ended:
+                if score_user > score_opp:
+                    match.games_won_user = (match.games_won_user or 0) + 1
+                else:
+                    match.games_won_opp = (match.games_won_opp or 0) + 1
+                if max(match.games_won_user or 0, match.games_won_opp or 0) >= games_to_win:
+                    match_finished = True
+                else:
+                    match.current_game += 1
+                    score_user, score_opp = 0, 0
+                    current_server = "user"
+
             # 7. 写入 score_record
+            # R13-P3 文档同步（SC-7）：game_number = 推进前局号（record_game_number），
+            # 非 match.current_game（推进后已递增，会把致胜球记入新局）
             record = ScoreRecord(
                 match_id=match_id,
                 sequence=seq,
                 scorer=req.scorer,
                 score_method=req.score_method,
                 technique_action=req.technique_action,
-                game_number=match.current_game,
+                game_number=record_game_number,
                 is_key_point=is_key_point,
             )
             db.add(record)
@@ -797,12 +876,16 @@ class ScoringService:
             await db.commit()
 
             # 10. WebSocket 推送
-            if ws_manager:
+            # R13-P3 文档同步（SC-7）：data 补 match_id 字段（客户端多比赛订阅需路由）；
+            # 广播包 try/except（WS 故障不阻塞记分主流程，记 warning 日志）
+            try:
+                from app.core.websocket import manager as ws_manager
                 await ws_manager.broadcast_to_room(
                     f"ws:match:{match_id}",
                     json.dumps({
                         "event": "score_update",  # R17-P1: type→event，与项目 WS 协议统一
                         "data": {
+                            "match_id": match_id,
                             "sequence": seq,
                             "score": f"{score_user}:{score_opp}",
                             "scorer": req.scorer,
@@ -812,6 +895,18 @@ class ScoringService:
                         },
                     }),
                 )
+            except Exception as e:
+                logger.warning("scoring_ws_broadcast_failed", extra={"error": str(e)})
+
+            # 11. R12-SC-1: 达赛制局数 → 自动结束全场（复用 finish_match 完整链路：
+            #     统计生成 + match_record 级联 + 积分 + bust_cache + match_finished WS 推送）
+            if match_finished:
+                try:
+                    await ScoringService.finish_match(user_id, match_id)
+                except Exception as e:
+                    logger.error("scoring_auto_finish_failed", extra={
+                        "error": str(e), "match_id": match_id,
+                    })
 
             return {
                 "sequence": seq,
@@ -819,8 +914,11 @@ class ScoringService:
                 "current_server": current_server,
                 "game_number": match.current_game,
                 "is_key_point": is_key_point,
-                "match_status": match.status,
+                "match_status": "finished" if match_finished else match.status,
                 "should_change_sides": should_change_sides,
+                # R13-P3 文档同步（SC-7）：补 match_finished — 本球导致全场结束
+                # （前端据此跳转结束页，R12-SC-1 新增）
+                "match_finished": match_finished,
             }
 
     @staticmethod
@@ -852,6 +950,14 @@ class ScoringService:
             record = record_result.scalar_one_or_none()
             if not record:
                 raise AppException("没有可撤销的记录", 400)
+
+            # 3.5 R12-SC-1: 跨局保护 — 该球已结束上一局（局分已记录、当前局比分已清零），
+            # 撤销会导致局分/局数状态错乱，拒绝
+            # R13-P3 文档同步（SC-8）：补此分支（对齐 R12-SC-1 修复后实现）
+            if record.game_number < match.current_game:
+                raise AppException(
+                    "该球已结束本局，局分已记录，不可撤销", 400
+                )
 
             # 4. 回退比分
             score_data = await redis.hgetall(f"scoring:match:{match_id}:current_score")
@@ -921,8 +1027,18 @@ class ScoringService:
             score_user = match.current_score_user
             score_opp = match.current_score_opp
 
-            is_win = score_user > score_opp
-            final_score = f"{score_user}:{score_opp}"
+            # R12-SC-1: 多局模式下胜负与最终比分按局分判定
+            # （final_score 与 MatchRecord 局分语义一致，如 bo5 的 "3:1"）
+            # R13-P3 文档同步（SC-9）：补此分支（对齐 R12-SC-1 修复后实现）
+            games_user = match.games_won_user or 0
+            games_opp = match.games_won_opp or 0
+            if games_user > 0 or games_opp > 0:
+                is_win = games_user > games_opp
+                final_score = f"{games_user}:{games_opp}"
+            else:
+                # 单局（bo1/custom）或手动 finish（无局结束）：按当前比分
+                is_win = score_user > score_opp
+                final_score = f"{score_user}:{score_opp}"
 
             # 更新比赛状态
             match.status = "finished"
@@ -942,10 +1058,13 @@ class ScoringService:
             # 后续迭代可调用 ScoringService._analyze_scoring_patterns(match_id, db)
             # 将得分分析结果写入 stats_data 或独立分析表
 
-            # 清理 Redis 缓存
-            await redis.delete(f"scoring:match:{match_id}:seq")
-            await redis.delete(f"scoring:match:{match_id}:current_score")
-            await redis.delete(f"scoring:match:{match_id}:server")
+            # 清理 Redis 缓存（R13-P3 文档同步 SC-9：单次 delete 三个 key，
+            # 减少往返，对齐实现）
+            await redis.delete(
+                f"scoring:match:{match_id}:seq",
+                f"scoring:match:{match_id}:current_score",
+                f"scoring:match:{match_id}:server",
+            )
 
             await db.commit()
             await db.refresh(statistic)
@@ -953,13 +1072,20 @@ class ScoringService:
             # F2-1 修复：比赛结束后自动调用 match_data 模块创建 match_record
             # 字段映射: score_record.seq → score_detail.sequence, scorer → scorer,
             #           score_method → score_method, technique_action → technique_action
-            from app.services.match_data_service import MatchDataService
             # P2-PTS-01 修复：传 trigger_points=False，
             # 因为 finish_match 下方已单独触发 match 事件 +5 积分，
             # 避免 create_record_from_scoring 内部再触发 record 事件 +3 积分导致重复积分。
-            await MatchDataService.create_record_from_scoring(
-                db, match_id=match.id, user_id=match.user_id, trigger_points=False,
-            )
+            # R13-P3 文档同步（SC-9）：级联包 try/except（级联失败不阻塞 finish 主流程，
+            # 记 error 日志），对齐实现
+            try:
+                from app.services.match_data_service import MatchDataService
+                await MatchDataService.create_record_from_scoring(
+                    db, match_id=match.id, user_id=match.user_id, trigger_points=False,
+                )
+            except Exception as e:
+                logger.error("scoring_cascade_create_record_failed", extra={
+                    "error": str(e), "match_id": match_id
+                })
 
             # 积分触发：完成记分牌比赛 +5 积分（P0-5 修复）
             try:
@@ -972,14 +1098,27 @@ class ScoringService:
                 logger = logging.getLogger(__name__)
                 logger.error("gamification_add_points_match_failed", error=str(e), match_id=match_id)
 
-            # WS 推送比赛结束通知
-            from app.services.notification_service import NotificationService
-            await NotificationService.push_ws_message(
-                match.user_id, "match_finished", {
-                    "match_id": match.id,
-                    "final_score": match.final_score,
-                }
-            )
+            # R12-Dash-1: 比赛结束后清除看板缓存（比赛统计已更新）
+            # R13-P3 文档同步（SC-9）：补此级联（对齐 R12-Dash-1 修复后实现）
+            try:
+                from app.services.dashboard_service import DashboardService
+                await DashboardService.bust_cache(match.user_id, "match_end")
+            except Exception as e:
+                logger.error("scoring_bust_cache_failed", extra={
+                    "error": str(e), "match_id": match_id
+                })
+
+            # WS 推送比赛结束通知（R13-P3 文档同步 SC-9：包 try/except）
+            try:
+                from app.services.notification_service import NotificationService
+                await NotificationService.push_ws_message(
+                    match.user_id, "match_finished", {
+                        "match_id": match.id,
+                        "final_score": match.final_score,
+                    }
+                )
+            except Exception as e:
+                logger.warning("scoring_ws_finish_push_failed", extra={"error": str(e)})
 
             return {
                 "match_id": match_id,

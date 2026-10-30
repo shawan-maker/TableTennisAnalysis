@@ -1,7 +1,7 @@
 ﻿# gamification 模块 �?后端垂直切片设计
 
 > **模块名称**：`gamification`
-> **所属目�?*：`app/api/v1/gamification/`（与 `badge_system` 共用，badge 逻辑�?`badge_service.py`�?
+> **所属目录**：`app/api/v1/gamification/`（BadgeService 与 GamificationService 同文件实现，位于 `app/services/gamification_service.py`）<!-- R13-P3 文档同步：原 badge_service.py 独立文件未落地 -->
 > **定位**：训练积分、打卡日历、基础徽章、连续打卡激�?
 > **依据**：模块详细设�?v1.2 §2.9、API 详细设计 v1.3 §10
 
@@ -24,17 +24,23 @@
 | 3 | 生成 Alembic 迁移 | `alembic revision --autogenerate` | #2 | �?|
 | 4 | 定义 Schema | `app/schemas/gamification.py` | #1 | �?|
 | 5 | 实现 GamificationService | `app/services/gamification_service.py` | #2,#4 | �?|
-| 6 | 实现 BadgeService | `app/services/badge_service.py` | #2,#4 | �?|
+| 6 | 实现 BadgeService | `app/services/gamification_service.py`（与 #5 同文件） | #2,#4 | 完成 | <!-- R13-P3 文档同步：无独立 badge_service.py -->
 | 7 | 实现 API 路由 | `app/api/v1/gamification/router.py` | #5,#6 | �?|
 | 8 | 注册 Router | `app/api/v1/__init__.py` | #7 | �?|
 | 9 | 编写单元测试 | `tests/unit/test_gamification.py` | #5 | �?|
-| 10 | 编写冒烟测试 | `tests/smoke/gamification_smoke_test.py` | #7 | �?|
+| 10 | 编写冒烟测试 | `tests/unit/test_supplements_p2.py`（TestCheckinFlow，R12-Gam-8） | #7 | 完成 | <!-- R13-P3 文档同步：tests/smoke/gamification_smoke_test.py 未创建 -->
 
 ---
 
 ## 2. 测试先行
 
 ### 测试文件结构
+
+> **R13-P3 文档同步**：下方样例为设计期草稿，实际测试落地为三个文件：
+> - `tests/unit/test_gamification.py`：积分查询 / 打卡 / 同日 409 / 日历 / 徽章列表 / `add_points` 积分规则；
+> - `tests/unit/test_supplements_p2.py` `TestCheckinFlow`（R12-Gam-5/6/7/8）：401 未认证 / 冒烟（首日 200 + 同日 409）/ 断签重置（gap>1 → streak=1）/ streak=7 徽章解锁端到端；
+> - `tests/unit/test_rate_limiting.py`（R12-Gam-13）：slowapi 429 生效性（wiring 元测试 ≥95 端点）+ 业务 409 不被遮蔽语义。
+> 样例中的 `GamificationService._insert_checkin_for_test` 辅助方法与 `from app.services.badge_service import BadgeService` 导入在实际实现中不存在；实际测试通过直接预置 Redis streak 键（`gamification:streak:user:{id}` / `gamification:streak:last_date:{id}`）与 `BadgeService.seed_badge_definitions(db)` 完成数据准备。
 
 ```python
 # tests/unit/test_gamification.py
@@ -279,6 +285,7 @@ class BadgeProgress(Base):
 - [ ] 运行 `alembic revision --autogenerate -m "add_gamification_tables"`
 - [ ] 运行 `alembic upgrade head`
 - [ ] 预置徽章数据（通过 Alembic data migration �?seed 脚本）：
+  - 实际落地（R13-P3 文档同步）：`python scripts/seed_badges.py`（R12-Gam-1）— 调用 `BadgeService.seed_badge_definitions(db)` 幂等 upsert（不存在插入 / 定义漂移按 seed 更新并重置 is_active / 一致跳过），只 flush 不 commit，事务由脚本 `db.commit()` 收口。
 
 ```python
 # 预置徽章定义
@@ -307,6 +314,8 @@ BADGE_SEEDS = [
 ---
 
 ## 4. Schema（Pydantic�?
+
+> **R13-P3 文档同步**：`app/schemas/gamification.py` 已按下方字段落地，但 Service/Router 实际返回纯 dict（字段集合与 Schema 一致），全项目未导入该 Schema 模块（零引用，作为响应字段契约参考保留）。实际差异：`streak_icon` 默认 `""`（非 `"🔥"`）；数值/列表字段带默认值（0/空列表）；无 `model_config = {"from_attributes": True}`。
 
 ```python
 # app/schemas/gamification.py
@@ -392,6 +401,19 @@ class BadgeListResponse(BaseModel):
 ---
 
 ## 5. Service 实现（@staticmethod�?
+
+> **R13-P3 文档同步**（下方原稿样例与实际实现的差异，以实现为准）：
+> 1. `POINTS_RULES` 为 `app/services/gamification_service.py` 模块级常量（非 `GamificationService` 类属性）；badge 积分不在表内，直接用 `BadgeDefinition.points_reward`；
+> 2. Service 不持有事务：`checkin`/`add_points` 内部仅 `flush()`，commit 由调用方收口（Router 用 `async with async_session_factory() as db` + `db.commit()`）；
+> 3. `checkin` 409 抛 `AppException("今日已打卡", 409, code=40901)`；
+> 4. streak bonus 合并进当日 checkin 积分单次入账并写入 `CheckInRecord.bonus_points`（无独立 streak_7/streak_30 记账事件）；
+> 5. `_get_streak(user_id, db_streak=0)` Redis 实时值优先、DB `UserPoints.current_streak` 回退（R12-Gam-3）；
+> 6. streak 经 `_auto_update_streak` 持久化到 `UserPoints.current_streak / last_checkin_date`；
+> 7. `add_points` 仅对 analysis/match/record 触发自动打卡；`_auto_checkin` 与手动 checkin 逻辑一致（含 bonus 与 streak 持久化）；
+> 8. 打卡后 `check_badges` 包裹 try/except（徽章失败不阻塞打卡）；
+> 9. Service 返回纯 dict（非 Schema 实例）；`grant_badge_points` 包裹 try/except 且 ref_id 传 None；
+> 10. `_insert_checkin_for_test` 未实现（测试直接预置 Redis streak 键）。
+> 11. **R13-P3 文档同步（R13-Gam-N1 已修复）**：`add_points` 写入段（积分明细 + 汇总表 + 自动打卡）用 `db.begin_nested()`（SAVEPOINT）包裹 —— 调用方（scoring `finish_match` / match_data `_trigger_gamification` / report_generator 级联等）在各自事务中触发积分时，子操作 IntegrityError 仅回滚 SAVEPOINT 而不污染调用方外层事务（避免 session invalid 连带业务主流程失败）；`check_badges` 移出 SAVEPOINT 单独 try/except（徽章解锁失败不阻塞积分入账）。
 
 ```python
 # app/services/gamification_service.py
@@ -521,43 +543,45 @@ class GamificationService:
             ))
         )
         if existing.scalar_one_or_none():
-            raise AppException("今日已打�?, 409)
+            raise AppException("今日已打卡", 409, code=40901)  # R13-P3 文档同步：业务错误码 40901
 
         # 计算连续打卡天数
         streak = await GamificationService._update_streak(user_id)
 
-        # 写入打卡记录
-        checkin = CheckInRecord(
+        # 计算连续打卡奖励 — R13-P3 文档同步：bonus 合并进当日 checkin 积分单次入账
+        # （不再以独立 "streak_7"/"streak_30" 事件记账；bonus<=0 时响应返回 null，R6-Gami-2）
+        streak_bonus_map = {7: POINTS_RULES["streak_7"], 30: POINTS_RULES["streak_30"]}
+        bonus = streak_bonus_map.get(streak, 0)
+        points = POINTS_RULES["checkin"] + bonus
+
+        # 写入打卡记录（bonus 一并落 bonus_points 字段；POINTS_RULES 为模块级常量）
+        record = CheckInRecord(
             user_id=user_id,
             checkin_date=today,
             checkin_type="manual",
-            points_earned=GamificationService.POINTS_RULES["checkin"],
+            points_earned=POINTS_RULES["checkin"],
+            bonus_points=bonus,
         )
-        db.add(checkin)
+        db.add(record)
 
-        # 写入积分变动
-        await GamificationService._add_points(
-            db, user_id, "checkin", GamificationService.POINTS_RULES["checkin"]
-        )
+        # 写入积分变动（checkin 基础分 + bonus 单次入账）
+        await GamificationService._add_points(db, user_id, "checkin", points, None)
 
-        # 连续打卡额外奖励
-        bonus = None
-        if streak == 7:
-            bonus = GamificationService.POINTS_RULES["streak_7"]
-            await GamificationService._add_points(db, user_id, "streak_7", bonus)
-        elif streak == 30:
-            bonus = GamificationService.POINTS_RULES["streak_30"]
-            await GamificationService._add_points(db, user_id, "streak_30", bonus)
+        # 连续打卡天数持久化到 UserPoints（current_streak / last_checkin_date）
+        await GamificationService._auto_update_streak(db, user_id, streak)
 
-        await db.commit()
+        await db.flush()  # R13-P3 文档同步：Service 不 commit，事务由 Router 收口
 
-        # 触发徽章检�?
-        await BadgeService.check_badges(db, user_id)
+        # 触发徽章检测 — R13-P3 文档同步：实际包裹 try/except（徽章检测失败仅 warning 日志，不阻塞打卡）
+        try:
+            await BadgeService.check_badges(db, user_id)
+        except Exception as e:
+            pass  # logger.warning("badge_check_after_checkin_failed", ...)
 
         return CheckInResponse(
-            points_earned=GamificationService.POINTS_RULES["checkin"],
+            points_earned=POINTS_RULES["checkin"],
             current_streak=streak,
-            bonus=bonus,
+            bonus=bonus if bonus > 0 else None,  # R13-P3 文档同步：无奖励返回 null（R6-Gami-2），实际返回纯 dict
         )
 
     @staticmethod
@@ -581,12 +605,12 @@ class GamificationService:
                 db, user_id, event_type, points, ref_id
             )
 
-            # 自动打卡（分�?比赛/录入均视为当日打卡）
-            await GamificationService._auto_checkin(
-                db, user_id, event_type
-            )
+            # 自动打卡 — R13-P3 文档同步：仅 analysis/match/record 三类事件触发
+            # （training_session/share/feedback 等不触发自动打卡）
+            if event_type in ("analysis", "match", "record"):
+                await GamificationService._auto_checkin(db, user_id, event_type)
 
-            await db.commit()
+            await db.flush()  # R13-P3 文档同步：commit 由调用方控制；实际 except 分支仅记 warning 返回 0（不 rollback）
 
             # 触发徽章检�?            await BadgeService.check_badges(db, user_id)
 
@@ -613,11 +637,20 @@ class GamificationService:
     # ===================== 内部方法 =====================
 
     @staticmethod
-    async def _get_streak(user_id: int) -> int:
-        """�?Redis 读取连续打卡天数�?""
-        redis = await get_redis()
-        streak = await redis.get(f"gamification:streak:user:{user_id}")
-        return int(streak) if streak else 0
+    async def _get_streak(user_id: int, db_streak: int = 0) -> int:
+        """Redis 实时值优先，DB 回退（R12-Gam-3 统一数据源；R13-P3 文档同步）
+
+        get_points / get_checkin_calendar / _get_user_metrics 三处共用；
+        Redis 不可用或键缺失时回退 UserPoints.current_streak（db_streak）。
+        """
+        try:
+            redis = await get_redis()
+            redis_streak = await redis.get(f"gamification:streak:user:{user_id}")
+            if redis_streak is not None:
+                return int(redis_streak)
+        except Exception:
+            pass
+        return db_streak
 
     @staticmethod
     async def _update_streak(user_id: int) -> int:
@@ -750,6 +783,16 @@ class GamificationService:
 ---
 
 ## 6. BadgeService（@staticmethod�?
+
+> **R13-P3 文档同步**：BadgeService 实际位于 `app/services/gamification_service.py`（与 GamificationService 同文件，无独立 badge_service.py）。与下方原稿样例的实际差异：
+> 1. `check_badges` 解锁段包裹 `async with db.begin_nested()` SAVEPOINT（R6-Gami-1：并发重复解锁抛 IntegrityError 时仅回滚 SAVEPOINT，保留调用方打卡/积分事务）；
+> 2. 徽章奖励积分直接调用 `GamificationService._add_points`（绕过 `grant_badge_points` 的 try/except，避免吞掉 IntegrityError 破坏 SAVEPOINT 语义）；
+> 3. 仅 `flush()` 不 `commit()`（事务由调用方收口）；
+> 4. WS 推送为单条 `NotificationService.push_ws_message(user_id, "badge_unlocked", newly_unlocked)` 列表消息（非逐徽章 `_push_badge_unlocked`）；
+> 5. 进度更新逻辑内联于 `check_badges`（无独立 `_update_progress` 方法）；`_evaluate_condition` 仅读 metric 返回当前值；
+> 6. `get_badges` 的 locked `progress` 字段返回当前原始值（非 `min(current, target)` 截断）；
+> 7. `_get_user_metrics` 的 `streak_days` 经 `_get_streak(user_id, db_streak)` Redis 优先 / DB 回退（R12-Gam-3）；`match_count` 统计源含 `record`（手动录入，R12-Gam-4）；
+> 8. 实际新增 `seed_badge_definitions(db)` 幂等 seed 方法（R12-Gam-1，见 §3）。
 
 ```python
 # app/services/badge_service.py
@@ -887,7 +930,7 @@ class BadgeService:
                     db, user_id, definition.id, current_value, target
                 )
 
-        await db.commit()
+        await db.flush()  # R13-P3 文档同步：实际在 SAVEPOINT 内 flush，commit 由调用方控制
 
         # 5. WS 推送徽章解�?
         if newly_unlocked:
@@ -996,42 +1039,41 @@ class BadgeService:
 
 ## 6.5 月度积分重置 Celery Task
 
+> **R13-P3 文档同步**：下方已按实际实现整体替换。差异：实际文件为 `app/tasks/gamification.py`（非 `gamification_beat.py`）；任务名 `app.tasks.gamification.reset_monthly_points`（非 `gamification.reset_monthly_points`）；函数 `reset_monthly_points`（非 `reset_monthly_points_task`）；使用 `shared_task` + raw SQL 批量重置（未更新 `updated_at`）；返回 `{"status": "ok"}`；原稿"归档上月积分快照（可选）"未实现。Beat 注册条目 `gamification-monthly-points-reset`（`app/core/beat_schedule.py`，`crontab(minute=0, hour=0, day_of_month=1)`）与原稿一致。
+
 ```python
-# app/tasks/gamification_beat.py
-"""游戏化定时任务。"""
+# app/tasks/gamification.py
+"""Celery tasks — 游戏化积分"""
+import asyncio
+import logging
+from celery import shared_task
 
-from datetime import datetime, timezone
-from sqlalchemy import select, update
-from app.core.celery import celery_app
-from app.core.database import get_async_session
-from app.models.gamification import UserPoints
+logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="gamification.reset_monthly_points")
-def reset_monthly_points_task():
-    """月度积分重置——每月 1 日 00:00 执行。
+@shared_task(name="app.tasks.gamification.reset_monthly_points")
+def reset_monthly_points():
+    """月度积分重置（每月 1 日 00:00 CST）
 
     规则：
-    1. 归档上月积分快照（可选：写入 monthly_points_archive 表）
-    2. 将所有用户的 monthly_points 重置为 0
-    3. total_points 保持不变（累计积分不受影响）
-    4. 幂等设计：重置操作可安全重复执行
+    1. 将所有用户的 monthly_points 重置为 0（total_points 保持不变）
+    2. 幂等设计：重置操作可安全重复执行
+    3. 返回 {"status": "ok"}
 
-    Beat 注册：见 beat_schedule.py 中 "gamification-monthly-points-reset" 条目。
+    Beat 注册：app/core/beat_schedule.py 中 "gamification-monthly-points-reset"
+    （crontab(minute=0, hour=0, day_of_month=1)，queue=default）
     """
-    import asyncio
-    asyncio.run(_reset_monthly_points_async())
+    logger.info("Running gamification.reset_monthly_points")
 
+    async def _run():
+        from app.core.database import async_session_factory
+        from sqlalchemy import text
+        async with async_session_factory() as db:
+            await db.execute(text("UPDATE user_points SET monthly_points = 0"))
+            await db.commit()
 
-async def _reset_monthly_points_async():
-    """月度积分重置异步实现。"""
-    async with get_async_session() as db:
-        # 批量重置 monthly_points 为 0，total_points 不变
-        await db.execute(
-            update(UserPoints)
-            .values(monthly_points=0, updated_at=datetime.now(timezone.utc))
-        )
-        await db.commit()
+    asyncio.run(_run())
+    return {"status": "ok"}
 ```
 
 
@@ -1040,75 +1082,96 @@ async def _reset_monthly_points_async():
 
 ## 7. API 路由实现（FastAPI�?
 
+> **R13-P3 文档同步**：下方样例已按实际实现（`app/api/v1/gamification/router.py`）整体替换。与原稿差异：
+> 1. **限流装饰器顺序**（R12-Gam-13）：`@router.<method>` 在上、`@limiter.limit` 在下。原稿 limiter 在上是死代码写法——路由表注册原始未包装函数、限流检查从不执行；回归防护见 `tests/unit/test_rate_limiting.py::test_limited_endpoints_wiring`；
+> 2. 会话管理为 `async with async_session_factory() as db`（非 `Depends(get_db)`），`checkin` 事务由 Router `await db.commit()` 收口（Service 只 flush）；
+> 3. checkin 限流 `key_func=_user_key_func`（JWT `sub` 解析用户标识，解码失败回退 client IP），非原稿 `lambda r: r.state.user`；
+> 4. 端点均含 `request: Request` 参数（slowapi 要求）；`checkin-calendar` 默认年月取 `date.today()`（服务器本地日期，原稿为 UTC now）；
+> 5. checkin 响应为 `success(data=data)`（无 `message="打卡成功"`）；Router 不导入 Schema（Service 返回 dict，字段契约见 §4）。
+
 ```python
 # app/api/v1/gamification/router.py
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+"""
+app/api/v1/gamification/router.py - 游戏化 API 路由
+
+依据：API 10 / 切片 09-gamification/backend.md 6
+4 个端点：points / checkin-calendar / checkin / badges
+"""
+
+from datetime import date
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.deps import get_current_user
-from app.core.database import get_db
+from app.core.database import async_session_factory
+from app.core.exceptions import AppException
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
-from app.schemas.gamification import (
-    PointsResponse, CheckInCalendarResponse, CheckInResponse, BadgeListResponse,
-)
-from app.services.gamification_service import GamificationService
-from app.services.badge_service import BadgeService
+from app.services.gamification_service import GamificationService, BadgeService
 
-router = APIRouter(prefix="/gamification", tags=["游戏�?积分徽章"])
+router = APIRouter(prefix="/gamification", tags=["游戏化/积分徽章"])
 
 
+@router.get("/points", summary="积分查询")
 @limiter.limit("100/minute")
-@router.get("/points", summary="训练积分")
 async def get_points(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """查询训练积分（总积�?+ 月度积分 + 连续打卡天数）�?""
-    data = await GamificationService.get_points(db, user.id)
+    async with async_session_factory() as db:
+        data = await GamificationService.get_points(db, user.id)
     return success(data=data)
 
 
+@router.get("/checkin-calendar", summary="打卡日历")
 @limiter.limit("100/minute")
-@router.get("/checkin-calendar", summary="打卡日历（月度）")
 async def get_checkin_calendar(
-    year: int = Query(default=None, ge=2020, le=2100, description="年，默认当前�?),
-    month: int = Query(default=None, ge=1, le=12, description="月，默认当前�?),
+    request: Request,
+    year: int = Query(default=None, ge=2020, le=2100),
+    month: int = Query(default=None, ge=1, le=12),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """获取月度打卡日历�?""
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    if year is None:
-        year = now.year
-    if month is None:
-        month = now.month
-
-    data = await GamificationService.get_checkin_calendar(db, user.id, year, month)
+    today = date.today()
+    y = year or today.year
+    m = month or today.month
+    async with async_session_factory() as db:
+        data = await GamificationService.get_checkin_calendar(db, user.id, y, m)
     return success(data=data)
 
 
-@limiter.limit("1/day", key_func=lambda r: r.state.user)
-@router.post("/checkin", summary="手动打卡")
+def _user_key_func(request: Request) -> str:
+    """按用户 ID 限流（从 JWT 提取）"""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            from app.core.security import decode_token
+            payload = decode_token(auth[7:])
+            return f"user:{payload.get('sub', request.client.host if request.client else 'unknown')}"
+        except Exception:
+            pass
+    return request.client.host if request.client else "unknown"
+
+
+@router.post("/checkin", summary="每日打卡")
+@limiter.limit("1/day", key_func=_user_key_func)
 async def checkin(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """每日手动打卡（每日限1次）�?""
-    data = await GamificationService.checkin(db, user.id)
-    return success(data=data, message="打卡成功")
+    async with async_session_factory() as db:
+        data = await GamificationService.checkin(db, user.id)
+        await db.commit()
+    return success(data=data)
 
 
+@router.get("/badges", summary="徽章列表")
 @limiter.limit("100/minute")
-@router.get("/badges", summary="徽章列表（已获得/未获得）")
 async def get_badges(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """查询徽章列表（已获得 + 未获得含进度）�?""
-    data = await BadgeService.get_badges(db, user.id)
+    async with async_session_factory() as db:
+        data = await BadgeService.get_badges(db, user.id)
     return success(data=data)
 ```
 
@@ -1121,6 +1184,8 @@ api_router.include_router(gamification_router)
 ---
 
 ## 8. 冒烟测试脚本
+
+> **R13-P3 文档同步**：`tests/smoke/gamification_smoke_test.py` 未创建（§1 任务 #10 已同步）。冒烟覆盖实际落地于 `tests/unit/test_supplements_p2.py` `TestCheckinFlow.test_checkin_smoke_and_same_day_conflict`（R12-Gam-8：首日 200 / current_streak=1 / points_earned=2，同日重复 409）。下方脚本保留为本地环境联调参考（登录端点 `POST /auth/wechat-login` 与实际一致）。
 
 ```python
 # tests/smoke/gamification_smoke_test.py
@@ -1199,13 +1264,13 @@ if __name__ == "__main__":
 ## 9. 验证清单
 
 - [ ] 单元测试全部通过：`pytest tests/unit/test_gamification.py -v`
-- [ ] 冒烟测试通过：`python -m tests.smoke.gamification_smoke_test`
+- [x] 冒烟测试通过：`pytest tests/unit/test_supplements_p2.py::TestCheckinFlow -v`（R13-P3 文档同步：tests/smoke 脚本未创建，冒烟覆盖移至 TestCheckinFlow，R12-Gam-8）
 - [ ] Model 已在 `app/models/__init__.py` 中导�?
 - [ ] Router 已在 `app/api/v1/__init__.py` 中注�?
 - [ ] Alembic 迁移已生成并执行
-- [ ] 徽章种子数据已预置（6+ 个基础徽章�?
+- [x] 徽章种子数据已预置：`python scripts/seed_badges.py`（幂等 upsert：不存在插入/定义漂移更新/一致跳过，R12-Gam-1）<!-- R13-P3 文档同步 -->
 - [ ] Redis streak 键格式正确（`gamification:streak:user:{user_id}` / `gamification:streak:last_date:{user_id}`�?
-- [ ] 积分规则表完整（analysis +10 / match +5 / record +3 / checkin +2 / streak_7 +20 / streak_30 +100�?
+- [x] 积分规则表完整（analysis +10 / match +5 / record +3 / checkin +2 / streak_7 +20 / streak_30 +100 / training_session +5 / share +2 / feedback +1）<!-- R13-P3 文档同步：补齐实际 POINTS_RULES 全量事件（gamification_service.py:36-46） -->
 - [ ] 连续打卡计算正确（相邻→INCR / 间隔1天→重置1 / 间隔>1天→重置1�?
 - [ ] 徽章检测在打卡后正确触�?
 - [ ] WS 推�?`badge_unlocked` 事件格式正确
@@ -1226,5 +1291,8 @@ if __name__ == "__main__":
 - WS 推�?**必须** 使用 `ws:user:{user_id}` 频道 + `badge_unlocked` 事件类型
 - 积分规则 **必须** 定义�?`POINTS_RULES` 字典中，**禁止** 硬编码散落各�?
 - **注意**：badge_definition/user_badge/badge_progress 3 张表已在 DB 设计 v1.2 §3.1.4-3.1.6 中补齐（X-28 修复）。badge_definition PK �?VARCHAR(64) 语义化编码，与切片定义一致�?
-- **覆盖度修�?*：已根据覆盖度分析报告修�?X-1/X-2/X-5/X-17/A-7/A-9 等问题（A-9: `datetime.utcnow()` naive �?timezone-aware�?- 所�?API 端点 **必须** 添加 `@limiter.limit("100/minute")` 限流装饰器，**禁止** 裸奔无限�?- `POST /gamification/checkin`（每日打卡）**必须** 使用 `@limiter.limit("1/day", key_func=lambda r: r.state.user)` 按用户每日限 1 次，**禁止** 使用通用限流规则
+- **覆盖度修复**：已根据覆盖度分析报告修复 X-1/X-2/X-5/X-17/A-7/A-9 等问题（A-9: `datetime.utcnow()` naive → timezone-aware）
+- **限流装饰器顺序**（R12-Gam-13 修复，R13-P3 文档同步）：`@router.<method>` 在上、`@limiter.limit` 在下；反序会使路由表注册原始未包装函数、限流检查从不执行（死代码）。回归防护：`tests/unit/test_rate_limiting.py::test_limited_endpoints_wiring`
+- 所有 API 端点 **必须** 添加 `@limiter.limit("100/minute")` 限流装饰器，**禁止** 裸奔无限流
+- `POST /gamification/checkin`（每日打卡）**必须** 使用 `@limiter.limit("1/day", key_func=_user_key_func)` 按用户每日限 1 次（`_user_key_func` 从 JWT `sub` 解析用户标识，解码失败回退 client IP），**禁止** 使用通用限流规则 <!-- R13-P3 文档同步：原 `key_func=lambda r: r.state.user` 未落地，实际为 Router 内 `_user_key_func` -->
 - `from app.core.limiter import limiter` **必须** 在路由文�?import 区声明，**禁止** 遗漏导入

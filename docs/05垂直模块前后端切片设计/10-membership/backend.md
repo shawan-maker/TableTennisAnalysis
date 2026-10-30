@@ -26,7 +26,7 @@
 | 5 | 实现 MembershipService | `app/services/membership_service.py` | #2,#4 | ✓ |
 | 6 | 实现 API 路由 | `app/api/v1/membership/router.py` | #5 | ✓ |
 | 7 | 注册 Router | `app/api/v1/__init__.py` | #6 | ✓ |
-| 8 | 实现 Celery Beat 到期检测任务 | `app/tasks/membership_tasks.py` | #5 | ✓ |
+| 8 | 实现 Celery Beat 到期检测任务 | `app/tasks/membership.py` | #5 | ✓ |
 | 9 | 编写单元测试 | `tests/unit/test_membership.py` | #5 | ✓ |
 | 10 | 编写冒烟测试 | `tests/smoke/membership_smoke_test.py` | #6 | ✓ |
 
@@ -35,6 +35,11 @@
 ## 2. 测试先行
 
 ### 测试文件结构
+
+> **P3 文档同步（R12）**：下方为切片设计期的测试样例骨架，实际落地 `tests/unit/test_membership.py` 已演进：
+> - 认证 token 由 `create_access_token` 真实签发（JWT），非样例中的 `Bearer test_token_{id}` 假 token；
+> - 会话/用户统一使用 conftest fixtures（`client` / `db_session` / `auth_headers` / `seed_tiers` / `test_user`），样例中的 `free_user` / `member_user` 自定义 fixture 未落地；
+> - 覆盖面扩展：新增 expired / grace_period 到期检测、3 个端点无 token 401、tier 缓存命中测试（14 测试全绿）；R12-Membership-1（expired 按免费额度）回归测试见 `tests/unit/test_supplements_p1.py` TestQuotaExpiredMembership。
 
 ```python
 # tests/unit/test_membership.py
@@ -199,8 +204,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from app.core.database import Base
 
 
-class MembershipTier(Base):
-    """会员等级配置（预置数据，运营可修改）。""
+class MembershipTierConfig(Base):  # P3 文档同步（R12）：类名对齐实现（原样例为 MembershipTier，表名不变）
+    """会员等级配置（预置数据，运营可修改）。"""
     __tablename__ = "membership_tier_config"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -280,7 +285,7 @@ TIER_SEEDS = [
 ```
 
 **实现后必须：
-- [ ] 。`app/models/__init__.py` 中导入：`from app.models.membership import MembershipTier, Subscription`
+- [ ] 。`app/models/__init__.py` 中导入：`from app.models.membership import MembershipTierConfig, Subscription`（P3 文档同步（R12）：类名对齐实现）
 - [ ] 运行 `alembic revision --autogenerate -m "add_membership_tables"`
 - [ ] 运行 `alembic upgrade head`
 - [ ] 预置会员等级数据（通过 Alembic data migration 。seed 脚本）
@@ -366,7 +371,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
 from app.core.redis import get_redis
-from app.models.membership import MembershipTier, Subscription
+from app.models.membership import MembershipTierConfig, Subscription  # P3 文档同步（R12）：类名对齐实现
 from app.schemas.membership import (
     TierListResponse, TierBrief,
     CurrentMembershipResponse, QuotaResponse, MembershipCheckResult,
@@ -400,9 +405,9 @@ class MembershipService:
 
         # 查数据库
         result = await db.execute(
-            select(MembershipTier)
-            .where(MembershipTier.is_active == True)
-            .order_by(MembershipTier.sort_order)
+            select(MembershipTierConfig)  # P3 文档同步（R12）：类名对齐实现
+            .where(MembershipTierConfig.is_active == True)
+            .order_by(MembershipTierConfig.sort_order)
         )
         tiers = result.scalars().all()
         tier_list = [
@@ -438,10 +443,9 @@ class MembershipService:
                 days_remaining=0,
             )
 
-        # 实时校验兜底（即。Celery 未运行也能检测到期）
+        # 实时兜底：到期但状态未更新（R4-Mbr-3：补 expiring_soon 状态的到期检查）
         now = datetime.now(timezone.utc)
-        if subscription.status == "active" and subscription.expire_at < now:
-            # 已到期但状态尚未更新
+        if subscription.status in ("active", "expiring_soon") and subscription.expire_at < now:
             await MembershipService._handle_expiry(db, subscription)
             await db.commit()
 
@@ -467,8 +471,11 @@ class MembershipService:
         """查询今日剩余免费分析次数。""
         membership = await MembershipService.get_current_membership(db, user_id)
 
-        # 会员用户无限。
-        if membership.tier != "free":
+        # R12-Membership-1: expired/closed 订阅不享受会员无限额度，按免费 3 次/日
+        # 与 check_membership 的 R6-Mbr-1 规则对齐：仅 active/expiring_soon/grace_period 有效
+        if membership.tier != "free" and membership.status in (
+            "active", "expiring_soon", "grace_period",
+        ):
             return QuotaResponse(
                 tier=membership.tier,
                 daily_limit=-1,
@@ -502,7 +509,11 @@ class MembershipService:
         """
         subscription = await MembershipService._get_active_subscription(db, user_id)
 
-        if subscription is None:
+        # R6-Mbr-1: 校验订阅状态 — 仅 active/expiring_soon/grace_period 视为有效会员
+        # expired/closed 状态的订阅不应享受会员权益，按免费用户处理
+        if subscription is None or subscription.status not in (
+            "active", "expiring_soon", "grace_period",
+        ):
             # 免费用户
             today = datetime.now(timezone(timedelta(hours=8))).date()
             used_today = await MembershipService._get_used_count(user_id, today)
@@ -535,10 +546,13 @@ class MembershipService:
         
         由 video_analysis 模块 POST /video-analysis/tasks 时调用。
         """
-        # TODO: Phase 2 统一额度管理——video_analysis._check_free_quota 应调用此方法
         # 先检查会员状态（需要数据库会话）
-        from app.core.database import get_async_session
-        async with get_async_session() as db:
+        # P3 文档同步（R12）：会话获取对齐实现 — async_session_factory 工厂模式
+        #（替换原 get_async_session 依赖注入样例）；原 "TODO: Phase 2 统一额度管理"
+        # 注释已从实现移除 — video_analysis 切片以自有 _check_free_quota 实现 S5
+        # 额度检查（见 03-video_analysis/backend.md），本方法保留为模块额度原语
+        # 并作为测试直调入口
+        async with async_session_factory() as db:
             membership = await MembershipService.check_membership(db, user_id)
 
         if membership.is_member:
@@ -572,13 +586,16 @@ class MembershipService:
     async def check_expiry(db: AsyncSession) -> None:
         """
         到期检测：Celery Beat 每日 00:30 执行。
-        1. 到期 3 天 → 标记 + 发送续费提醒。
-        2. 到期 。expired + 触发权益降级
-        3. 到期7天后 。closed
+        状态机：active → expiring_soon → grace_period → expired → closed
+        - expiring_soon：3 天内将到期（保留权益，发续费提醒）
+        - grace_period：刚过期但在宽限期内（保留权益，发续费提醒）— R4-Mbr-2
+        - expired：宽限期结束（权益降级）
+        - closed：到期 14 天后（宽限 7 + 过期 7）
         """
         now = datetime.now(timezone.utc)
+        grace_days = timedelta(days=MembershipService.GRACE_PERIOD_DAYS)
 
-        # 1. 标记即将到期 3 天内
+        # 1. 标记即将到期（3 天内）— active → expiring_soon
         expiring_soon_threshold = now + timedelta(days=MembershipService.EXPIRING_SOON_DAYS)
         result = await db.execute(
             select(Subscription).where(and_(
@@ -592,11 +609,26 @@ class MembershipService:
             # 发送到期提醒
             await MembershipService._send_expiry_notification(sub)
 
-        # 2. 标记已到期
+        # 2. 刚过期 → grace_period（宽限期内保留权益）— R4-Mbr-2
         result = await db.execute(
             select(Subscription).where(and_(
                 Subscription.status.in_(["active", "expiring_soon"]),
                 Subscription.expire_at < now,
+                Subscription.expire_at >= now - grace_days,
+            ))
+        )
+        for sub in result.scalars().all():
+            sub.status = "grace_period"
+            # P3 文档同步（R12）：进入宽限期时同步发送续费提醒，与 docstring
+            # "保留权益，发续费提醒" 契约一致（原样例遗漏此调用）
+            await MembershipService._send_expiry_notification(sub)
+
+        # 3. 宽限期结束 → expired + 权益降级
+        #    同时兜底：active/expiring_soon 超过宽限期未处理的情况
+        result = await db.execute(
+            select(Subscription).where(and_(
+                Subscription.status.in_(["grace_period", "active", "expiring_soon"]),
+                Subscription.expire_at < now - grace_days,
             ))
         )
         for sub in result.scalars().all():
@@ -604,8 +636,8 @@ class MembershipService:
             # 触发权益降级
             await MembershipService._handle_downgrade(db, sub)
 
-        # 3. 标记已关闭（到期7天后）
-        closed_threshold = now - timedelta(days=MembershipService.GRACE_PERIOD_DAYS)
+        # 4. 标记已关闭（到期 14 天后 = 宽限 7 + 过期 7）
+        closed_threshold = now - timedelta(days=2 * MembershipService.GRACE_PERIOD_DAYS)
         result = await db.execute(
             select(Subscription).where(and_(
                 Subscription.status == "expired",
@@ -658,7 +690,20 @@ class MembershipService:
 
     @staticmethod
     async def _handle_expiry(db: AsyncSession, subscription: Subscription) -> None:
-        """处理到期逻辑（实时兜底）。""
+        """处理到期逻辑（实时兜底）— 与 check_expiry 状态机保持一致。
+
+        R5-Mbr-1 修复：实时兜底此前直接跳到 expired + 权益降级，跳过了
+        grace_period 状态。修复为：检测到过期时先判断是否仍在宽限期内，
+        是则设为 grace_period（保留权益、发续费提醒），否则才 expired + 降级。
+        """
+        now = datetime.now(timezone.utc)
+        expire_at = subscription.expire_at
+        if expire_at is not None and expire_at < now:
+            grace_end = expire_at + timedelta(days=MembershipService.GRACE_PERIOD_DAYS)
+            if now < grace_end:
+                subscription.status = "grace_period"
+                await MembershipService._send_expiry_notification(subscription)
+                return
         subscription.status = "expired"
         await MembershipService._handle_downgrade(db, subscription)
 
@@ -738,41 +783,72 @@ class MembershipService:
 
     @staticmethod
     async def _send_expiry_notification(subscription: Subscription) -> None:
-        """发送到期续费提醒（WS 推。+ 微信订阅消息）。""
-        redis = await get_redis()
-        import json
+        """发送到期续费提醒（WS + 微信订阅消息双通道）"""
         days_remaining = max(0, (subscription.expire_at - datetime.now(timezone.utc)).days)
-        await NotificationService.push_ws_message(subscription.user_id, "notification", {
-            "type": "membership_expiring",
-            "title": "会员即将到期",
-            "content": f"您的{subscription.tier}会员将在{days_remaining}天后到期，请及时续费",
-            "user_id": subscription.user_id,
-        })
-        # X-14 修复：同时发送微信订阅消。        await MembershipService._send_wechat_subscribe(subscription)
+        try:
+            await NotificationService.push_ws_message(subscription.user_id, "notification", {
+                "type": "membership_expiring",
+                "title": "会员即将到期",
+                "content": f"您的{subscription.tier}会员将在{days_remaining}天后到期，请及时续费",
+                "user_id": subscription.user_id,
+            })
+        except Exception as e:
+            logger.warning("push expiry notification failed: %s", e)
+
+        # 微信订阅消息推送（第二通道）
+        try:
+            await MembershipService._send_wechat_subscribe(subscription)
+        except Exception as e:
+            logger.warning("send wechat subscribe for expiry failed: %s", e)
 
     @staticmethod
     async def _send_wechat_subscribe(subscription: Subscription) -> None:
-        """发送微信订阅消息（会员到期提醒）。
-        X-14 修复：通过微信订阅消息接口发送到期提醒，
-        补充 WebSocket 推送之外的触达渠道。        """
-        import logging
-        logger = logging.getLogger(__name__)
-        try:
-            # 调用微信订阅消息 API（需。app/core/wechat.py 中实现 send_subscribe_message。            from app.core.wechat import send_subscribe_messaged_subscribe_message
-            await send_subscribe_message(
-                user_id=subscription.user_id,
-                template_id="membership_expiry_reminder",
-                page=f"/pages/membership/index?subscription_id={subscription.id}",
-                data={
-                    "thing1": {"value": f"您的{subscription.tier}会员即将到期"},
-                    "date2": {"value": subscription.expire_at.strftime("%Y-%m-%d")},
-                    "thing3": {"value": "点击续费继续享受会员权益"},
-                },
+        """发送会员到期提醒微信订阅消息
+
+        R12-Membership-2（Phase 2 外联边界确认）：微信订阅消息 API 接入属
+        Phase 2 范围。Phase 1 行为——SMS_MOCK 或 WECHAT_PAY_MOCK（默认）时打
+        mock 日志直接返回；否则构造 template_msg 供日志审计（结构与 Phase 2
+        真实调用一致）并打 prepared 日志，真实发送在 Phase 2 接入
+        `app.core.wechat.WechatClient` 后启用。
+        """
+        from app.core.config import settings
+
+        days_remaining = max(0, (subscription.expire_at - datetime.now(timezone.utc)).days)
+        if settings.SMS_MOCK or settings.WECHAT_PAY_MOCK:
+            logger.info(
+                "wechat subscribe mock: user_id=%s tier=%s days=%s",
+                subscription.user_id, subscription.tier, days_remaining,
             )
-        except ImportError:
-            logger.warning("wechat subscribe message module not available")
-        except Exception as e:
-            logger.error("wechat_subscribe_failed", user_id=subscription.user_id, error=str(e))
+            return
+
+        # R12-Membership-2（Phase 2 外联边界，已在上方确认）：接入微信订阅消息
+        # API 后取消下方注释并配置 client
+        # 构造 template_msg 结构，便于日志审计与后续接入
+        template_msg = {
+            "template_id": "membership_expiry_reminder",
+            "page": f"pages/membership/detail?id={subscription.id}",
+            "data": {
+                "thing1": {"value": f"{subscription.tier}会员"},
+                "time2": {"value": f"{days_remaining}天后到期"},
+                "thing3": {"value": "点击续费"},
+            },
+            "miniprogram_state": "formal" if settings.is_production else "developer",
+            "lang": "zh_CN",
+        }
+        logger.info(
+            "wechat subscribe message prepared: user_id=%s subscription_id=%s "
+            "template_id=%s days_remaining=%s",
+            subscription.user_id, subscription.id,
+            template_msg["template_id"], days_remaining,
+        )
+        # from app.core.wechat import WeChatClient
+        # client = WeChatClient()
+        # await client.send_subscribe_message(
+        #     user_id=subscription.user_id,
+        #     template_id=template_msg["template_id"],
+        #     page=template_msg["page"],
+        #     data=template_msg["data"],
+        # )
 ```
 
 ---
@@ -781,7 +857,7 @@ class MembershipService:
 
 ```python
 # app/api/v1/membership/router.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -797,9 +873,10 @@ from app.services.membership_service import MembershipService
 router = APIRouter(prefix="/membership", tags=["会员-等级权益"])
 
 
-@limiter.limit("100/minute")
 @router.get("/tiers", summary="会员等级与权益对比")
+@limiter.limit("100/minute")
 async def get_tiers(
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -808,9 +885,10 @@ async def get_tiers(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/current", summary="当前会员状态")
+@limiter.limit("100/minute")
 async def get_current_membership(
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -819,9 +897,10 @@ async def get_current_membership(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/quota", summary="今日剩余免费分析次数")
+@limiter.limit("100/minute")
 async def get_quota(
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -841,36 +920,36 @@ api_router.include_router(membership_router)
 ## 7. Celery Beat 到期检测任务
 
 ```python
-# app/tasks/membership_tasks.py
-"""membership Celery 定时任务 。会员到期检测。""
-from celery import shared_task
-from app.core.database import get_async_session
-from app.services.membership_service import MembershipService
+# app/tasks/membership.py
+"""Celery tasks — 会员管理"""
+import asyncio
 import logging
+from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="membership.check_expiry")
-def check_membership_expiry():
-    """
-    会员到期检测任务。
-    Celery Beat 配置：每天 00:30 执行。
-    crontab: 30 0 * * *
-    """
-    import asyncio
+@shared_task(name="app.tasks.membership.check_expiry")
+def check_expiry():
+    """会员到期检查（每日 00:30 CST）"""
+    from app.services.membership_service import MembershipService
+
+    logger.info("Running membership.check_expiry")
+
     async def _run():
-        async with get_async_session() as db:
+        from app.core.database import async_session_factory
+        async with async_session_factory() as db:
             await MembershipService.check_expiry(db)
-            logger.info("Membership expiry check completed")
+
     asyncio.run(_run())
+    return {"status": "ok"}
 
 
-# Celery Beat 配置（在 celery_app.py 。settings 中）:
+# Celery Beat 配置（app/core/beat_schedule.py）:
 # beat_schedule = {
 #     "membership-check-expiry": {
-#         "task": "membership.check_expiry",
-#         "schedule": crontab(hour=0, minute=30),  # 每日 00:30
+#         "task": "app.tasks.membership.check_expiry",
+#         "schedule": crontab(hour=0, minute=30),  # 每日 00:30 CST
 #     },
 # }
 ```
@@ -949,7 +1028,7 @@ if __name__ == "__main__":
 - [ ] 免费额度每日 00:00 (Asia/Shanghai) 重置，不累积，过期清理
 - [ ] 到期检测 Celery Beat 任务配置正确（每天 00:30）
 - [ ] 实时校验兜底正确（每次请求会员功能时检查 expire_at）
-- [ ] 订阅生命周期状态正确（active → expiring_soon → expired → grace_period → closed）
+- [ ] 订阅生命周期状态正确（active → expiring_soon → grace_period → expired → closed）
 - [ ] WS 推送 `membership_downgrade` 和 `notification`（到期提醒）事件格式正确
 - [ ] 代码注释完整（文件头、docstring、复杂逻辑注释）
 - [ ] 无废话注释、无注释掉的死代码

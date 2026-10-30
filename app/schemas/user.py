@@ -48,7 +48,9 @@ class ProfileUpdateRequest(BaseModel):
 class RatingUpdateRequest(BaseModel):
     """更新积分请求"""
 
-    rating: int = Field(..., ge=500, le=3000, description="积分值")
+    # R12-User-3: 移除 ge/le — 范围校验由 service 层 400 分支承担（对齐 API 设计 §3.3 错误表），
+    # 避免 Schema 先行 422 使设计规定的 400 分支成为死代码
+    rating: int = Field(..., description="积分值")
     # R4-User-4: max_length=128 → 64（DB 列 VARCHAR(64)）
     kqs_username: Optional[str] = Field(default=None, max_length=64, description="开球网用户名")
     source: str = Field(default="manual", max_length=20, description="来源")

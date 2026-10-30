@@ -177,7 +177,9 @@ class ProgressService:
             )
 
             # 计算 change_rate 与 previous_value
-            if len(history_values) >= 2 and history_values[-2] != 0:
+            # R12-Prog-2: value 为 None（指标消失，trend=resolved）时 change_rate 置 None，
+            # 避免 None - float TypeError（_calculate_trend 有早退保护，此处原先没有）
+            if value is not None and len(history_values) >= 2 and history_values[-2] != 0:
                 change_rate = round((value - history_values[-2]) / abs(history_values[-2]), 4)
             else:
                 change_rate = None
@@ -222,8 +224,12 @@ class ProgressService:
         新签名兼容设计测试用例：persistence >= 2 约束加到 improving/declining；
         stagnant 分支死代码已修复。
         """
-        # R7-Prog-1: current_value 为 None 时直接返回 new，避免 None - float TypeError
+        # R7-Prog-1 + R12-Prog-2: current_value 为 None 时不再统一返回 new：
+        # 历史有值但当前消失 → resolved（问题已解决，设计 6 种趋势类型之一）；
+        # 无历史 → new（首次出现，当前值尚缺）
         if current_value is None:
+            if history_values:
+                return {"trend": "resolved", "persistence_count": 0}
             return {"trend": "new", "persistence_count": 0}
         if len(history_values) < 2:
             return {"trend": "new", "persistence_count": 0}

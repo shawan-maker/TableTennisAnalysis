@@ -18,5 +18,6 @@ def check_expiry():
         async with async_session_factory() as db:
             await MembershipService.check_expiry(db)
 
-    asyncio.run(_run())
+    from app.core.redis import run_isolated
+    asyncio.run(run_isolated(_run()))
     return {"status": "ok"}

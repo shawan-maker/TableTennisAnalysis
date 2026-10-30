@@ -112,7 +112,11 @@ class MembershipService:
         """查询今日剩余免费分析次数"""
         membership = await MembershipService.get_current_membership(db, user_id)
 
-        if membership.tier != "free":
+        # R12-Membership-1: expired/closed 订阅不享受会员无限额度，按免费 3 次/日
+        # 与 check_membership 的 R6-Mbr-1 规则对齐：仅 active/expiring_soon/grace_period 有效
+        if membership.tier != "free" and membership.status in (
+            "active", "expiring_soon", "grace_period",
+        ):
             return QuotaResponse(
                 tier=membership.tier,
                 daily_limit=-1, used_today=0, remaining=-1, reset_at="",
@@ -175,7 +179,10 @@ class MembershipService:
 
         today = MembershipService._get_today_cst()
         redis = await get_redis()
-        key = f"quota:analysis:{user_id}:{today.isoformat()}"
+# R13-Mbr-N1: 日期格式统一 yyyymmdd 紧凑格式（架构 §6.4 Key 契约），与
+        # 扣减方 video_analysis_service / ai_pipeline 一致 — 原带连字符格式
+        # 导致读取方永远读不到扣减计数（used_today 恒 0）
+        key = f"quota:analysis:{user_id}:{today.strftime('%Y%m%d')}"
 
         new_count = await redis.incr(key)
 
@@ -279,7 +286,8 @@ class MembershipService:
     async def _get_used_count(user_id: int, today: date) -> int:
         """从 Redis 获取今日已用分析次数"""
         redis = await get_redis()
-        key = f"quota:analysis:{user_id}:{today.isoformat()}"
+        # R13-Mbr-N1: 同上，yyyymmdd 紧凑格式
+        key = f"quota:analysis:{user_id}:{today.strftime('%Y%m%d')}"
         count = await redis.get(key)
         return int(count) if count else 0
 
@@ -408,7 +416,9 @@ class MembershipService:
             )
             return
 
-        # TODO: 接入微信订阅消息 API（生产环境取消注释并配置 client）
+        # R12-Membership-2（Phase 2 外联边界，设计文档已确认）：微信订阅消息 API
+        # 接入属 Phase 2 范围 —— Phase 1 保持结构化桩（构造 template_msg 供日志
+        # 审计，真实发送在 Phase 2 接入 WeChatClient 后取消下方注释）。
         # 构造 template_msg 结构，便于日志审计与后续接入
         template_msg = {
             "template_id": "membership_expiry_reminder",

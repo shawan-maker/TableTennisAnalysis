@@ -55,7 +55,8 @@ class MatchRecordUpdate(BaseModel):
     opponent_rating: Optional[int] = Field(default=None, ge=500, le=3000)
     my_score: Optional[int] = Field(default=None, ge=0, le=99)
     opponent_score: Optional[int] = Field(default=None, ge=0, le=99)
-    is_win: Optional[bool] = Field(default=None, description="显式设置胜负，优先于自动重算")
+    # R12-MatchData-B1: is_win 禁止前端传入，必须自动计算（设计反幻觉约束）
+    # Schema 不定义 is_win 字段 — 未知字段被 Pydantic 忽略，服务端 update_record 重算
     match_date: Optional[datetime] = Field(default=None)
     match_type: Optional[Literal["friendly", "tournament", "training"]] = Field(default=None)
     notes: Optional[str] = Field(default=None, max_length=500)

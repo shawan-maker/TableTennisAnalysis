@@ -169,6 +169,12 @@ async def test_export_data_monthly_limit(client, auth_user):
     assert "本月" in resp2.json()["message"]
 ```
 
+> **P3 文档同步（R12 复验批次 1）**：实际测试（`tests/unit/test_user.py`，19 测试）与上方先行样例的差异：
+> - `test_rating_history_pagination`：样例断言 `total >= 3`；实际为 `total >= 2`（首次更新无旧积分不产生历史记录，3 次更新产生 2 条 — 语义修正）
+> - 导出测试使用 `export_spy` fixture（`_ExportDispatchSpy`）验证 `delay` 投递参数（R12-User-2 投递链路），避免 eager 内联跨 loop 连接池冲突（SUP-4）；429 断言后另断言不再投递
+> - R12 补充测试：`TestRatingRangeValidation`（499/3001/0/99999 → 400 + 边界 500/3000 → 200，`tests/unit/test_supplements_p1.py` L1616）、跨用户导出隔离 404/40400 + 属主对照（`test_user.py` L311，User-5）
+> - 测试 fixture：样例用 `auth_user` + 手工构造 headers；实际用 `auth_headers` fixture（conftest.py 提供）
+
 ---
 
 ## 3. Model 实现
@@ -297,9 +303,12 @@ class ProfileUpdateRequest(BaseModel):
 
 class RatingUpdateRequest(BaseModel):
     """更新开球网积分请求。"""
-    rating: int = Field(..., ge=500, le=3000, description="积分值 (500-3000)")
-    kqs_username: Optional[str] = Field(default=None, max_length=128)
-    source: str = Field(default="manual", description="来源: manual/kqs_api/tournament")
+    # P3 文档同步（R12-User-3）：移除 ge/le — 范围校验由 service 层 400 分支承担（对齐 API 设计 §3.3 错误表），
+    # 避免 Schema 先行 422 拦截使设计的 400 分支成为死代码（与反幻觉约束「积分范围校验必须在 Service 层完成」一致）
+    rating: int = Field(..., description="积分值")
+    # P3 文档同步（R4-User-4）：kqs_username max_length=128 → 64（DB 列 VARCHAR(64)）；source 增补 max_length=20
+    kqs_username: Optional[str] = Field(default=None, max_length=64)
+    source: str = Field(default="manual", max_length=20, description="来源: manual/kqs_api/tournament")
 
 
 class AccountDeletionRequest(BaseModel):
@@ -376,6 +385,16 @@ class ExportStatusResponse(BaseModel):
     file_size: Optional[int] = None
 
 
+# --- P3 文档同步（R12 复验批次 1）：/users/quota 端点响应 Schema（R6-User-2 实现先行，路由见 §6） ---
+class QuotaResponse(BaseModel):
+    """免费额度响应。"""
+
+    daily_limit: int = 3
+    used_today: int = 0
+    remaining: int = 3
+    reset_at: Optional[str] = None  # 下次重置时间（CST 次日 00:00，ISO 格式，R6-User-1）
+
+
 # --- 分页包装 ---
 class PaginatedRatingHistory(BaseModel):
     total: int
@@ -387,6 +406,12 @@ class PaginatedRatingHistory(BaseModel):
 ---
 
 ## 5. Service 实现
+
+> **P3 文档同步（R12 复验批次 1）**：以下样例与实际实现（`app/services/user_service.py`）的差异，以实现为准：
+> 1. `get_quota` 方法（样例未收录）：读取 Redis Key `quota:analysis:{user_id}:{date}`（CST 当日，R5-User-1），`daily_limit=3`，`reset_at` 为 CST 次日 00:00 的 ISO 字符串（R6-User-1）；类常量含 `DAILY_FREE_LIMIT = 3`
+> 2. `_compute_indirect_wins`：实现查询条件含 `MatchRecord.opponent_user_id.isnot(None)`（无该字段数据时 BFS 无法遍历，返回空列表 — 实现注释已声明）；`CELEBRITY_IDS` 为函数内常量而非模块级
+> 3. `get_profile`/`update_profile`：实现将 `profile_completeness` 计算结果回写 `user.profile_completeness` 字段（update_profile 双 commit 落库）；`update_profile` 内含 R4-User-3 注释（kqs_rating/kqs_username/nickname/avatar_url 不经此端点更新）
+> 4. 样例 `get_big_data` 的 `func.cast(...)` 实现为 `cast(...)`（`from sqlalchemy import cast, Integer`），语义等价
 
 ```python
 # app/services/user_service.py
@@ -473,6 +498,9 @@ class UserService:
     @staticmethod
     async def update_rating(user: User, req: RatingUpdateRequest, db: AsyncSession) -> RatingUpdateResponse:
         """更新开球网积分，旧积分自动写入历史记录。"""
+        # P3 文档同步（R12-User-3）：Schema 移除 ge/le 后，此分支为唯一范围校验（API §3.3: 400 超范围）
+        if req.rating < 500 or req.rating > 3000:
+            raise AppException("积分值不在合理范围内（500-3000）", 400, code=ERR_BAD_REQUEST)
         old_rating = user.kqs_rating
 
         # 创建历史记录
@@ -663,6 +691,11 @@ class UserService:
         if user.status == "pending_deletion":
             raise AppException("您已提交注销申请", 409)
 
+        # P3 文档同步（R12 复验批次 1）：实现含 confirmation 口令校验（422，
+        # 见 user_service.py delete_account 与 test_delete_account_wrong_confirmation）
+        if req.confirmation != "DELETE_ACCOUNT_CONFIRM":
+            raise AppException("确认口令不正确，请输入 DELETE_ACCOUNT_CONFIRM", 422)
+
         now = datetime.now(timezone.utc)
         scheduled_at = now + timedelta(hours=UserService.DELETION_COOLDOWN_HOURS)
 
@@ -694,6 +727,12 @@ class UserService:
     @staticmethod
     async def export_data(user: User, db: AsyncSession) -> ExportCreateResponse:
         """发起个人数据导出（PIPL 数据可携带权）。"""
+        # P3 文档同步（R12 复验批次 1）：实现与样例的 3 处差异，以实现为准（user_service.py export_data）—
+        # 1. 计数顺序（R5-User-2）：样例「先 GET 检查、后 INCR」存在竞态；实现为先 INCR 再检查（原子，避免并发超限），
+        #    且 count==1 时才设置月末 TTL（样例为 INCR 后统一 expire）
+        # 2. Celery 投递（R12-User-2）：样例下方 delay 为 TODO 注释；实现已接通：
+        #    from app.tasks.user import export_user_data; export_user_data.delay(user.id, task_id)
+        # 3. 429 判定：实现为 count > EXPORT_MONTHLY_LIMIT（INCR 后值），与样例 count >= LIMIT 语义等价（先 INCR 语境）
         redis = await get_redis()
         # 检查本月导出限制
         now = datetime.now(timezone.utc)
@@ -756,25 +795,29 @@ class UserService:
 
 ```python
 # app/api/v1/users/router.py
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_user_allow_pending
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
 from app.schemas.user import (
     ProfileUpdateRequest, RatingUpdateRequest, AccountDeletionRequest,
 )
-from app.core.limiter import limiter
+from app.core.limiter import RateLimits, limiter
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["用户"])
 
+# P3 文档同步（R12）：装饰器顺序约束 — @router 在上、@limiter.limit 紧随其下（顺序颠倒限流永不生效）；
+# 注销/撤销注销端点使用 get_current_user_allow_pending（R6-Auth-1，pending_deletion 用户放行）
 
-@limiter.limit("100/minute")
+
 @router.get("/profile", summary="获取个人档案")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_profile(
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -782,10 +825,11 @@ async def get_profile(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.patch("/profile", summary="更新个人档案")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_profile(
     body: ProfileUpdateRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -793,10 +837,22 @@ async def update_profile(
     return success(data=data, message="档案已更新")
 
 
-@limiter.limit("100/minute")
+# R6-User-2 → P3 文档同步（R12）：/users/quota 端点补录（实现先行，契约见 API 设计 §3.11）
+@router.get("/quota", summary="获取免费分析额度")
+@limiter.limit(RateLimits.DEFAULT)
+async def get_quota(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    data = await UserService.get_quota(user)
+    return success(data=data)
+
+
 @router.patch("/rating", summary="更新开球网积分")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_rating(
     body: RatingUpdateRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -804,9 +860,10 @@ async def update_rating(
     return success(data=data, message="积分已更新")
 
 
-@limiter.limit("100/minute")
 @router.get("/rating-history", summary="积分历史记录")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_rating_history(
+    request: Request,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
     user: User = Depends(get_current_user),
@@ -816,9 +873,10 @@ async def get_rating_history(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/big-data", summary="乒乓大数据（趣味统计）")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_big_data(
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -826,30 +884,33 @@ async def get_big_data(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.delete("/account", summary="用户注销（72h 冷静期）")
+@limiter.limit(RateLimits.DEFAULT)
 async def delete_account(
     body: AccountDeletionRequest,
-    user: User = Depends(get_current_user),
+    request: Request,
+    user: User = Depends(get_current_user_allow_pending),
     db: AsyncSession = Depends(get_db),
 ):
     data = await UserService.delete_account(user, body, db)
     return success(data=data, message="注销申请已提交，72 小时内可撤销")
 
 
-@limiter.limit("100/minute")
 @router.post("/account/cancel-deletion", summary="撤销注销申请（72h 冷静期内）")
+@limiter.limit(RateLimits.DEFAULT)
 async def cancel_deletion(
-    user: User = Depends(get_current_user),
+    request: Request,
+    user: User = Depends(get_current_user_allow_pending),
     db: AsyncSession = Depends(get_db),
 ):
     data = await UserService.cancel_deletion(user, db)
     return success(data=data, message="注销已撤销，账号恢复正常")
 
 
-@limiter.limit("100/minute")
 @router.post("/export-data", summary="发起个人数据导出（PIPL）")
+@limiter.limit(RateLimits.DEFAULT)
 async def export_data(
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -857,10 +918,11 @@ async def export_data(
     return success(data=data, message="导出任务已创建，完成后将通过通知告知您")
 
 
-@limiter.limit("100/minute")
 @router.get("/export-data/{task_id}", summary="查询导出状态 + 下载链接")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_export_status(
     task_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1007,10 +1069,12 @@ if __name__ == "__main__":
 
 ### process_account_deletions（72h 注销账户物理删除）
 
-> 由 `beat_schedule.py` 每小时第 15 分钟触发，扫描 `status="pending_deletion"` 且 `scheduled_deletion_at < NOW()` 的用户。
+> 由 `beat_schedule.py` 每小时第 15 分钟触发，扫描 `status="pending_deletion"` 且 `updated_at < NOW() - 72h` 的用户（P3 文档同步：当前实现按 `updated_at` 判定 72h 冷静期，设计原为 `scheduled_deletion_at < NOW()`）。
 
 ```python
-# app/tasks/user_tasks.py
+# app/tasks/user.py（P3 文档同步：注册名 app.tasks.user.process_account_deletions；
+# 当前实现为 async _run_async 简化版 — 扫描到期账户后置 status="deleted"，
+# 下方 BR-4 七步级联为设计目标样例，级联细节由实现侧补齐）
 """用户模块 Celery 任务。"""
 from datetime import datetime, timezone
 from celery import shared_task
@@ -1024,7 +1088,7 @@ from app.core.enums import UserStatus
 from app.core.redis import get_redis_client
 
 
-@shared_task(name="user.process_account_deletions")
+@shared_task(name="app.tasks.user.process_account_deletions")
 def process_account_deletions():
     """扫描到期的注销账户，执行物理删除（匿名化个人数据）。
 
@@ -1124,44 +1188,43 @@ def process_account_deletions():
         db.close()
 ```
 
-**实现后必须**：
-- [ ] 在 `app/tasks/__init__.py` 中导入：`from app.tasks.user_tasks import process_account_deletions`
-- [ ] 确认 `beat_schedule.py` 的 `autodiscover_tasks` 包含 `"app.tasks.user"`
-- [ ] 在 `UserStatus` 枚举中确认 `pending_deletion` 和 `deleted` 值已定义
+**实现后必须（P3 文档同步：R12 已落地，状态更新）**：
+- [x] `app/tasks/__init__.py` 已导入：`from app.tasks.user import process_account_deletions`（注册名 `app.tasks.user.process_account_deletions`）
+- [x] `app/core/celery.py` 的 `autodiscover_tasks(["app.ai_pipeline", "app.tasks"])` 已覆盖（`app.tasks` 包在 `__init__.py` 显式导入全部 10 个任务模块）
+- [x] `UserStatus` 枚举中 `pending_deletion` 和 `deleted` 值已定义
 
 ### export_user_data（个人数据导出异步任务）
 
 > 由 `UserService.export_data` 投递 Celery 异步任务执行，完成后推送 WS 通知。
 
 ```python
-# app/tasks/user_tasks.py（续）
-from sqlalchemy.ext.asyncio import AsyncSession
-
-
-@shared_task(name="user.export_user_data")
+# app/tasks/user.py（P3 文档同步：R12-User-2 补齐 delay 断链，任务名统一 app.tasks.* 前缀）
+@shared_task(name="app.tasks.user.export_user_data")
 def export_user_data(user_id: int, task_id: str):
     """个人数据导出异步任务。
 
     流程：
-    1. 查询用户所有数据（档案、积分历史、比赛记录、分析报告等）
-    2. 打包为 JSON/ZIP 文件
-    3. 上传至 OSS，生成下载链接
-    4. 更新 ExportTask 状态为 completed
-    5. WS 推送导出完成通知
+    1. 查询导出任务 → 状态 processing
+    2. 导出用户数据（Phase 1 简化：生成下载 URL，实际打包+OSS 上传在 S6+）
+    3. 更新 ExportTask 状态为 completed + download_url + expire_at（7 天）
+    4. WS 推送 export_completed 通知
+    失败：状态置 failed。
     """
-    import asyncio
-    asyncio.run(_export_user_data_async(user_id, task_id))
+    # _run_async：兼容 eager/测试环境事件循环嵌套（get_running_loop 探测 →
+    # 无循环直接 asyncio.run，有循环则线程池内 asyncio.run），定义见 app/tasks/user.py 顶部
+    _run_async(_export_user_data_async(user_id, task_id))
+    return {"status": "ok", "task_id": task_id}
 
 
 async def _export_user_data_async(user_id: int, task_id: str):
     """导出任务异步实现。"""
-    from app.core.database import get_async_session
+    from app.core.database import async_session_factory
     from app.services.notification_service import NotificationService
     from app.models.user import ExportTask
     from sqlalchemy import select
     from datetime import datetime, timezone, timedelta
 
-    async with get_async_session() as db:
+    async with async_session_factory() as db:
         # 查询导出任务
         task = (await db.execute(
             select(ExportTask).where(
@@ -1191,78 +1254,85 @@ async def _export_user_data_async(user_id: int, task_id: str):
             task.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
-            # WS 推送导出完成通知
-            await NotificationService.push_ws_message(
-                user_id, "export_completed", {"task_id": task.id}
-            )
+            # WS 推送导出完成通知（try/except 不阻塞导出流程）
+            try:
+                await NotificationService.push_ws_message(
+                    user_id, "export_completed", {"task_id": task.task_id}
+                )
+            except Exception as ws_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "export_ws_push_failed", extra={"task_id": task_id, "error": str(ws_err)}
+                )
 
         except Exception as e:
             task.status = "failed"
             await db.commit()
             import logging
             logging.getLogger(__name__).error(
-                "export_user_data_failed", user_id=user_id, task_id=task_id, error=str(e)
+                "export_user_data_failed", extra={"user_id": user_id, "task_id": task_id, "error": str(e)}
             )
 ```
 
-**实现后必须**：
-- [ ] 在 `app/tasks/__init__.py` 中导入：`from app.tasks.user_tasks import export_user_data`
-- [ ] 在 `UserService.export_data` 中取消注释 Celery 任务投递：
-      `export_user_data.delay(user.id, task_id)`
+**实现后必须（P3 文档同步：R12 已落地，状态更新）**：
+- [x] `app/tasks/__init__.py` 已导入：`from app.tasks.user import export_user_data`（注册名 `app.tasks.user.export_user_data`）
+- [x] `UserService.export_data` 已投递 Celery 任务（R12-User-2 修复）：`export_user_data.delay(user.id, task_id)`
 
 ### cleanup_old_export_tasks（导出任务记录清理）
 
-> 由 `beat_schedule.py` 每日 03:00 触发，清理 90 天前已完成的导出任务记录（DB 记录 + OSS 临时文件）。
+> 由 `beat_schedule.py` 每日 03:00 触发，清理 90 天前 status in (completed, failed) 的导出任务记录（DB 记录；OSS 临时文件删除在 S6+ 接入）。
 
 ```python
-# app/tasks/user_tasks.py（续）
-from datetime import timedelta
+# app/tasks/export.py（P3 文档同步：R12-BeatTasks-1 补齐，任务注册名 app.tasks.export.cleanup_old_tasks）
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
+
+from celery import shared_task
+
+logger = logging.getLogger(__name__)
+
+# 导出任务记录保留期：90 天
+EXPORT_TASK_RETENTION_DAYS = 90
 
 
-@shared_task(name="export.cleanup_old_tasks")
-def cleanup_old_export_tasks():
-    """清理 90 天前已完成的导出任务记录。
+@shared_task(name="app.tasks.export.cleanup_old_tasks")
+def cleanup_old_tasks():
+    """清理过期导出任务（每日 03:00）
 
-    每日 03:00 由 Celery Beat 触发（crontab(minute=0, hour=3)）。
-    流程：
-    1. 查询 status in ('completed', 'failed') 且 created_at < now() - 90d 的 ExportTask
-    2. 删除 OSS 上的导出文件（如有 download_url）
-    3. 删除 DB 记录
-    4. 幂等设计：基于 WHERE 条件清理，重复执行无副作用
+    删除 created_at > 90 天且 status in (completed, failed) 的导出任务 DB 记录。
+    （download_url 指向的 OSS 临时导出文件删除在 S6+ OSS 接入时补充。）
+    幂等：基于 WHERE 条件，重复执行无副作用。
 
     Beat 注册：见 beat_schedule.py 中 "export-cleanup-old-tasks" 条目。
     """
-    db: Session = SessionLocal()
+    logger.info("Running export.cleanup_old_tasks")
 
-    try:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-        stmt = select(ExportTask).where(
-            ExportTask.status.in_(["completed", "failed"]),
-            ExportTask.created_at < cutoff,
-        )
-        # R19-P3-F: 同步 Celery 任务使用 db.execute；若迁移为 async def 应改为 await db.execute 避免阻塞事件循环
-        tasks = db.execute(stmt).scalars().all()
+    async def _run():
+        from sqlalchemy import delete
 
-        deleted = 0
-        for task in tasks:
-            # 删除 OSS 上的导出文件（如有）
-            if task.download_url:
-                # from app.services.oss_service import OSSService
-                # await OSSService.delete_file(task.download_url)
-                pass  # OSS 删除在实现阶段接入
-            db.delete(task)
-            deleted += 1
+        from app.core.database import async_session_factory
+        from app.models.user import ExportTask
 
-        db.commit()
-        return {"deleted": deleted, "message": f"Cleaned {deleted} old export tasks"}
+        cutoff = datetime.now(timezone.utc) - timedelta(days=EXPORT_TASK_RETENTION_DAYS)
+        async with async_session_factory() as db:
+            result = await db.execute(
+                delete(ExportTask).where(
+                    ExportTask.status.in_(["completed", "failed"]),
+                    ExportTask.created_at < cutoff,
+                )
+            )
+            await db.commit()
+            return result.rowcount or 0
 
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    deleted = asyncio.run(_run())
+    logger.info(
+        "export_tasks_cleaned",
+        extra={"deleted": deleted, "retention_days": EXPORT_TASK_RETENTION_DAYS},
+    )
+    return {"status": "ok", "deleted": deleted, "retention_days": EXPORT_TASK_RETENTION_DAYS}
 ```
 
-**实现后必须**：
-- [ ] 在 `app/tasks/__init__.py` 中导入：`from app.tasks.user_tasks import cleanup_old_export_tasks`
-- [ ] 确认 `ExportTask` 模型已从 `app.models.user` 导入
+**实现后必须（P3 文档同步：R12 已落地，状态更新）**：
+- [x] `app/tasks/__init__.py` 已导入：`from app.tasks.export import cleanup_old_tasks`（注册名 `app.tasks.export.cleanup_old_tasks`）
+- [x] `ExportTask` 模型已从 `app.models.user` 导入

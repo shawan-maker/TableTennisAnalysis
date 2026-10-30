@@ -154,11 +154,20 @@ async def test_free_quota_exceeded(client, auth_user, mock_oss_head):
 
 @pytest.mark.asyncio
 async def test_task_state_machine(client, auth_user, sample_task):
-    """任务状态机：completed 状态不可再转换。"""
-    # 尝试从 completed 转换到 queued 应该失败
-    with pytest.raises(AppException) as exc:
-        await VideoAnalysisService._transition_status(sample_task, "queued")
-    assert exc.value.code == 400
+    """任务状态机：completed 状态不可再转换。
+
+    R13-P3 文档同步（VA-11）：实际校验实现为 app/ai_pipeline/progress.py 的
+    transition_task_status，非法转换返回 False（不 raise，调用方按返回值决策）。
+    实际测试位于 tests/unit/test_supplements_p1.py（R12-VA-2，
+    TestTaskStateMachine 合法/非法/终态矩阵）与 tests/unit/test_ai_pipeline.py
+    （transition_task_status 矩阵 + TASK_TRANSITIONS 常量断言）。
+    """
+    from app.ai_pipeline.progress import transition_task_status
+    # 尝试从 completed 转换到 queued 应该失败（返回 False，任务状态不变）
+    allowed = await transition_task_status(db_session, sample_task.id, "queued")
+    assert allowed is False
+    await db_session.refresh(sample_task)
+    assert sample_task.status == "completed"
 
 @pytest.mark.asyncio
 async def test_share_rate_limit(client, auth_user, sample_report):
@@ -252,7 +261,9 @@ class VideoTask(Base):
     current_step: Mapped[int] = mapped_column(Integer, default=0)
     total_steps: Mapped[int] = mapped_column(Integer, default=10)
     step_name: Mapped[str | None] = mapped_column(String(32))
-    progress: Mapped[int] = mapped_column(Integer, default=0)
+    # R13-P3 文档同步（VA-9）：progress 为 Float 0.0-1.0（R4 修复：0-100 → 0.0-1.0，
+    # 实现见 app/models/video_analysis.py L76）
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
     error_message: Mapped[str | None] = mapped_column(Text)
     estimated_remaining_seconds: Mapped[int | None] = mapped_column(Integer)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -380,14 +391,11 @@ from datetime import datetime
 class UploadTokenRequest(BaseModel):
     """获取上传凭证请求。"""
     filename: str = Field(..., min_length=1, max_length=255)
-    file_size: int = Field(..., ge=1048576, le=524288000)  # 1MB ≤ file_size ≤ 500MB
-
-    @field_validator("filename")
-    @classmethod
-    def validate_file_type(cls, v):
-        if not v.lower().endswith((".mp4", ".mov")):
-            raise ValueError("仅支持 MP4/MOV 格式")
-        return v
+    # R13-P3 文档同步（VA-9，对齐 R12-VA-4 修复后实现）：移除 ge/le 与
+    # field_validator 先行拦截 — API §4.1 错误表规定类型不支持/文件过大为 400、
+    # 文件过小为 422，需由 service 层区分抛出；Schema 先行 422 拦截会使设计
+    # 规定的错误码分支成为死代码。文件类型/大小校验见 §5 get_upload_token。
+    file_size: int = Field(..., description="文件大小（字节）")
 
 
 class UploadCompleteRequest(BaseModel):
@@ -411,9 +419,13 @@ class FeedbackRequest(BaseModel):
 
 class StsCredentials(BaseModel):
     access_key_id: str
-    access_key_secret: str
-    security_token: str
+    access_key_secret: [REDACTED]
+    security_token: [REDACTED]
     expiration: str
+    # R13-P3 文档同步（VA-9）：补 bucket/endpoint — 客户端 OSS 直传必需
+    # （实现见 app/schemas/video_analysis.py StsCredentials）
+    bucket: str
+    endpoint: str
 
 
 class UploadTokenResponse(BaseModel):
@@ -433,8 +445,10 @@ class UploadCompleteResponse(BaseModel):
 class CreateTaskResponse(BaseModel):
     task_id: int
     task_uuid: str
-    status: str
-    estimated_wait_minutes: int
+    # R13-P3 文档同步（VA-12）：与实现一致带默认值（见 app/schemas/video_analysis.py
+    # L75-80：status="queued"、estimated_wait_minutes=3）
+    status: str = "queued"
+    estimated_wait_minutes: int = 3
 
 
 class TaskListItem(BaseModel):
@@ -456,6 +470,8 @@ class TaskDetailResponse(BaseModel):
     step_name: Optional[str] = None
     progress: float
     estimated_remaining_seconds: Optional[int] = None
+    # R13-P3 文档同步（VA-9）：补 error_message — failed 任务需向客户端透出失败原因
+    error_message: Optional[str] = None
     created_at: datetime
     report_id: Optional[int] = None
 
@@ -473,9 +489,13 @@ class ReportListItem(BaseModel):
 class ReportDetailResponse(BaseModel):
     id: int
     task_id: int
-    task_uuid: str
+    # R13-P3 文档同步（VA-9）：task_uuid 可空（task 缺失时 None）
+    task_uuid: Optional[str] = None
     created_at: datetime
     is_llm_generated: bool
+    # R13-P3 文档同步（VA-9）：补 is_readonly — BL-15 会员到期降级只读标记
+    # （Redis downgrade:report:readonly:{user_id} 存在即为 True）
+    is_readonly: bool = False
     result_data: Optional[dict[str, Any]] = None
     report_text: Optional[dict[str, Any]] = None
     annotated_video_url: Optional[str] = None
@@ -504,14 +524,18 @@ class FeedbackHistoryItem(BaseModel):
 
 class AnnotatedVideoResponse(BaseModel):
     url: str
-    quality_options: list[str]
-    duration_sec: int
+    # R13-P3 文档同步（VA-9）：duration_sec 可空（video_task 缺失时 None），
+    # quality_options 有默认值（实现见 app/schemas/video_analysis.py）
+    duration_sec: Optional[int] = None
+    quality_options: list[str] = Field(default_factory=list)
 
 
 class ShareResponse(BaseModel):
     share_url: str
     card_image_url: Optional[str] = None
-    expire_at: datetime
+    # R13-P3 文档同步（VA-9）：expire_at 为 isoformat 字符串（非 datetime 对象，
+    # service 层 share.expire_at.isoformat() 返回）
+    expire_at: str
 
 
 # --- 分页包装 ---
@@ -563,8 +587,11 @@ logger = logging.getLogger(__name__)
 
 
 # 任务状态机：合法转换矩阵
+# R13-P3 文档同步（VA-10）：补 queued→failed 合法转换（R12 复验补充，消除
+# video_analysis_service 启动失败旁路直写 status 绕过矩阵校验）。
+# 注：矩阵实际定义于 app/ai_pipeline/progress.py（progress.transition_task_status）
 TASK_TRANSITIONS = {
-    "queued":     {"processing", "cancelled"},
+    "queued":     {"processing", "cancelled", "failed"},
     "processing": {"completed", "failed"},
     "completed":  set(),  # 终态
     "failed":     {"queued"},  # 可重试
@@ -590,107 +617,122 @@ PIPELINE_STEPS = [
 class VideoAnalysisService:
     """视频分析业务逻辑层。"""
 
-    FREE_DAILY_LIMIT = 3                # 免费用户每日额度
-    SHARE_DAILY_LIMIT = 5              # 每日分享限制
-    SHARE_EXPIRE_DAYS = 7             # 分享 Token 有效期
-    MAX_FILE_SIZE = 524288000         # 500MB
-    MIN_FILE_SIZE = 1048576           # 1MB 下限（R32 测试审查修复）
+    FREE_DAILY_LIMIT = settings.FREE_DAILY_ANALYSIS_LIMIT  # 免费用户每日额度（默认 3）
+    SHARE_DAILY_LIMIT = settings.SHARE_DAILY_LIMIT        # 每日分享限制（默认 5）
+    SHARE_EXPIRE_DAYS = settings.SHARE_EXPIRE_DAYS        # 分享 Token 有效期（默认 7 天）
+    MAX_FILE_SIZE = settings.MAX_FILE_SIZE                # 500MB 上限
+    MIN_FILE_SIZE = settings.MIN_FILE_SIZE                # 1MB 下限
     ALLOWED_TYPES = (".mp4", ".mov")
     TOTAL_STEPS = 10  # BL-8: 与架构 §6.1 的10步流水线一致
-    # PIPL-002 + R32 测试审查修复：视频时长限制（最小+最大）
-    MIN_VIDEO_DURATION_SECONDS = 5    # 5 秒下限（避免无效分析）
-    MAX_VIDEO_DURATION_SECONDS = 600  # 10 分钟上限
+    # PIPL-002 + R32 测试审查修复：视频时长限制（最小+最大，settings 驱动）
+    MIN_VIDEO_DURATION = settings.MIN_VIDEO_DURATION    # 5 秒下限（避免无效分析）
+    MAX_VIDEO_DURATION = settings.MAX_VIDEO_DURATION    # 600 秒上限
 
-    # ===== OSS 上传流程 =====
-
-    @staticmethod
-    async def get_upload_token(user_id: int, req: UploadTokenRequest, db: AsyncSession) -> UploadTokenResponse:
-        """获取 OSS STS 直传凭证 + 对象 Key。"""
-        # 校验已在 Schema 层完成（类型 + 大小）
-
-        # 生成 OSS Key: videos/raw/{user_id}/{yyyymmdd}/{uuid}.mp4
-        now = datetime.now(timezone.utc)
-        oss_key = f"videos/raw/{user_id}/{now.strftime('%Y%m%d')}/{uuid.uuid4().hex}.mp4"
-
-        # 请求 STS Token
-        sts = await FileService.generate_sts_token(
-            oss_key=oss_key,
-            permission="PutObject",
-            expire_seconds=900,  # 15 分钟
-        )
-
-        # 创建 file_record
-        file_record = FileRecord(
-            user_id=user_id,
-            oss_key=oss_key,
-            original_filename=req.filename,
-            file_size=req.file_size,
-            file_type=req.filename.split(".")[-1].lower(),
-            status="uploading",
-        )
-        db.add(file_record)
-        await db.commit()
-        await db.refresh(file_record)
-
-        return UploadTokenResponse(
-            file_id=file_record.id,
-            oss_key=oss_key,
-            sts_credentials=StsCredentials(
-                access_key_id=sts["access_key_id"],
-                access_key_secret=sts["access_key_secret"],
-                security_token=sts["security_token"],
-                expiration=sts["expiration"],
-            ),
-            upload_url=settings.OSS_UPLOAD_URL,
-            expire_at=sts["expiration"],
-        )
+    # ===== OSS 上传流程 =====    # ===== OSS 上传流程 =====
 
     @staticmethod
-    async def confirm_upload(user_id: int, file_id: int, db: AsyncSession) -> UploadCompleteResponse:
-        """上传完成确认（HEAD Object 校验）。"""
-        # 查询 file_record
-        stmt = select(FileRecord).where(
-            FileRecord.id == file_id, FileRecord.user_id == user_id,
-        )
-        file_record = (await db.execute(stmt)).scalar_one_or_none()
-        if not file_record:
-            raise AppException("文件记录不存在", 404)
+    async def get_upload_token(user_id: int, req: UploadTokenRequest) -> dict:
+        """获取 OSS 直传凭证"""
+        # 1. 验证文件类型
+        # R12-VA-4: API §4.1 错误表 — 类型不支持/文件过大均为 400，文件过小为 422
+        if not FileService.validate_file_type(req.filename):
+            raise AppException("仅支持 MP4/MOV 格式", 400, code=ERR_BAD_REQUEST)
 
-        # HEAD Object 校验
-        head_result = await FileService.head_object(file_record.oss_key)
-        if not head_result:
-            raise AppException("未检测到上传的文件，请重新上传", 404)
+        # 2. 验证文件大小 — 过大 400 / 过小 422（消息对齐 API §4.1）
+        if req.file_size > settings.MAX_FILE_SIZE:
+            raise AppException("视频文件不能超过 500MB", 400, code=ERR_BAD_REQUEST)
+        if req.file_size < settings.MIN_FILE_SIZE:
+            raise AppException("视频文件不能小于 1MB", 422, code=ERR_VALIDATION)
 
-        actual_size = head_result.get("content_length", 0)
-        if actual_size != file_record.file_size:
-            raise AppException("上传文件大小与声明不符", 400)
+        # 3. 生成 OSS Key
+        oss_key = FileService.generate_oss_key(user_id, req.filename)
 
-        # PIPL-002 + R32 测试审查修复：视频时长限制（最小+最大）
-        # 在 upload-complete 步骤，通过 ffprobe 检查时长
-        duration = await get_video_duration(file_record.oss_key)
-        if duration < VideoAnalysisService.MIN_VIDEO_DURATION_SECONDS:
-            raise AppException(
-                f"视频时长不足{VideoAnalysisService.MIN_VIDEO_DURATION_SECONDS}秒，无法进行分析", 422, code=42200
+        # 4. 签发 STS Token
+        sts = FileService.generate_sts_token(oss_key)
+
+        # 5. 创建 file_record
+        ext = req.filename.rsplit(".", 1)[-1].lower() if "." in req.filename else "mp4"
+        async with async_session_factory() as db:
+            record = FileRecord(
+                user_id=user_id,
+                oss_key=oss_key,
+                original_filename=req.filename,
+                file_size=req.file_size,
+                file_type=ext,
+                status="uploading",
             )
-        if duration > VideoAnalysisService.MAX_VIDEO_DURATION_SECONDS:
-            raise AppException(
-                f"视频时长超过{VideoAnalysisService.MAX_VIDEO_DURATION_SECONDS // 60}分钟限制", 422, code=42200
-            )
-        file_record.duration_sec = duration  # 提前记录时长，避免 create_task 时重复探测
+            db.add(record)
+            await db.commit()
+            await db.refresh(record)
 
-        # 更新 file_record
-        file_record.status = "uploaded"
-        file_record.oss_etag = head_result.get("etag")
-        file_record.actual_size = actual_size
-        await db.commit()
+        return {
+            "file_id": record.id,
+            "oss_key": oss_key,
+            "sts_credentials": {
+                "access_key_id": sts["access_key_id"],
+                "access_key_secret": sts["access_key_secret"],
+                "security_token": sts["security_token"],
+                "expiration": sts["expiration"],
+                "bucket": sts["bucket"],
+                "endpoint": sts["endpoint"],
+            },
+            "upload_url": sts["upload_url"],
+            "expire_at": sts["expiration"],
+        }
+    @staticmethod
+    async def confirm_upload(user_id: int, req: UploadCompleteRequest) -> dict:
+        """上传完成确认 — HEAD Object 校验"""
+        async with async_session_factory() as db:
+            record = await VideoAnalysisService._get_file_record(req.file_id, user_id, db)
+            if record.status != "uploading":
+                raise AppException("文件已确认或已废弃", 400, code=ERR_BAD_REQUEST)
 
-        return UploadCompleteResponse(
-            file_id=file_record.id,
-            ready=True,
-            actual_size=actual_size,
-        )
+            # HEAD Object 校验
+            head = FileService.head_object(record.oss_key)
+            if not head:
+                # R12-VA-5: API §4.2 错误表 — OSS 文件不存在为 404（原 400 偏差）
+                raise AppException("未检测到上传的文件，请重新上传", 404, code=ERR_NOT_FOUND)
 
-    # ===== 分析任务管理 =====
+            # 文件大小校验 — 实际大小必须与声明一致
+            actual_size = head.get("content_length", 0)
+            if actual_size != record.file_size:
+                raise AppException("上传文件大小与声明不符", 400, code=ERR_BAD_REQUEST)
+
+            # 获取视频时长
+            duration_sec = FileService.get_video_duration(record.oss_key)
+
+            # 时长校验（5s ~ 600s）— duration_sec 为 None 或 0 时拒绝确认
+            # R6-Video-1: 使用两条独立错误消息 + ERR_VALIDATION
+            if not duration_sec or duration_sec < settings.MIN_VIDEO_DURATION:
+                raise AppException(
+                    f"视频时长过短，需至少 {settings.MIN_VIDEO_DURATION}s",
+                    422,
+                    code=ERR_VALIDATION,
+                )
+            if duration_sec > settings.MAX_VIDEO_DURATION:
+                raise AppException(
+                    f"视频时长过长，不能超过 {settings.MAX_VIDEO_DURATION}s",
+                    422,
+                    code=ERR_VALIDATION,
+                )
+
+            # 更新 file_record
+            # R12-VA-6: duration_sec 不入 file_record（DB 设计 §2.4/切片模型均无此列），
+            # 在响应中返回，create_task 时写入 video_task.duration_sec（ai_pipeline 读取源）
+            record.status = "uploaded"
+            record.oss_etag = head["etag"]
+            record.actual_size = head["content_length"]
+            record.uploaded_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            return {
+                "file_id": record.id,
+                "ready": True,
+                "actual_size": head["content_length"],
+                "duration_sec": duration_sec,
+            }
+
+    # ===== 分析任务管理 =====    # ===== 分析任务管理 =====
 
     @staticmethod
     async def _check_free_quota(user_id: int) -> None:
@@ -743,28 +785,38 @@ class VideoAnalysisService:
         await db.commit()
         await db.refresh(task)
 
-        # 4. 入队 Celery 分析任务（使用 task.id 作为内部标识，ai_pipeline 统一用 int task_id）
-        # from app.tasks.analysis_tasks import run_analysis_pipeline
-        # run_analysis_pipeline.delay(task.id, file_record.oss_key)
+        # 4. 启动 Celery 流水线（R13-P3 文档同步 VA-12：实际实现调用
+        #    PipelineOrchestrator.build_and_run(task.id, oss_key)，替换原注释桩）
+        #    启动失败时（R12 复验-VA-2 旁路收口 + R12-AIPipeline-2 退额度）：
+        #    - 走 transition_task_status 状态机校验标记 failed（queued→failed 合法转换）
+        #    - 调用 ai_pipeline.tasks._refund_free_quota 退还预扣的免费额度
+        #      （任务未进入 Celery 重试流程，需在此直接退还）
+        try:
+            from app.ai_pipeline.pipeline import PipelineOrchestrator
+            await PipelineOrchestrator.build_and_run(task.id, file_record.oss_key)
+        except Exception as e:
+            # 状态机校验标记 failed + 退额度（见实现 L215-236）
+            ...
 
-        return CreateTaskResponse(
-            task_id=task.id,
-            task_uuid=task.task_uuid,
-            status="queued",
-            estimated_wait_minutes=5,
-        )
+        return {
+            "task_id": task.id,
+            "task_uuid": task.task_uuid,
+            "status": "queued",
+            # R13-P3 文档同步（VA-12）：estimated_wait_minutes 实际为 3（实现统一值，
+            # CreateTaskResponse 默认 3），原切片样例 5 未回写
+            "estimated_wait_minutes": 3,
+        }
 
-    @staticmethod
-    async def _transition_status(task: VideoTask, target: str) -> None:
-        """任务状态机转换校验。"""
-        current = task.status
-        if target not in TASK_TRANSITIONS.get(current, set()):
-            raise AppException(
-                f"任务状态不允许从 {current} 转换为 {target}", 400
-            )
-        task.status = target
-        if target in ("completed", "failed"):
-            task.completed_at = datetime.now(timezone.utc)
+    # R13-P3 文档同步（VA-11）：状态机校验实际实现于 app/ai_pipeline/progress.py 的
+    # transition_task_status(db, task_id, target) -> bool（R12-VA-2 修复）：
+    # - 合法：更新 status（completed/failed 同时写 completed_at），flush 后返回 True
+    # - 非法（含任务不存在）：记录警告日志、不改状态，返回 False（不 raise —
+    #   流水线调用方按返回值决定后续动作：WS 推送/中止流水线）
+    # 调用方：
+    #   - progress.py on_step_failed（processing→failed）
+    #   - progress.py on_task_complete（processing→completed）
+    #   - video_analysis_service.create_task 启动失败旁路（queued→failed）
+    # 原切片 _transition_status（raise AppException 语义）不再存在，删除样例。
 
     @staticmethod
     async def get_task_detail(user_id: int, task_id: int, db: AsyncSession) -> TaskDetailResponse:
@@ -1010,10 +1062,13 @@ class VideoAnalysisService:
         if not report.annotated_video_url:
             raise AppException("标注视频尚未生成", 404)
 
-        # 从 result_data 中提取视频时长
-        duration = 0
-        if report.result_data and "video_info" in report.result_data:
-            duration = report.result_data["video_info"].get("duration_sec", 0)
+        # R13-P3 文档同步（VA-12）：时长实际取自 video_task.duration_sec
+        # （R12-VA-6：duration 不入 file_record，持久化于 video_task，
+        # ai_pipeline/create_task 统一读取源），不再从 result_data["video_info"] 提取
+        task_result = await db.execute(
+            select(VideoTask.duration_sec).where(VideoTask.id == report.task_id)
+        )
+        duration = task_result.scalar_one_or_none()
 
         return AnnotatedVideoResponse(
             url=report.annotated_video_url,
@@ -1025,99 +1080,131 @@ class VideoAnalysisService:
 
     @staticmethod
     async def _check_share_limit(user_id: int) -> None:
-        """检查每日分享限制（5 次/天）。"""
+        """分享次数限制 — 使用 CST 日期作为 key"""
         redis = await get_redis()
-        now = datetime.now(timezone(timedelta(hours=8)))
-        date_key = now.date().isoformat()
-        limit_key = f"share:count:{user_id}:{date_key}"
+        tz_cst = timezone(timedelta(hours=8))
+        today = datetime.now(tz_cst).strftime("%Y%m%d")
+        key = f"share:count:{user_id}:{today}"
+        count = await redis.incr(key)
 
-        count = await redis.incr(limit_key)
         if count == 1:
-            await redis.expire(limit_key, 86400)
+            now = datetime.now(tz_cst)
+            end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59, tzinfo=tz_cst)
+            ttl = int((end_of_day - now).total_seconds()) + 3600
+            await redis.expire(key, ttl)
 
         if count > VideoAnalysisService.SHARE_DAILY_LIMIT:
-            await redis.decr(limit_key)
-            raise AppException("今日分享次数已用完", 429)
-
+            await redis.decr(key)
+            raise AppException(
+                "今日分享次数已用完",
+                429,
+                code=ERR_QUOTA_EXHAUSTED,
+            )
     @staticmethod
-    async def create_share(user_id: int, report_id: int, db: AsyncSession) -> ShareResponse:
-        """生成分享 Token + 卡片图。"""
-        # 校验报告
-        stmt = select(AnalysisReport).where(
-            AnalysisReport.id == report_id, AnalysisReport.user_id == user_id,
-        )
-        report = (await db.execute(stmt)).scalar_one_or_none()
-        if not report:
-            raise AppException("报告不存在", 404)
+    async def create_share(user_id: int, report_id: int) -> dict:
+        """创建分享"""
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(AnalysisReport).where(
+                    AnalysisReport.id == report_id,
+                    AnalysisReport.user_id == user_id,
+                )
+            )
+            report = result.scalar_one_or_none()
+            if report is None:
+                raise AppException("分析报告不存在", 404, code=ERR_REPORT_NOT_FOUND)
 
-        # 检查分享限制
-        await VideoAnalysisService._check_share_limit(user_id)
+            # 分享次数限制
+            await VideoAnalysisService._check_share_limit(user_id)
 
-        # 生成 UUID Token
-        token = uuid.uuid4().hex
-        expire_at = datetime.now(timezone.utc) + timedelta(days=VideoAnalysisService.SHARE_EXPIRE_DAYS)
+            # 创建分享记录
+            share_token = uuid.uuid4().hex
+            now = datetime.now(timezone.utc)
+            share = ShareRecord(
+                report_id=report_id,
+                user_id=user_id,
+                share_token=share_token,
+                share_scope="public",
+                expire_at=now + timedelta(days=VideoAnalysisService.SHARE_EXPIRE_DAYS),
+            )
+            db.add(share)
+            await db.commit()
+            await db.refresh(share)
 
-        # 生成分享卡片图（Pillow 绘制：封面图 + 关键数据）
-        # card_url = await FileService.generate_share_card(report)
-        # 分享卡片图生成 (TD-3 实现)
-        # Phase 1: 使用报告封面图作为分享卡片
-        card_url = report.cover_image_url if report.cover_image_url else None
+            share_url = f"{settings.API_BASE_URL}/share/{share_token}"
 
-        # 创建 share_record
-        share = ShareRecord(
-            report_id=report_id,
-            user_id=user_id,
-            share_token=token,
-            card_image_url=card_url,
-            expire_at=expire_at,
-        )
-        db.add(share)
-        await db.commit()
+            # 游戏化积分（try/except 不阻塞主流程）
+            try:
+                from app.services.gamification_service import GamificationService
+                await GamificationService.add_points(
+                    db, user_id=user_id, event_type="share", ref_id=share.id
+                )
+            except Exception as e:
+                logger.warning("share_add_points_failed", extra={
+                    "error": str(e), "share_id": share.id
+                })
 
-        # 触发积分（分享奖励）
-        try:
-            from app.services.gamification_service import GamificationService
-            await GamificationService.add_points(db, user_id=user_id, event_type="share", ref_id=share.id)
-        except Exception as e:
-            logger.error("gamification_add_points_share_failed", error=str(e), report_id=report_id)
-
-        share_url = f"https://api.pingpongai.com/share/{share.share_token}"
-
-        return ShareResponse(
-            share_url=share_url,
-            card_image_url=card_url,
-            expire_at=expire_at,
-        )
-
+            return {
+                "share_url": share_url,
+                "card_image_url": report.cover_image_url,
+                "expire_at": share.expire_at.isoformat(),
+            }
     @staticmethod
-    async def get_shared_report(token: str, db: AsyncSession) -> dict:
-        """分享报告摘要页（公开只读，7 天有效）。"""
-        stmt = select(ShareRecord).where(ShareRecord.share_token == token)
-        share = (await db.execute(stmt)).scalar_one_or_none()
-        if not share:
-            raise AppException("分享不存在或已过期", 404)
+    async def get_shared_report(share_token: str) -> dict:
+        """获取公开分享报告摘要"""
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(ShareRecord).where(ShareRecord.share_token == share_token)
+            )
+            share = result.scalar_one_or_none()
+            if share is None:
+                raise AppException("分享链接无效或已过期", 404, code=ERR_SHARE_TOKEN_INVALID)
 
-        if datetime.now(timezone.utc) > share.expire_at:
-            raise AppException("分享不存在或已过期", 404)
+            # 检查过期
+            if share.expire_at < datetime.now(timezone.utc):
+                raise AppException("分享链接已过期", 404, code=ERR_SHARE_TOKEN_INVALID)
 
-        # 查询报告
-        report_stmt = select(AnalysisReport).where(AnalysisReport.id == share.report_id)
-        report = (await db.execute(report_stmt)).scalar_one_or_none()
-        if not report:
-            raise AppException("分享不存在或已过期", 404)
+            # 查询报告
+            report_result = await db.execute(
+                select(AnalysisReport).where(AnalysisReport.id == share.report_id)
+            )
+            report = report_result.scalar_one_or_none()
+            if report is None:
+                raise AppException("报告不存在", 404, code=ERR_REPORT_NOT_FOUND)
 
-        # 返回公开摘要（不含训练建议/历史趋势/用户个人信息）
-        return {
-            "cover_image_url": report.cover_image_url,
-            "annotated_video_url": report.annotated_video_url,
-            "result_data": {
-                "technique_stats": report.result_data.get("technique_stats") if report.result_data else None,
-                "landing_points": report.result_data.get("landing_points") if report.result_data else None,
-                "ball_speed": report.result_data.get("ball_speed") if report.result_data else None,
-            },
-            "report_summary": report.report_text.get("summary") if report.report_text else None,
-            "top_issues": (report.report_text or {}).get("issues", [])[:2] if report.report_text else [],
-        }
+            # 更新浏览数
+            await db.execute(
+                update(ShareRecord)
+                .where(ShareRecord.id == share.id)
+                .values(view_count=ShareRecord.view_count + 1)
+            )
+            await db.commit()
+
+            # 返回安全字段（不含训练建议/趋势/个人信息）
+            report_text = report.report_text or {}
+            safe_text = {
+                "summary": report_text.get("summary", ""),
+                "issues": report_text.get("issues", [])[:2],
+            }
+
+            # result_data 仅返回安全子集（不含个人信息/训练建议）
+            safe_keys = ("technique_stats", "landing_points", "ball_speed")
+            safe_result_data = {
+                k: report.result_data.get(k)
+                for k in safe_keys
+                if report.result_data and k in report.result_data
+            }
+
+            return {
+                "report_id": report.id,
+                "cover_image_url": report.cover_image_url,
+                "annotated_video_url": report.annotated_video_url,
+                "result_data": safe_result_data,
+                "report_text": safe_text,  # 向后兼容
+                "report_summary": safe_text.get("summary", ""),
+                "top_issues": safe_text.get("issues", []),
+                "created_at": report.created_at.isoformat() if report.created_at else None,
+            }
 ```
 
 ---
@@ -1126,194 +1213,288 @@ class VideoAnalysisService:
 
 ```python
 # app/api/v1/video_analysis/router.py
-from fastapi import APIRouter, Depends, Query
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
 from app.core.database import get_db
+from app.core.limiter import RateLimits, limiter
 from app.core.response import success
 from app.models.user import User
 from app.schemas.video_analysis import (
-    UploadTokenRequest, UploadCompleteRequest, CreateTaskRequest,
+    CreateTaskRequest,
     FeedbackRequest,
+    UploadCompleteRequest,
+    UploadTokenRequest,
 )
-from app.core.limiter import limiter
 from app.services.video_analysis_service import VideoAnalysisService
 
 router = APIRouter(prefix="/video-analysis", tags=["视频分析"])
 
+# 独立分享路由 — 不挂载 /video-analysis prefix，挂载到 /share/{share_token} 根路径（VA-1 修复）
+share_router = APIRouter(tags=["分享"])
 
-@limiter.limit("100/minute")
-@router.post("/upload-token", summary="获取 OSS STS 直传凭证")
+
+@router.post("/upload-token", summary="获取上传凭证")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_upload_token(
     body: UploadTokenRequest,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.get_upload_token(user.id, body, db)
-    return success(data=data)
+    """获取 OSS STS 直传凭证 + object key"""
+    data = await VideoAnalysisService.get_upload_token(user.id, body)
+    return success(data=data, message="上传凭证已签发")
 
 
-@limiter.limit("100/minute")
 @router.post("/upload-complete", summary="上传完成确认")
-async def upload_complete(
+@limiter.limit(RateLimits.DEFAULT)
+async def confirm_upload(
     body: UploadCompleteRequest,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.confirm_upload(user.id, body.file_id, db)
-    return success(data=data)
+    """上传完成确认 — HEAD Object 校验"""
+    data = await VideoAnalysisService.confirm_upload(user.id, body)
+    return success(data=data, message="文件已确认")
 
 
-@limiter.limit("10/hour", key_func=lambda r: r.state.user)
 @router.post("/tasks", summary="创建分析任务")
+@limiter.limit("10/hour")
 async def create_task(
     body: CreateTaskRequest,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.create_task(user.id, body, db)
-    return success(data=data, message="任务已创建")
+    """创建分析任务（免费 3 次/天，会员不限）"""
+    data = await VideoAnalysisService.create_task(user.id, body)
+    return success(data=data, message="分析任务已创建")
 
 
-@limiter.limit("100/minute")
-@router.get("/tasks", summary="任务列表（分页）")
+@router.get("/tasks", summary="任务列表")
+@limiter.limit(RateLimits.DEFAULT)
 async def list_tasks(
-    status: str | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=50),
+    request: Request,
+    status: Optional[str] = Query(default=None, description="状态过滤"),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=50, description="每页条数"),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.list_tasks(user.id, status, page, page_size, db)
+    """任务列表（分页）"""
+    data = await VideoAnalysisService.list_tasks(user.id, status, page, page_size)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
-@router.get("/tasks/{task_id}", summary="任务详情 + 进度")
+@router.get("/tasks/{task_id}", summary="任务详情")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_task_detail(
+    request: Request,
     task_id: int,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.get_task_detail(user.id, task_id, db)
+    """任务详情 + 进度"""
+    data = await VideoAnalysisService.get_task_detail(user.id, task_id)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
-@router.get("/reports/{report_id}", summary="分析报告详情")
+@router.get("/reports", summary="报告列表")
+@limiter.limit(RateLimits.DEFAULT)
+async def list_reports(
+    request: Request,
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=50, description="每页条数"),
+    user: User = Depends(get_current_user),
+):
+    """报告列表（分页）"""
+    data = await VideoAnalysisService.list_reports(user.id, page, page_size)
+    return success(data=data)
+
+
+@router.get("/reports/{report_id}", summary="报告详情")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_report_detail(
+    request: Request,
     report_id: int,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.get_report_detail(user.id, report_id, db)
+    """分析报告详情（含完整结果数据 + 报告文字）"""
+    data = await VideoAnalysisService.get_report_detail(user.id, report_id)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
-@router.get("/reports", summary="报告列表（分页）")
-async def list_reports(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=50),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    data = await VideoAnalysisService.list_reports(user.id, page, page_size, db)
-    return success(data=data)
-
-
-@limiter.limit("100/minute")
 @router.post("/reports/{report_id}/feedback", summary="提交反馈")
+@limiter.limit(RateLimits.DEFAULT)
 async def submit_feedback(
     report_id: int,
     body: FeedbackRequest,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.submit_feedback(
-        user.id, report_id, body.is_correct, body.comment, db
-    )
+    """提交报告反馈（正确/不正确，可覆盖）"""
+    data = await VideoAnalysisService.submit_feedback(user.id, report_id, body)
     return success(data=data, message="反馈已提交")
 
 
-@limiter.limit("100/minute")
-@router.get("/reports/{report_id}/feedbacks", summary="反馈历史查询（API 设计 §3.7）")
+@router.get("/reports/{report_id}/feedbacks", summary="反馈历史")
+@limiter.limit(RateLimits.DEFAULT)
 async def list_feedbacks(
+    request: Request,
     report_id: int,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=50),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=50, description="每页条数"),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.list_feedbacks(db, report_id, user.id, page, page_size)
+    """获取报告的反馈历史列表（分页）"""
+    data = await VideoAnalysisService.list_feedbacks(user.id, report_id, page, page_size)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
-@router.get("/reports/{report_id}/annotated-video", summary="标注视频 CDN URL")
+@router.get("/reports/{report_id}/annotated-video", summary="标注视频 URL")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_annotated_video(
+    request: Request,
     report_id: int,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.get_annotated_video(user.id, report_id, db)
+    """获取标注视频 CDN URL"""
+    data = await VideoAnalysisService.get_annotated_video(user.id, report_id)
     return success(data=data)
 
 
-@limiter.limit("5/day", key_func=lambda r: r.state.user)
-@router.post("/reports/{report_id}/share", summary="生成分享 Token + 卡片图")
+@router.post("/reports/{report_id}/share", summary="创建分享")
+@limiter.limit("5/day")
 async def create_share(
     report_id: int,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await VideoAnalysisService.create_share(user.id, report_id, db)
-    return success(data=data, message="分享链接已生成")
+    """生成分享链接（7 天有效，每天限 5 次）"""
+    data = await VideoAnalysisService.create_share(user.id, report_id)
+    return success(data=data, message="分享链接已创建")
 ```
 
 **分享页面路由**（公开访问，不在认证路由下）：
 
 ```python
-# app/api/v1/__init__.py 中注册
-from app.api.v1.video_analysis.router import router as video_analysis_router
-api_router.include_router(video_analysis_router)
+# app/main.py 中注册（VA-1 修复：/share/{share_token} 挂载根路径，公开访问）
+from app.api.v1.video_analysis.router import (
+    router as video_analysis_router,
+    share_router as video_share_router,
+)
+app.include_router(api_router, prefix="/api/v1")
+app.include_router(video_share_router)  # 无 /api/v1 前缀，/share/{share_token}
+```
 
-# 分享页面单独注册（无前缀，公开访问）
-from fastapi import APIRouter, Depends
+```python
+# app/api/v1/video_analysis/router.py（同文件内 — 公开分享端点）
+import html as _html
+import json as _json
+
+from fastapi import Request
 from fastapi.responses import HTMLResponse
-from app.core.limiter import limiter
 
-share_router = APIRouter(tags=["分享"])
+from app.core.limiter import RateLimits, limiter
+from app.services.video_analysis_service import VideoAnalysisService
 
-@limiter.limit("100/minute")
-@share_router.get("/share/{share_token}", response_class=HTMLResponse, summary="分享报告摘要页")
-async def get_shared_report(
-    token: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """分享报告摘要页（公开只读，7 天有效）。返回 HTML 渲染页面。"""
-    data = await VideoAnalysisService.get_shared_report(token, db)
-    # 返回 HTML 模板（包含封面图 + 热图 + 技术统计 + 摘要）
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><title>乒乓分析报告分享</title></head>
-    <body>
-        <img src="{data['cover_image_url']}" />
-        <video src="{data['annotated_video_url']}" controls></video>
-        <div>{data['report_summary']}</div>
-    </body>
-    </html>
+
+def _render_share_page(data: dict) -> str:
+    """R12-VA-3: 渲染分享摘要 HTML 页（API §4.11 要求非 JSON）
+
+    设计要求内容：封面/标注视频、技术统计、落点热图、文字摘要（summary +
+    top 2 issues）、球速范围；不含训练建议/历史趋势/个人信息（service 层
+    已过滤安全子集）。文本经 html.escape 防 XSS；图表数据以 JSON island
+    嵌入供前端图表库水合。
     """
-    return HTMLResponse(content=html)
+    e = _html.escape
+    summary = e(data.get("report_summary") or "")
+    issues = data.get("top_issues") or []
+    result_data = data.get("result_data") or {}
+    technique_stats = result_data.get("technique_stats") or {}
+    ball_speed = result_data.get("ball_speed")
 
-# share_router 不加 /api/v1 前缀
-app.include_router(share_router)
+    issue_items = "".join(
+        f"<li class='issue'>{e(str(item))}</li>" for item in issues
+    )
+
+    stat_rows = "".join(
+        f"<div class='stat-row'><span class='stat-name'>{e(str(k))}</span>"
+        f"<span class='stat-value'>{e(str(v))}</span></div>"
+        for k, v in technique_stats.items()
+    ) or "<p class='empty'>暂无统计数据</p>"
+
+    cover = data.get("cover_image_url")
+    video_url = data.get("annotated_video_url")
+    video_block = (
+        f"<video controls playsinline poster='{e(str(cover))}' src='{e(str(video_url))}'></video>"
+        if video_url
+        else (
+            f"<img alt='视频封面' src='{e(str(cover))}'/>" if cover else "<p class='empty'>视频处理中</p>"
+        )
+    )
+
+    speed_block = (
+        f"<span class='stat-value'>{e(str(ball_speed))}</span>"
+        if ball_speed is not None
+        else "<p class='empty'>暂无球速数据</p>"
+    )
+
+    # 图表数据 JSON island：技术统计环形图 + 落点热图由前端图表库水合渲染
+    chart_data = _json.dumps(
+        {"technique_stats": technique_stats,
+         "landing_points": result_data.get("landing_points")},
+        ensure_ascii=False,
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AI 乒乓分析报告分享</title>
+<style>
+ body{{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f6f8;color:#182b32}}
+ .card{{background:#fff;margin:16px auto;max-width:640px;padding:20px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}}
+ video,img{{width:100%;border-radius:8px;display:block}}
+ h1{{font-size:20px;margin:0 0 8px}}
+ .section{{margin-top:20px}}
+ .section h2{{font-size:16px;color:#0f7b6c;margin:0 0 8px}}
+ .stat-row{{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #eee;font-size:14px}}
+ .issue{{font-size:14px;line-height:1.6;margin:4px 0}}
+ .empty{{font-size:13px;color:#9aa5ab}}
+ footer{{text-align:center;font-size:12px;color:#9aa5ab;padding:12px}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>AI 乒乓分析报告</h1>
+  <div class="section media">{video_block}</div>
+  <div class="section"><h2>报告摘要</h2><p class="summary">{summary or "暂无摘要"}</p></div>
+  <div class="section"><h2>主要问题</h2><ul>{issue_items or "<li class='empty'>暂无</li>"}</ul></div>
+  <div class="section"><h2>技术统计</h2>{stat_rows}</div>
+  <div class="section"><h2>球速数据</h2>{speed_block}</div>
+</div>
+<footer>报告由 AI 乒乓助手的用户分享生成，仅供参考</footer>
+<script id="share-chart-data" type="application/json">{_html.escape(chart_data)}</script>
+</body>
+</html>"""
+
+
+@share_router.get("/share/{share_token}", summary="公开分享报告", response_class=HTMLResponse)
+@limiter.limit(RateLimits.DEFAULT)
+async def get_shared_report(
+    share_token: str,
+    request: Request,
+):
+    """获取公开分享报告摘要页（HTML 渲染，7 天有效，不含训练建议/趋势/个人信息）"""
+    data = await VideoAnalysisService.get_shared_report(share_token)
+    # R12-VA-3: API §4.11 要求返回 HTML 渲染页面（非 JSON API）
+    return HTMLResponse(content=_render_share_page(data))
 ```
 
 ---
-
 ## 7. 冒烟测试脚本
 
 ```python

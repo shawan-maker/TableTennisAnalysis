@@ -5,7 +5,16 @@ app/core/celery.py — Celery 应用配置
 功能：Celery app + beat schedule + autodiscover
 """
 
+import os
+
 from celery import Celery
+
+# R13-Test-N3: Celery worker/beat 进程启用 DB NullPool —— 任务经 _run_async/
+# asyncio.run 每次执行使用新 event loop，共享连接池会跨 loop 检出死连接
+# （RuntimeError: Event loop is closed）。必须在下方 app.core.* 导入
+# （beat_schedule → tasks → services → database 传递导入）之前设置。
+# 生产 Web 进程（uvicorn app.main）不导入本模块，保留队列池连接复用。
+os.environ.setdefault("DB_NULLPOOL", "1")
 
 from app.core.config import settings
 

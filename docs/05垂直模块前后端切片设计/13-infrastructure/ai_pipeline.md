@@ -1,8 +1,10 @@
 ﻿# ai_pipeline 基础设施模块 �?后端垂直切片设计
 
 > **模块名称**：`ai_pipeline`
-> **所属目�?*：`app/services/ai_pipeline_service.py` + `app/ai_pipeline/tasks.py` + `app/ai_pipeline/pipeline.py` + `app/ai_pipeline/progress.py` + `app/ai_pipeline/report_generator.py`
+> **所属目�?*：`app/ai_pipeline/tasks.py` + `app/ai_pipeline/pipeline.py` + `app/ai_pipeline/progress.py` + `app/ai_pipeline/report_generator.py`
 > **定位**：AI 分析流水线编排、Celery 任务定义、进度追踪、结果聚�?> **依据**：模块详细设�?v1.2 §3.2、数据库详细设计 v1.5 §2.5-2.7
+
+> **R13-P3 文档同步**：实际模块文件为 `app/ai_pipeline/{tasks, pipeline, progress, report_generator, circuit_breaker}.py`，**无** `app/services/ai_pipeline_service.py`；入口编排为 `app/ai_pipeline/pipeline.py::PipelineOrchestrator`（由 `video_analysis_service.create_task` 调用），免费额度退还在 `app/ai_pipeline/tasks.py::_refund_free_quota`。下文 §5.5 样例为早期 Service 形态，保留作历史参考。
 
 ---
 
@@ -11,7 +13,7 @@
 | 属�?| �?|
 |------|-----|
 | 模块名称 | `ai_pipeline` |
-| 所属目�?| `app/ai_pipeline/`（流水线编排�? `app/services/ai_pipeline_service.py`（入�?Service�?|
+| 所属目�?| `app/ai_pipeline/`（流水线编排�? `app/ai_pipeline/pipeline.py`（入�?Service�?|
 | 一句话定位 | 10 �?AI 分析流水线编排、Celery 任务定义、进度追踪、结果聚�?|
 | 关联数据�?| video_task, pipeline_step, analysis_report |
 | 依赖模块 | ai_inference（HTTP 调用推理 API�? video_analysis（任务入口）, notification（进度推送）, progress_analysis（快照生成）, training_advice（建议生成） |
@@ -54,7 +56,7 @@ group(step1, step2)
 | 4 | 实现各步骤任�?| `app/ai_pipeline/tasks.py` | #3 | �?|
 | 5 | 实现流水线编�?| `app/ai_pipeline/pipeline.py` | #4 | �?|
 | 6 | 实现报告生成�?| `app/ai_pipeline/report_generator.py` | #5 | �?|
-| 7 | 实现入口 Service | `app/services/ai_pipeline_service.py` | #5 | �?|
+| 7 | 实现入口 Service | `app/ai_pipeline/pipeline.py`（PipelineOrchestrator 入口编排） | #5 | �?|
 | 8 | 配置 Celery Beat 健康检�?| `app/core/celery.py` | #4 | �?|
 | 9 | 编写测试 | `tests/unit/test_ai_pipeline.py` | #7 | �?|
 | 10 | 编写冒烟测试 | `tests/smoke/ai_pipeline_smoke_test.py` | #7 | �?|
@@ -145,6 +147,12 @@ class CreateTaskRequest(BaseModel):
 ## 5. Service 实现
 
 ### 5.1 进度推�?
+
+> **R13-P3 文档同步**（实际实现 `app/ai_pipeline/progress.py`）：
+> - `on_step_start(task_id, step, db: AsyncSession)` 需调用方传入会话（`async_session_factory()` 包裹）；样例的 `get_async_session` 自管会话形态未采用；
+> - WS 推送 payload 实际为 `{task_id, step, step_name, progress}`（progress 为 0.0-1.0 浮点，按 `STEP_WEIGHTS` {1:10, 2:5, 3:15, 4:10, 5:5, 6:10, 7:10, 8:5, 9:20, 10:10} 加权计算），无 `total` / `message` 字段；
+> - `on_step_failed` / `on_task_complete` 经 `transition_task_status` 状态机矩阵校验（R12-VA-2：completed/cancelled 终态不可翻转、failed→failed 幂等拒绝、queued→failed 合法），仅校验通过才更新状态并推送 WS；
+> - 无 `_get_task_user` 辅助方法（会话内直查 VideoTask 取 user_id）。
 ```python
 # app/ai_pipeline/progress.py
 """流水线进度推送�?""
@@ -280,6 +288,8 @@ class ProgressTracker:
 ```
 
 ### 5.2 Celery 任务定义
+
+> **R13-P3 文档同步**：Phase 1 实际为**单 Celery 任务** `ai_pipeline.run_pipeline`（`bind=True, max_retries=1, default_retry_delay=30`），任务体内 `run_pipeline_async` 顺序执行 10 步，每步经 `_exec_step` 统一封装（on_step_start → 共享 `ai_inference` 服务级熔断器（R12-AIPipeline-7）→ 执行 → on_step_complete/failed）；Step 9 手工编排 start → ReportGenerator.generate → complete/failed（R12-AIPipeline-11）。失败链路：`self.retry()` 不传 exc（R12-AIPipeline-1 / SUP-1：传 exc 时耗尽后重抛原异常，兜底分支不可达）→ 重试耗尽走 `MaxRetriesExceededError` 分支 `_mark_task_failed`（状态机校验 + 幂等）+ `_refund_free_quota`（Redis DECR，R12-AIPipeline-2）。本节 per-step 任务 / `retry_backoff=[10,30]` 指数退避 / httpx 推理调用为 Phase 2 生产形态（Mock 边界见 R19-P2-16 与 tasks.py 头部声明）。
 
 ```python
 # app/ai_pipeline/tasks.py
@@ -544,6 +554,8 @@ async def _step_10_annotated_video_async(self, task_id: int, oss_key: str, all_r
 ```
 
 ### 5.3 流水线编�?
+
+> **R13-P3 文档同步**：实际 `app/ai_pipeline/pipeline.py::PipelineOrchestrator` 提供 `init_steps`（预插 10 条 pending pipeline_step）与 `build_and_run(task_id, oss_key)`（eager 模式直接 `await run_pipeline_async`，生产模式 `run_pipeline.apply_async` 派发单任务；`queued→processing` 经状态机校验，非法转换中止流水线）。group/chord 并行编排与 `app/ai_pipeline/callback.py` 回调模块未实现 —— pipeline.py 头部声明 "Phase 1：顺序执行（parallel 优化留 S6）"，本节样例为 S6+ 目标形态。
 ```python
 # app/ai_pipeline/pipeline.py
 """AI 分析流水线编排�?""
@@ -624,6 +636,13 @@ class PipelineOrchestrator:
 ```
 
 ### 5.4 报告生成�?
+
+> **R13-P3 文档同步**（实际实现 `app/ai_pipeline/report_generator.py`）：
+> - `generate(task_id, step_results)` 返回 `{report_id, result_data, report_text}` 字典（非 `(result_data, report_text)` 元组）；已存在报告（task_id 唯一）则更新 result_data / report_text / is_llm_generated（幂等重生成）；
+> - `_generate_report_text` 返回 `(report_text, used_llm)` 元组，`is_llm_generated` 按实际生成方式写入（R12-AIPipeline-4：LLM 成功 True；失败降级模板 / 熔断降级 / LLM 未启用 False），`report_text` 不携带 `_is_llm` 键；
+> - LLM 路径前置共享 `ai_inference` 熔断器 `allow_request()` 检查，熔断中直接降级模板，成功/失败计入熔断器（R12-AIPipeline-8）；
+> - result_data 实际聚合键：`video_info / rally_analysis / landing_points / landing_heatmap / technique_stats / technique_distribution / metrics / ball_speed / score_analysis`（含 dashboard 兼容字段）；创建报告时写入 `annotated_video_url`（Step 10）与 `cover_image_url`（Step 1）；
+> - `_trigger_cascade(task_id, report_id, user_id, result_data=None)`：训练建议经 `generate_advice_task.delay(user_id, report_id)`（直接 import `app.tasks.training`）；游戏化积分内联（与样例一致）；进度快照与看板缓存失效（R13-AIP-1 修复）改为 Celery 投递 —— `app/tasks/progress.py` `generate_snapshot_task`（name=`progress_analysis.generate_snapshot`，`.delay(user_id, report_id, result_data)`）与 `app/tasks/dashboard.py` `bust_cache_task`（name=`dashboard.bust_cache`，`.delay(user_id, "analysis_complete")`），与样例 send_task 异步触发语义一致，比赛结束侧（scoring `finish_match` → `bust_cache_task.delay(user_id, "match_end")`）同链路；分析完成通知（R13-AIP-2 修复）由 `ProgressTracker.on_task_complete` / `on_step_failed` 调 `NotificationService.send_notification` 承担（在线 WS 实时推送 / 离线 DB 落库 + 未读计数，通道矩阵见 12-notification §send_notification）；全部子项 try/except 不阻塞。
 ```python
 # app/ai_pipeline/report_generator.py
 """分析报告生成器�?""
@@ -842,6 +861,8 @@ class ReportGenerator:
 
 ### 5.5 入口 Service
 
+> **R13-P3 文档同步**：实际无 `app/services/ai_pipeline_service.py`。入口为 `app/ai_pipeline/pipeline.py::PipelineOrchestrator.build_and_run(task_id, oss_key)`（init_steps 预插 10 条 pipeline_step + `queued→processing` 状态机校验 + eager 直跑 / 生产 `run_pipeline.apply_async` 派发），由 `video_analysis_service.create_task` 调用（启动失败路径：状态机标 failed + `_refund_free_quota` 退额度）。本节样例为早期 Service 形态，保留作历史参考；其中 `refund_free_quota` 样例的日期 key 格式已按实际修正（`strftime("%Y%m%d")`，与 `_check_free_quota` 预扣键一致，实际函数位于 `app/ai_pipeline/tasks.py::_refund_free_quota`）。
+
 ```python
 # app/services/ai_pipeline_service.py
 """AI 流水线入�?Service�?""
@@ -907,7 +928,7 @@ class AIPipelineService:
         """退还免费额度（分析失败时调用）——Redis DECR�?""
         redis = await get_redis()
         from datetime import datetime, timezone, timedelta
-        today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+        today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")  # R13-P3：与 _check_free_quota 预扣键格式一致（YYYYMMDD 无连字符；原 isoformat() 会退错 key）
         key = f"quota:analysis:{user_id}:{today}"
         current = int(await redis.get(key) or 0)
         if current > 0:
@@ -947,6 +968,8 @@ class AIPipelineService:
 ```
 
 ### 5.6 AI 熔断�?
+
+> **R13-P3 文档同步**：实际 `app/ai_pipeline/circuit_breaker.py` 为**实例化 API**：`cb = AICircuitBreaker(service_name)` 后调用 `await cb.get_state()`（返回 `CircuitState` 枚举）/ `await cb.allow_request()`（state != OPEN）/ `await cb.record_success()` / `await cb.record_failure()`；Redis 连接在方法内部经 `get_redis()` 获取，无需外部传入。Redis key 布局与本节一致（R19-P3-B：`ai_pipeline:circuit_breaker:{service_name}:state|:failures|:opened_at`；服务名实际统一使用 `ai_inference` 共享实例，R12-AIPipeline-7）。本节类样例的 `get_state(redis, service_name)` 静态方法形态已废弃，实际用法见下方"熔断器使用方式"。
 ```python
 # app/ai_pipeline/circuit_breaker.py
 """AI 推理熔断器：连续 5 次失�?�?60s 半开探测�?
@@ -997,16 +1020,16 @@ class AICircuitBreaker:
 ```python
 from app.ai_pipeline.circuit_breaker import AICircuitBreaker
 
-# 调用 AI 推理前检查熔断状�?redis = await get_redis()
-state = await AICircuitBreaker.get_state(redis, "ai_inference")
-if state == "open":
-    logger.warning("AI 推理熔断中，跳过推理步骤")
-    return None  # 降级处理
+# R13-P3：实际用法（实例化 API；redis 由方法内部 get_redis() 获取）
+cb = AICircuitBreaker("ai_inference")  # 共享服务级熔断器（R12-AIPipeline-7）
+if not await cb.allow_request():
+    logger.warning("AI 推理熔断中，走降级逻辑")
+    # 降级处理（mock 数据 / 模板报告），不调用推理服务
 try:
     result = await call_ai_inference(...)
-    await AICircuitBreaker.record_success(redis, "ai_inference")
+    await cb.record_success()
 except Exception as e:
-    await AICircuitBreaker.record_failure(redis, "ai_inference")
+    await cb.record_failure()
     raise
 ```
 
@@ -1029,6 +1052,8 @@ async def create_task(
 ---
 
 ## 7. 测试要点
+
+> **R13-P3 文档同步**：实际测试为 `tests/unit/test_ai_pipeline.py`（R12-AIPipeline-12 整文件补齐，18 个测试）：流水线完整执行（10 步全 completed + 报告生成 + advice 级联投递 spy）、任务状态机矩阵（queued→failed / failed→failed 幂等拒绝 / 任务不存在 False / 矩阵常量校验）、退额度语义（DECR 回 0 / 禁止负计数 / 幂等不双退 / 终态不退）、重试耗尽（MaxRetriesExceededError 兜底 + 标记失败 + 退额度）、is_llm_generated 实际方式（LLM 成功 True / 失败降级 False / 配置关闭 False / 写库校验）。本节样例中 `AIPipelineService.refund_free_quota` / `ProgressTracker._get_task_user` 符号已不存在，样例保留作历史参考。
 
 ```python
 # tests/unit/test_ai_pipeline.py
@@ -1093,6 +1118,8 @@ async def test_cascade_triggered(db_session):
 - [ ] 结果 JSONB 结构完整（含落点/技�?回合/球�?文字结论�?- [ ] LLM 不可用时降级为模板生�?report_text（is_llm_generated=false�?- [ ] 级联链正确触发（进度快照 + 训练建议 + 看板缓存 bust + 通知推送）
 - [ ] Celery Beat 健康检查任务每 5min 执行
 - [ ] 代码注释完整（文件头、docstring、复杂逻辑注释�?- [ ] 无废话注释、无注释掉的死代�?
+
+> **R13-P3 文档同步**：验证清单口径按 Phase 1 实际修正 —— "Step 1-2 并行 + Step 3-5/6-7 并行" 为 S6+ 目标形态（Phase 1 为单任务顺序执行）；"超时正确触发重试（指数退避 10s, 30s）" 实际为 `max_retries=1 + default_retry_delay=30` 固定延迟重试（指数退避为 Phase 2 形态）；"级联链" 中的通知推送由 WS 推送（analysis_complete，ProgressTracker.on_task_complete）承担。
 ---
 
 ## 反幻觉约�?

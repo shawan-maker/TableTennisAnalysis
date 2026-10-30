@@ -103,6 +103,8 @@ async def payment_ctx(db_session, auth_user):
 
 ### 2.1 Happy Path（正常流程）
 
+> **P3 文档同步（R12）**：下方为切片设计期的测试样例骨架。实际落地 `tests/unit/test_payment.py` 依赖全局 `WECHAT_PAY_MOCK=True` 开发模式（conftest）——验签/解密/微信下单走 Service 内 MOCK 短路，无需样例中的 `_verify_signature` / `_decrypt_callback` / `_call_wechat_unified_order` patch；`payment_ctx` fixture 基于 conftest 的 `test_user` + `seed_tiers`（样例中的 `auth_user` dict fixture 未落地）。覆盖面扩展：analysis_pack 下单、订单状态过滤、trade_state 非 SUCCESS、退款成功 / 超 7 天 422 等（18 测试全绿）；验签失败安全场景（R12-Payment-2）与 analysis_pack 额度 INCR + 幂等（R12-Payment-3）分别位于 `tests/unit/test_supplements_p1.py` / `tests/unit/test_supplements_p2.py`。
+
 ```python
 # === 1. Happy Path ===
 @pytest.mark.asyncio
@@ -338,7 +340,7 @@ async def test_notify_signature_failure(client):
 
 @pytest.mark.asyncio
 async def test_notify_order_not_found(client):
-    """回调对应的订单不存在返回 404 FAIL�?""
+    """回调对应的订单不存在返回 400 FAIL（P3 文档同步（R12）：notify 端点 FAIL 统一 400）�?""
     with patch('app.services.payment_service.PaymentService._verify_signature', return_value=True), \
          patch('app.services.payment_service.PaymentService._decrypt_callback', return_value={
              "transaction_id": "wx_not_found",
@@ -357,7 +359,10 @@ async def test_notify_order_not_found(client):
                 "Wechatpay-Timestamp": "1234567890",
             },
         )
-    assert resp.status_code == 404
+    # P3 文档同步（R12）：断言对齐实现 — notify 端点所有 FAIL 统一映射 400
+    #（§6 路由样例 status_code = 200 if SUCCESS else 400；refund 端点的
+    # 订单不存在才是 404 AppException）
+    assert resp.status_code == 400
     assert resp.json()["code"] == "FAIL"
 
 @pytest.mark.asyncio
@@ -622,19 +627,24 @@ class WechatNotifyResponse(BaseModel):
 
 import uuid
 import json
-import hmac
-import hashlib
+import logging
+import time
 import base64
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+# P3 文档同步（R12）：import 对齐实现 — 移除未使用的 hmac/hashlib，
+# 补 logging / time（WECHAT_PAY_MOCK 开发模式短路分支使用）
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import get_async_session
+from app.core.database import async_session_factory
 from app.core.exceptions import AppException
 from app.core.redis import get_redis
 from app.core.pagination import paginate
@@ -679,7 +689,7 @@ class PaymentService:
         # 生成订单号
         order_no = f"PP{datetime.now(timezone.utc).strftime('%Y%m%d')}{uuid.uuid4().hex[:8].upper()}"
 
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             # 计算金额（从 DB MembershipTierConfig 查询定价）
             amount_cents = await PaymentService._calculate_amount(db, req)
             # 构建订单 extra_data（供支付成功后业务逻辑使用，避免硬编码�?
@@ -720,7 +730,8 @@ class PaymentService:
                 await db.commit()
                 raise AppException(f"支付服务暂时不可�? {str(e)}", 502)
 
-            # 审计日志：记录订单创�?            audit_entry = AuditLog(
+            # 审计日志：记录订单创建
+            audit_entry = AuditLog(
                 user_id=user_id,
                 action="payment_order_created",
                 target_type="order",
@@ -802,12 +813,23 @@ class PaymentService:
         payment_method: str,
     ) -> dict:
         """
-        调用微信统一下单 API（V3）�?
-        返回 {prepay_id, pay_sign, timestamp, nonce_str}�?
+        调用微信统一下单 API（V3）。
+        返回 {prepay_id, pay_sign, timestamp, nonce_str}。
+        MOCK 模式返回模拟参数（开发模式，见文件头声明）。
         """
+        # P3 文档同步（R12）：WECHAT_PAY_MOCK 开发模式短路（与实现一致）
+        if settings.WECHAT_PAY_MOCK:
+            logger.info("MOCK wechat unified order: order_no=%s", order_no)
+            return {
+                "prepay_id": f"mock_prepay_{uuid.uuid4().hex[:16]}",
+                "pay_sign": "mock_sign_" + uuid.uuid4().hex[:16],
+                "timestamp": str(int(time.time())),
+                "nonce_str": uuid.uuid4().hex,
+            }
+
         # 获取用户 openid（从 user 表）
         from app.models.user import User
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             result = await db.execute(select(User).where(User.id == user_id))
             user = result.scalar_one_or_none()
             if not user or not user.openid:
@@ -848,7 +870,7 @@ class PaymentService:
 
         # 生成小程序支付签�?
         import time
-        import random
+        # P3 文档同步（R12）：移除未使用的 import random（time 已在顶部导入）
         timestamp = str(int(time.time()))
         nonce_str = uuid.uuid4().hex
         package = f"prepay_id={prepay_id}"
@@ -905,7 +927,7 @@ class PaymentService:
         page_size: int = 20,
     ) -> PaginatedOrders:
         """获取当前用户订单列表。权限：登录用户（仅查看自己的订单）�?""
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             stmt = select(Order).where(Order.user_id == user_id)
             if status:
                 stmt = stmt.where(Order.status == status)
@@ -959,7 +981,7 @@ class PaymentService:
         transaction_id = decrypted.get("transaction_id")
         amount_total = decrypted.get("amount", {}).get("total")
 
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             result = await db.execute(
                 select(Order).where(Order.order_no == out_trade_no)
             )
@@ -981,19 +1003,23 @@ class PaymentService:
             order.paid_at = datetime.now(timezone.utc)
 
             # 8. 创建支付记录
+            # P3 文档同步（R12）：补 paid_at=datetime.now(timezone.utc) —
+            # PaymentRecord.paid_at 为非 nullable 字段（§3 模型定义），缺失时插入必失败
             payment = PaymentRecord(
                 order_id=order.id,
                 transaction_id=transaction_id,
                 payment_method="wechat_jsapi",
                 amount_cents=amount_total or order.amount_cents,
                 callback_raw=decrypted,
+                paid_at=datetime.now(timezone.utc),
             )
             db.add(payment)
 
             # 9. 触发业务逻辑
             await PaymentService._trigger_business_logic(db, order, ip_address=ip_address)
 
-            # 审计日志：记录支付回调处�?            audit_entry = AuditLog(
+            # 审计日志：记录支付回调处理
+            audit_entry = AuditLog(
                 user_id=order.user_id,
                 action="payment_callback_processed",
                 target_type="order",
@@ -1012,7 +1038,12 @@ class PaymentService:
 
             # 10. 显式调用通知模块推送支付成功通知
             # F6-2 修复：通知调用路径 handle_notify �?_push_payment_success_ws �?NotificationService.push_ws_message
-            # 通知失败仅记录日志，不影响回调成功返回（微信要求 200 SUCCESS�?            await PaymentService._push_payment_success_ws(order.user_id, order.id, order.product_type)
+            # P3 文档同步（R12）：推送包裹 try/except — 通知失败仅记录日志，
+            # 不影响回调成功返回（微信要求 200 SUCCESS），与注释语义对齐
+            try:
+                await PaymentService._push_payment_success_ws(order.user_id, order.id, order.product_type)
+            except Exception as e:
+                logger.warning("push payment success ws failed: %s", e)
 
             return {"code": "SUCCESS", "message": "成功"}
 
@@ -1024,7 +1055,12 @@ class PaymentService:
         验证微信支付回调签名�?
         用微信支付平台证书验�?Wechatpay-Signature�?
         签名内容: timestamp\nnonce\nbody\n
+        MOCK 模式直接返回 True（开发模式，见文件头声明）。
         """
+        # P3 文档同步（R12）：WECHAT_PAY_MOCK 开发模式短路（与实现一致）
+        if settings.WECHAT_PAY_MOCK:
+            return True
+
         # 构建签名内容
         sign_str = f"{timestamp}\n{nonce}\n{body}\n"
 
@@ -1068,6 +1104,11 @@ class PaymentService:
         解密微信回调 ciphertext�?
         使用商户 APIv3 密钥�?2 字节）作�?AES-256-GCM 密钥�?
         """
+        # P3 文档同步（R12）：WECHAT_PAY_MOCK 开发模式短路（与实现一致）
+        # MOCK 模式：resource 本身就是明文，直接返回
+        if settings.WECHAT_PAY_MOCK:
+            return resource
+
         ciphertext = resource.get("ciphertext", "")
         nonce = resource.get("nonce", "")
         associated_data = resource.get("associated_data", "")
@@ -1115,23 +1156,30 @@ class PaymentService:
         period_days = extra.get("period_days", 30)
 
         # 查找用户当前活跃订阅
+        # P3 文档同步（R12）：查询条件加入 grace_period（R6-Pay-1：宽限期内
+        # 续费应续期既有订阅而非新建重复订阅）；取数改为 order_by created_at
+        # desc + limit(1) + scalars().first() —— scalar_one_or_none 在用户存在
+        # 多条历史订阅时会抛 MultipleResultsFound
         result = await db.execute(
             select(Subscription).where(
                 Subscription.user_id == order.user_id,
-                Subscription.status.in_(["active", "expiring_soon"]),
-            )
+                # R6-Pay-1: 加入 grace_period，避免用户在宽限期内续费时创建重复订阅
+                Subscription.status.in_(["active", "expiring_soon", "grace_period"]),
+            ).order_by(Subscription.created_at.desc()).limit(1)
         )
-        existing = result.scalar_one_or_none()
+        existing = result.scalars().first()
 
         now = datetime.now(timezone.utc)
 
         if existing:
-            # 续期：从当前到期时间或现在开始续�?            start = max(existing.expire_at, now) if existing.expire_at else now
+            # 续期：从当前到期时间或现在开始续期
+            start = max(existing.expire_at, now) if existing.expire_at else now
             existing.expire_at = start + timedelta(days=period_days)
             existing.status = "active"
+            existing.tier = tier  # P3 文档同步（R12）：更新等级（可能从 free 升级为 member）
+            # R12-Payment-1: 续期分支回填 order.subscription_id（退款撤销权益依赖）
+            order.subscription_id = existing.id
             subscription_id = existing.id
-            sub_start = existing.start_at
-            sub_expire = existing.expire_at
         else:
             # 新建订阅
             sub = Subscription(
@@ -1145,10 +1193,10 @@ class PaymentService:
             await db.flush()
             order.subscription_id = sub.id
             subscription_id = sub.id
-            sub_start = sub.start_at
-            sub_expire = sub.expire_at
 
         # 审计日志：记录订阅创建或续期
+        # P3 文档同步（R12）：detail 字段对齐实现 — 仅 tier / period 两键
+        #（原样例的 sub_start / sub_expire 临时变量已移除）
         audit_entry = AuditLog(
             user_id=order.user_id,
             action="subscription_created_or_renewed",
@@ -1157,8 +1205,6 @@ class PaymentService:
             detail=json.dumps({
                 "tier": tier,
                 "period": extra.get("period", "monthly"),
-                "start_at": sub_start.isoformat() if sub_start else None,
-                "expire_at": sub_expire.isoformat() if sub_expire else None,
             }),
             ip_address=ip_address,
         )
@@ -1185,11 +1231,8 @@ class PaymentService:
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> RefundResponse:
-        """
-        申请退款（管理员操作）�?
-        权限：管理员�?
-        """
-        async with get_async_session() as db:
+        """申请退款（管理员操作）"""
+        async with async_session_factory() as db:
             result = await db.execute(select(Order).where(Order.id == order_id))
             order = result.scalar_one_or_none()
 
@@ -1202,21 +1245,28 @@ class PaymentService:
             if refund_amount_cents > order.amount_cents:
                 raise AppException("退款金额不能超过订单金�?, 400)
 
-            # BL-12: 退款时间窗口校�?            if order.paid_at:
+            # 退款时间窗口校验
+            if order.paid_at:
                 elapsed = datetime.now(timezone.utc) - order.paid_at
                 if elapsed > timedelta(days=7):
                     raise AppException("超过7天的订单不可退款", 422)
+                # 24h 内可全额退款；24h-7d 仅支持部分退款且不可超过订单金额 50%
                 if refund_amount_cents < order.amount_cents:
                     reversal_type = "partial"
+                    # R4-Pay-2: 24h-7d 部分退款限额校验
+                    if elapsed > timedelta(hours=24):
+                        if refund_amount_cents > order.amount_cents * 0.5:
+                            raise AppException(
+                                "24小时至7天内退款不可超过50%", 400,
+                            )
                 elif elapsed <= timedelta(hours=24):
-                    # 24h内全额退�?                    reversal_type = "full"
+                    reversal_type = "full"
                 else:
-                    # 24h-7天全额退款需人工审核标记
                     reversal_type = "full_reversal"
             else:
                 reversal_type = "full"
 
-            # 生成退款单�?            refund_no = f"RF{datetime.now(timezone.utc).strftime('%Y%m%d')}{uuid.uuid4().hex[:8].upper()}"
+            refund_no = f"RF{datetime.now(timezone.utc).strftime('%Y%m%d')}{uuid.uuid4().hex[:8].upper()}"
 
             # 调用微信退�?API
             try:
@@ -1245,11 +1295,10 @@ class PaymentService:
             )
             db.add(refund_record)
 
-            # 更新订单状�?            order.status = "refunded"
-
-            # SEC-007 修复：退款操作写入统一审计日志
+            order.status = "refunded"
             audit_entry = AuditLog(
-                user_id=operator_id,
+                admin_id=None,  # JWT 管理员无 AdminUser 记录，admin_id 留空
+                user_id=operator_id,  # 操作者 user_id（JWT 认证用户）
                 action="refund",
                 target_type="order",
                 target_id=order.id,
@@ -1264,12 +1313,28 @@ class PaymentService:
             db.add(audit_entry)
 
             await db.commit()
-
-            # BL-13: 退款后撤销会员权益
-            if order.product_type == "membership":
-                from app.services.membership_service import MembershipService
-                await MembershipService.revoke_subscription(db, order.subscription_id)
-
+            # 退款后撤销会员权益
+            # R6-Pay-2: refund 已提交，revoke 跨事务调用，失败时仅记录日志
+            # TODO: 增加补偿机制（如投递重试队列），确保退款后权益撤销最终一致
+            try:
+                if order.product_type == "membership":
+                    from app.services.membership_service import MembershipService
+                    if order.subscription_id:
+                        await MembershipService.revoke_subscription(db, order.subscription_id)
+                    else:
+                        # R12 复验补充：续期回填（R12-Payment-1）生效前的历史订单
+                        # subscription_id 为空，退款后无法定位订阅 — 记告警日志便于人工补偿
+                        logger.error(
+                            "refund_membership_order_missing_subscription_id: "
+                            "order_id=%s user_id=%s — 历史订单（回填修复前创建），"
+                            "权益撤销被跳过，需人工核实会员状态",
+                            order.id, order.user_id,
+                        )
+            except Exception as e:
+                logger.error(
+                    "Failed to revoke subscription %s after refund: %s",
+                    order.subscription_id, e,
+                )
             return RefundResponse(
                 order_id=order.id,
                 refund_status="pending",
@@ -1284,7 +1349,13 @@ class PaymentService:
         total_amount_cents: int,
         reason: str,
     ) -> dict:
-        """调用微信退�?API，返回微信退款响应�?""
+        """调用微信退款 API。MOCK 模式返回模拟响应。"""
+        if settings.WECHAT_PAY_MOCK:
+            logger.info("MOCK wechat refund: refund_no=%s", refund_no)
+            return {
+                "refund_id": f"mock_refund_{uuid.uuid4().hex[:16]}",
+                "status": "PROCESSING",
+            }
         payload = {
             "transaction_id": "",  # �?out_trade_no
             "out_trade_no": order_no,
@@ -1325,44 +1396,46 @@ class PaymentService:
 # app/api/v1/payment/router.py
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
+
 from app.core.deps import get_current_user, get_current_admin
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
 from app.schemas.payment import (
-    OrderCreateRequest, OrderCreateResponse, RefundRequest, RefundResponse,
+    OrderCreateRequest, RefundRequest,
 )
 from app.services.payment_service import PaymentService
 
 router = APIRouter(prefix="/payment", tags=["支付"])
 
 
-@limiter.limit("100/minute")
 @router.post("/orders", summary="创建订单")
+@limiter.limit("100/minute")
 async def create_order(
     body: OrderCreateRequest,
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    """创建订单（会员订�?分析次数包），返回微信支付参数�?""
+    """创建订单（会员订阅/分析次数包），返回微信支付参数"""
     data = await PaymentService.create_order(
         user.id, body,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
-    return success(data=data, message="订单已创�?)
+    return success(data=data, message="订单已创建")
 
 
-@limiter.limit("100/minute")
 @router.get("/orders", summary="订单列表")
+@limiter.limit("100/minute")
 async def list_orders(
-    status: str | None = Query(default=None, description="状态过�?),
+    request: Request,
+    status: str | None = Query(default=None, description="状态过滤"),
     product_type: str | None = Query(default=None, description="产品类型过滤"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
     user: User = Depends(get_current_user),
 ):
-    """获取当前用户订单列表（分页）�?""
+    """获取当前用户订单列表（分页）"""
     data = await PaymentService.list_orders(
         user_id=user.id,
         status=status,
@@ -1373,26 +1446,23 @@ async def list_orders(
     return success(data=data)
 
 
-# SEC-006 修复：微信回调不被限流（微信服务器需要立即收到响应）
+# SEC-006: 微信回调不被限流（微信服务器需要立即收到响应）
 @router.post("/notify", summary="微信支付回调")
 async def payment_notify(
     request: Request,
 ):
     """
-    微信支付异步回调（V3 APIv3）�?
-    权限：微信签名验证（无需 JWT）�?
-    返回微信要求的响应格式（非统一响应格式）�?
+    微信支付异步回调（V3 APIv3）。
+    权限：微信签名验证（无需 JWT）。
+    返回微信要求的响应格式（非统一响应格式）。
     """
-    # 获取请求�?
     signature = request.headers.get("Wechatpay-Signature", "")
     serial = request.headers.get("Wechatpay-Serial", "")
     nonce = request.headers.get("Wechatpay-Nonce", "")
     timestamp = request.headers.get("Wechatpay-Timestamp", "")
 
-    # 获取请求 body
     body = (await request.body()).decode()
 
-    # 处理回调
     result = await PaymentService.handle_notify(
         signature=signature,
         serial=serial,
@@ -1403,7 +1473,6 @@ async def payment_notify(
         user_agent=request.headers.get("user-agent"),
     )
 
-    # 返回微信要求的格式（非统一响应格式�?
     status_code = 200 if result.get("code") == "SUCCESS" else 400
     return JSONResponse(
         status_code=status_code,
@@ -1411,20 +1480,20 @@ async def payment_notify(
     )
 
 
+@router.post("/orders/{order_id}/refund", summary="申请退款")
 @limiter.limit("100/minute")
-@router.post("/orders/{order_id}/refund", summary="申请退�?)
 async def refund_order(
     order_id: int,
     body: RefundRequest,
     request: Request,
-    admin: User = Depends(get_current_admin),
+    user: User = Depends(get_current_admin),
 ):
-    """申请退款（管理员操作）�?""
+    """申请退款（管理员操作 — JWT 认证）"""
     data = await PaymentService.refund(
         order_id=order_id,
         refund_amount_cents=body.refund_amount_cents,
         reason=body.reason,
-        operator_id=admin.id,
+        operator_id=user.id,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
@@ -1558,7 +1627,7 @@ if __name__ == "__main__":
 - [ ] 支付成功后业务逻辑触发（membership �?创建/续期 subscription，analysis_pack �?Redis INCR�?
 - [ ] WS 推�?payment_success 通知
 - [ ] 退款权限：仅管理员可操作（`get_current_admin`�?
-- [ ] 退款校验：订单状态为 paid + 退款金�?�?订单金额
+- [ ] 退款校验：订单状态为 paid + 退款金额 ≤ 订单金额 + 7 天窗口（24h 内全额、24h-7d 仅部分退款且 ≤ 50%、超 7 天拒绝 — R4-Pay-2）
 - [ ] 退款创�?RefundRecord 记录（refund_no / refund_amount_cents / reason / status / operator_id�?
 - [ ] 代码注释完整（文件头、docstring、复杂逻辑注释�?
 - [ ] 无废话注释、无注释掉的死代�?

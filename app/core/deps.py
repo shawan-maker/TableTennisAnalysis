@@ -133,13 +133,14 @@ async def get_current_admin(
     return user
 
 
-async def get_admin_session(request: Request):
+async def get_admin_session(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Admin 独立认证 — 基于 Redis session 的管理员认证。
     与用户 JWT 认证完全独立，使用 admin_user 表 + Redis session（admin:session:{token}）。
 
     R5-Admin-4: 不使用 HTTPBearer，改为自定义 Header 解析。
     支持 "Admin xxx" 和 "Bearer xxx" 两种 Authorization 前缀。
+    R12-Admin-1: 每请求校验 admin_user.is_active，禁用管理员后 session 立即失效。
     """
     from app.services.admin_service import AdminService, ADMIN_SESSION_PREFIX
 
@@ -156,6 +157,19 @@ async def get_admin_session(request: Request):
     session = await AdminService.get_session(token)
     if not session:
         raise AppException("管理员会话已过期，请重新登录", 401, code=ERR_UNAUTHORIZED)
+
+    # R12-Admin-1: 每请求校验管理员状态 —— 禁用/删除的管理员 session 立即失效
+    admin_id = session.get("admin_id")
+    if admin_id is not None:
+        from app.models.admin import AdminUser
+
+        result = await db.execute(select(AdminUser).where(AdminUser.id == admin_id))
+        admin = result.scalar_one_or_none()
+        if admin is None or not admin.is_active:
+            # 清除已失效 session 并拒绝访问
+            redis_client = await get_redis()
+            await redis_client.delete(f"{ADMIN_SESSION_PREFIX}{token}")
+            raise AppException("管理员账号已被禁用", 403, code=ERR_FORBIDDEN)
 
     # 刷新 session TTL
     await AdminService.refresh_session(token)

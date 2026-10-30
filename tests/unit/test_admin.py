@@ -259,7 +259,7 @@ class TestAdminKnowledge:
 
     async def test_toggle_rule(self, client, admin_headers):
         """切换规则状态"""
-        await client.post(
+        create_resp = await client.post(
             "/api/v1/admin/knowledge/rules",
             json={
                 "rule_id": "toggle_test",
@@ -270,12 +270,15 @@ class TestAdminKnowledge:
             },
             headers=admin_headers,
         )
+        rule_db_id = create_resp.json()["data"]["id"]
         # R4-Admin-13: toggle_rule 接受 is_active 显式参数
+        # R12-Admin-4: rule_id 为 int 数据库 ID（对齐 API §19.5.5）
         resp = await client.patch(
-            "/api/v1/admin/knowledge/rules/toggle_test/toggle?is_active=false",
+            f"/api/v1/admin/knowledge/rules/{rule_db_id}/toggle?is_active=false",
             headers=admin_headers,
         )
         assert resp.status_code == 200
+        assert resp.json()["data"] == {"id": rule_db_id, "is_active": False}
 
 
 @pytest.mark.asyncio

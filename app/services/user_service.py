@@ -130,8 +130,10 @@ class UserService:
         user: User, req: RatingUpdateRequest, db: AsyncSession
     ) -> RatingUpdateResponse:
         """更新开球网积分，旧积分自动写入历史记录"""
+        # R12-User-3: 此分支为设计要求的唯一范围校验（API §3.3: 400 超范围），
+        # Schema 已移除 ge/le 避免先行 422 拦截
         if req.rating < 500 or req.rating > 3000:
-            raise AppException("积分值应在 500-3000 合理范围内", 400, code=ERR_BAD_REQUEST)
+            raise AppException("积分值不在合理范围内（500-3000）", 400, code=ERR_BAD_REQUEST)
 
         old_rating = user.kqs_rating
 
@@ -206,7 +208,7 @@ class UserService:
         """
         redis = await get_redis()
         # R5-User-1: today 改用 CST 日期，与 reset_at 时区一致
-        today = (datetime.now(timezone.utc) + timedelta(hours=8)).date().isoformat()
+        today = (datetime.now(timezone.utc) + timedelta(hours=8)).date().strftime('%Y%m%d')
         quota_key = f"quota:analysis:{user.id}:{today}"
 
         used_today = int(await redis.get(quota_key) or 0)
@@ -431,9 +433,9 @@ class UserService:
         db.add(export_task)
         await db.commit()
 
-        # TODO: 投递 Celery 异步任务
-        # from app.tasks.user_tasks import export_user_data
-        # export_user_data.delay(user.id, task_id)
+        # R12-User-2: 投递 Celery 异步导出任务（原 TODO 断链，任务永远 pending）
+        from app.tasks.user import export_user_data
+        export_user_data.delay(user.id, task_id)
 
         return ExportCreateResponse(task_id=task_id, status="pending")
 

@@ -20,5 +20,6 @@ def reset_monthly_points():
             )
             await db.commit()
 
-    asyncio.run(_run())
+    from app.core.redis import run_isolated
+    asyncio.run(run_isolated(_run()))
     return {"status": "ok"}

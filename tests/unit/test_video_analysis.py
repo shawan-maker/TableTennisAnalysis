@@ -76,25 +76,38 @@ async def test_upload_token_valid(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_upload_token_invalid_type(client, auth_headers):
-    """获取上传凭证 — 不支持的文件类型"""
+    """获取上传凭证 — 不支持的文件类型（R12-VA-4: API §4.1 规定 400）"""
     resp = await client.post(
         "/api/v1/video-analysis/upload-token",
         json={"filename": "match.avi", "file_size": 10 * 1024 * 1024},
         headers=auth_headers,
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 400
+    assert "仅支持" in resp.json()["message"]
 
 
 @pytest.mark.asyncio
-async def test_upload_token_invalid_size(client, auth_headers):
-    """获取上传凭证 — 文件大小超限"""
+async def test_upload_token_too_large(client, auth_headers):
+    """获取上传凭证 — 文件过大（R12-VA-4: API §4.1 规定 400）"""
     resp = await client.post(
         "/api/v1/video-analysis/upload-token",
         json={"filename": "match.mp4", "file_size": 600 * 1024 * 1024},
         headers=auth_headers,
     )
-    # Pydantic Field validation 在 body 层拦截
-    assert resp.status_code in (422, 400)
+    assert resp.status_code == 400
+    assert "不能超过 500MB" in resp.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_upload_token_too_small(client, auth_headers):
+    """获取上传凭证 — 文件过小（R12-VA-4: API §4.1 规定 422）"""
+    resp = await client.post(
+        "/api/v1/video-analysis/upload-token",
+        json={"filename": "match.mp4", "file_size": 500 * 1024},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+    assert "不能小于 1MB" in resp.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -128,13 +141,37 @@ async def test_upload_complete_not_uploaded(client, auth_headers):
         json={"file_id": file_id},
         headers=auth_headers,
     )
-    assert resp.status_code == 400
+    # R12-VA-5: API §4.2 错误表 — OSS 文件不存在为 404
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_upload_complete_success(client, auth_headers):
-    """上传确认 — 正常流程"""
-    file_id, oss_key = await _create_and_upload_file(client, auth_headers)
+    """上传确认 — 正常流程（内联执行以断言 confirm 响应体）"""
+    # 1. 获取上传凭证
+    resp = await client.post(
+        "/api/v1/video-analysis/upload-token",
+        json={"filename": "test.mp4", "file_size": 10 * 1024 * 1024},
+        headers=auth_headers,
+    )
+    data = resp.json()["data"]
+    file_id, oss_key = data["file_id"], data["oss_key"]
+
+    # 2. 保存 mock 文件（模拟 OSS 上传）
+    FileService.save_uploaded_file(oss_key, b"\x00" * (10 * 1024 * 1024))
+
+    # 3. 确认上传
+    resp = await client.post(
+        "/api/v1/video-analysis/upload-complete",
+        json={"file_id": file_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    confirm_data = resp.json()["data"]
+    assert confirm_data["ready"] is True
+    # R12-VA-6: duration_sec 在响应中返回（5-600 校验值；不入 file_record，
+    # create_task 时写入 video_task.duration_sec 供 ai_pipeline 读取）
+    assert confirm_data["duration_sec"] is not None
 
     # 验证 file_record 状态
     async with async_session_factory() as db:
@@ -429,6 +466,38 @@ async def test_list_feedbacks(client, auth_headers):
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_feedback_validation_422(client, auth_headers):
+    """R12-VA-12: feedback 请求校验 — 缺 is_correct / comment 超长 → 422
+
+    Pydantic 层先行拦截（FeedbackRequest: is_correct 必填 bool，
+    comment max_length=500），不进入业务层 — 无需真实报告种子。
+    """
+    # 缺 is_correct（必填字段）→ 422
+    resp = await client.post(
+        "/api/v1/video-analysis/reports/99999/feedback",
+        json={"comment": "缺必填字段"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+    # comment 501 字符（max_length=500）→ 422
+    resp = await client.post(
+        "/api/v1/video-analysis/reports/99999/feedback",
+        json={"is_correct": True, "comment": "x" * 501},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+    # 对照：500 字符边界合法（业务层 404 报告不存在，而非 422 校验错误）
+    resp = await client.post(
+        "/api/v1/video-analysis/reports/99999/feedback",
+        json={"is_correct": True, "comment": "x" * 500},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
 # =============================================================================
 # 标注视频测试
 # =============================================================================
@@ -492,21 +561,29 @@ async def test_share_create_and_access(client, auth_headers):
     assert "expire_at" in data
     share_token = data["share_url"].split("/share/")[-1]
 
-    # 公开访问（不需要认证）— R4: share_router 独立挂载到 /api/v1/share/
+    # 公开访问（不需要认证）— R12-VA-1: share_router 挂载根路径 /share/
+    # R12-VA-3: API §4.11 要求 HTML 渲染页（非 JSON API）
     resp = await client.get(
-        f"/api/v1/share/{share_token}",
+        f"/share/{share_token}",
     )
     assert resp.status_code == 200
-    data = resp.json()["data"]
-    assert data["report_id"] == report_id
-    assert "result_data" in data
-    assert "summary" in data["report_text"]
-    # 分享报告不含完整 issues（只取前 2 条）
-    assert len(data["report_text"].get("issues", [])) <= 2
+    assert resp.headers["content-type"].startswith("text/html")
+    page = resp.text
+    # 页面关键区块：标题/摘要/技术统计/球速/图表数据 JSON island
+    assert "AI 乒乓分析报告" in page
+    assert "报告摘要" in page
+    assert "技术统计" in page
+    assert "球速数据" in page
+    assert 'id="share-chart-data"' in page
+    # 分享页不含训练建议（service 安全子集已过滤，页面不得泄露）
+    assert "training_suggestions" not in page
+    assert "训练建议" not in page
 
     # 无效 token
+    # R12-VA-7: 使用真实挂载路径，此前 /api/v1/video-analysis/share/ 为不存在路径，
+    # 404 来自路由缺失而非 token 校验（假阳性）
     resp = await client.get(
-        "/api/v1/video-analysis/share/invalid_token_12345",
+        "/share/invalid_token_12345",
     )
     assert resp.status_code == 404
 

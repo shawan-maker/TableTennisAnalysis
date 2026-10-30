@@ -19,6 +19,9 @@ from app.core.exceptions import AppException
 from app.core.redis import get_redis
 from app.core.pagination import paginate, PaginationParams
 from app.models.notification import NotificationRecord
+from app.models.user import User
+from app.models.video_analysis import VideoTask
+from app.models.match import Match
 from app.schemas.notification import (
     NotificationBrief, NotificationListQuery,
     MarkReadResponse, SubscribeResponse,
@@ -63,7 +66,10 @@ class NotificationService:
         try:
             redis = await get_redis()
             return await redis.exists(f"ws:online:{user_id}") > 0
-        except Exception:
+        except Exception as e:
+            # R13-Test-N2: 原先静默吞错 —— Redis 异常被掩盖为"离线"，
+            # 行为级污染（离线路径误触发）难以定位，降级时至少留痕。
+            logger.warning("is_user_online check failed, treat as offline: %s", e)
             return False
 
     # ==================== 通知发送（核心通道选择）====================
@@ -131,7 +137,9 @@ class NotificationService:
             )
             return True
 
-        # TODO: 接入微信订阅消息 API（生产环境取消注释并配置 client）
+        # R12-Notif-2（Phase 2 外联边界，设计文档已确认）：微信订阅消息 API 接入
+        # 属 Phase 2 范围 —— Phase 1 保持结构化桩（构造 template_msg 供日志审计，
+        # 真实发送在 Phase 2 接入 app/core/wechat.py WeChatClient 后取消下方注释）。
         # 构造 template_msg 结构，便于日志审计与后续接入
         template_msg = {
             "template_id": settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
@@ -276,6 +284,51 @@ class NotificationService:
         return SubscribeResponse(subscribed_templates=valid_ids)
 
     # ==================== 训练提醒 ====================
+
+    @staticmethod
+    async def get_training_reminder_candidates(db: AsyncSession) -> list[tuple[int, int]]:
+        """训练提醒候选用户（R12-Notif-1，依据切片 12-notification/backend.md §6.3）
+
+        判定：最近 3 天内有「AI 分析任务（completed）」或「记分牌比赛（finished）」
+        的用户视为活跃，排除；其余 active 用户为候选。
+        未训练天数按最近一次 AI 分析时间计算，从未分析记 999（设计示例约定）。
+
+        原缺陷：候选基于 TrainingPlan.updated_at 判定，inner join 排除了
+        无训练计划的用户，且刚有 AI/比赛活动的用户被误判为未训练。
+
+        返回：[(user_id, days_inactive), ...]
+        """
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=NotificationService.REMINDER_INACTIVE_DAYS)
+
+        # 最近 3 天有 AI 分析任务的用户
+        active_task_users = await db.scalars(
+            select(VideoTask.user_id).where(
+                VideoTask.created_at >= cutoff,
+                VideoTask.status == "completed",
+            ).distinct()
+        )
+        # 最近 3 天有记分牌比赛的用户
+        active_match_users = await db.scalars(
+            select(Match.user_id).where(
+                Match.created_at >= cutoff,
+                Match.status == "finished",
+            ).distinct()
+        )
+        recently_active = set(active_task_users) | set(active_match_users)
+
+        users = (await db.scalars(select(User).where(User.status == "active"))).all()
+
+        candidates: list[tuple[int, int]] = []
+        for user in users:
+            if user.id in recently_active:
+                continue  # 最近 3 天有 AI/比赛活动，跳过
+            last_task_at = await db.scalar(
+                select(func.max(VideoTask.created_at)).where(VideoTask.user_id == user.id)
+            )
+            days_inactive = (now - last_task_at).days if last_task_at else 999  # 从未分析
+            candidates.append((user.id, days_inactive))
+        return candidates
 
     @staticmethod
     async def _check_reminder_frequency(user_id: int, redis) -> bool:

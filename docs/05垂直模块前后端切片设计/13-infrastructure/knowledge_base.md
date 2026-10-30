@@ -1,4 +1,4 @@
-﻿# knowledge_base 基础设施模块 — 后端垂直切片设计
+﻿knowledge_base 基础设施模块 — 后端垂直切片设计
 
 > **模块名称**：`knowledge_base`
 > **所属目录**：`app/services/knowledge_base_service.py`（无独立路由，供 training_advice 调用）
@@ -22,10 +22,10 @@
 
 - **技术动作分类树管理**：8 大类（发球、正手攻、反手攻、搓球、拉球、推挡、步法、战术），JSONB 结构化存储
 - **常见问题库 CRUD**：10+ 乒乓球常见问题，按分类组织
-- **规则定义 CRUD**：单次规则（指标阈值判定）+ 趋势规则（方向/变化率/持续性判定）
+- **规则定义 CRUD**：单次规则（指标阈值判定）+ 趋势规则（trend_persistent / trend_improving，方向/变化率/持续性判定）+ 停滞规则（stagnant）+ 方案有效性规则（plan_effectiveness）
 - **训练方案模板 CRUD**：参数化模板，占位符填充
-- **规则引擎匹配**：4 类规则按顺序执行——单次规则 → 趋势规则 → 改善规则 → 停滞规则
-- **初始化脚本**：`scripts/init_knowledge_base.py` 解析 Markdown 知识库文件写入 DB
+- **规则引擎匹配**：5 类规则按 RULE_TYPE_ORDER 优先级执行——single → trend_persistent → trend_improving → stagnant → plan_effectiveness（R13-P3 文档同步：原 4 类描述 + order_by(rule_type) 字符串排序无法保证 single 在前，实际为显式优先级映射）
+- **初始化脚本**：`scripts/init_knowledge_base.py` 内置 Python 数据常量（CATEGORIES/PROBLEMS/RULES/TEMPLATES）幂等写入 DB（R12-KB-1 补齐；不解析 Markdown 文件）
 
 ---
 
@@ -251,288 +251,266 @@ class RuleContext(BaseModel):
 
 ```python
 # app/services/knowledge_base_service.py
-"""知识库业务逻辑层。"""
+"""知识库业务逻辑层。
 
-import re
-from typing import Optional
+R13-P3 文档同步（以实际实现为准）：
+- 所有方法第一个参数为 db: AsyncSession（调用方传入，非内部 get_async_session()）
+- 返回值为 dict（非 Pydantic Brief/Detail 对象）；match_rules 返回 list[dict]
+- 规则类型优先级 RULE_TYPE_ORDER（5 类，含 plan_effectiveness）
+- _evaluate_rule 返回 MatchResult dict {matched, severity, suggestion_params}
+"""
+
+import logging
+from typing import Any, Optional
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
-from app.core.database import get_async_session
 from app.models.knowledge_base import (
-    KnowledgeCategory,
-    KnowledgeEntry,
-    RuleDefinition,
-    TrainingTemplate,
+    KnowledgeCategory, KnowledgeEntry, RuleDefinition, TrainingTemplate,
 )
-from app.schemas.knowledge_base import (
-    CategoryBrief, CategoryDetail, EntryBrief, EntryDetail,
-    RuleBrief, RuleDetail, TemplateBrief, TemplateDetail,
-    MatchResult, RuleContext,
-)
+
+logger = logging.getLogger(__name__)
+
+# 规则类型优先级：single > trend_persistent > trend_improving > stagnant > plan_effectiveness
+# R13-P3 文档同步: 5 类规则（原文档 4 类；plan_effectiveness 为方案有效性规则）
+RULE_TYPE_ORDER = {
+    "single": 1,
+    "trend_persistent": 2,
+    "trend_improving": 3,
+    "stagnant": 4,
+    "plan_effectiveness": 5,
+}
 
 
 class KnowledgeBaseService:
-    """知识库业务逻辑层——无独立路由，供 training_advice 调用。"""
-
-    # --- 分类树管理 ---
+    """知识库业务逻辑层（无独立 Router，被 training 和 admin 调用）"""
 
     @staticmethod
-    async def list_categories() -> list[CategoryBrief]:
-        """查询所有分类。"""
-        async with get_async_session() as db:
-            result = await db.execute(
-                select(KnowledgeCategory).order_by(KnowledgeCategory.id)
-            )
-            return [CategoryBrief.model_validate(c) for c in result.scalars()]
+    async def list_categories(db: AsyncSession) -> list[dict]:
+        """查询所有分类（返回 dict 列表）。"""
+        rows = await db.execute(select(KnowledgeCategory).order_by(KnowledgeCategory.id))
+        return [{"id": r.id, "name": r.name, "code": r.code} for r in rows.scalars().all()]
 
     @staticmethod
-    async def get_category_by_code(code: str) -> CategoryDetail:
-        """按编码查询分类详情。"""
-        async with get_async_session() as db:
-            cat = await db.scalar(
-                select(KnowledgeCategory).where(KnowledgeCategory.code == code)
-            )
-            if not cat:
-                raise AppException(f"分类 {code} 不存在", 404)
-            return CategoryDetail.model_validate(cat)
-
-    # --- 条目管理 ---
+    async def get_category_by_code(db: AsyncSession, code: str) -> dict:
+        """按编码查询分类详情（不存在 404 code=40401）。"""
+        ...
 
     @staticmethod
     async def list_entries(
-        category_code: Optional[str] = None,
-        entry_type: Optional[str] = None,
-    ) -> list[EntryBrief]:
-        """查询知识条目。"""
-        async with get_async_session() as db:
-            stmt = select(KnowledgeEntry)
-            if category_code:
-                stmt = stmt.join(KnowledgeCategory).where(
-                    KnowledgeCategory.code == category_code
-                )
-            if entry_type:
-                stmt = stmt.where(KnowledgeEntry.entry_type == entry_type)
-            result = await db.execute(stmt.order_by(KnowledgeEntry.id))
-            return [EntryBrief.model_validate(e) for e in result.scalars()]
+        db: AsyncSession, category_code: Optional[str] = None, entry_type: Optional[str] = None
+    ) -> list[dict]:
+        """查询知识条目（category_code 走 JOIN knowledge_category 过滤）。"""
+        ...
 
     @staticmethod
-    async def get_entry_detail(entry_id: int) -> EntryDetail:
-        """获取条目详情。"""
-        async with get_async_session() as db:
-            entry = await db.get(KnowledgeEntry, entry_id)
-            if not entry:
-                raise AppException("知识条目不存在", 404)
-            return EntryDetail.model_validate(entry)
-
-    # --- 规则管理 ---
+    async def get_entry_detail(db: AsyncSession, entry_id: int) -> dict:
+        """获取条目详情（不存在 404 code=40402）。"""
+        ...
 
     @staticmethod
     async def list_rules(
-        rule_type: Optional[str] = None,
-        is_active: bool = True,
-    ) -> list[RuleBrief]:
-        """查询规则列表。"""
-        async with get_async_session() as db:
-            stmt = select(RuleDefinition).where(
-                RuleDefinition.is_active == is_active
-            )
-            if rule_type:
-                stmt = stmt.where(RuleDefinition.rule_type == rule_type)
-            result = await db.execute(stmt.order_by(RuleDefinition.id))
-            return [RuleBrief.model_validate(r) for r in result.scalars()]
+        db: AsyncSession, rule_type: Optional[str] = None, is_active: bool = True
+    ) -> list[dict]:
+        """查询规则列表（is_active 筛选默认 True）。"""
+        ...
 
     @staticmethod
-    async def get_rules_by_problem(problem_id: str) -> list[RuleDetail]:
-        """按问题 ID 查询关联规则。"""
-        async with get_async_session() as db:
-            result = await db.execute(
-                select(RuleDefinition).where(
-                    RuleDefinition.diagnosis["problem_id"].astext == problem_id,
-                    RuleDefinition.is_active == True,
-                )
-            )
-            return [RuleDetail.model_validate(r) for r in result.scalars()]
-
-    # --- 模板管理 ---
+    async def get_rules_by_problem(db: AsyncSession, problem_id: str) -> list[dict]:
+        """按 problem_id 查询关联规则——diagnosis JSONB 路径查询
+        （diagnosis["problem_id"].astext == problem_id，利用 GIN 索引）。"""
+        ...
 
     @staticmethod
-    async def list_templates(problem_id: Optional[str] = None) -> list[TemplateBrief]:
-        """查询训练方案模板。"""
-        async with get_async_session() as db:
-            stmt = select(TrainingTemplate)
-            if problem_id:
-                stmt = stmt.where(TrainingTemplate.problem_id == problem_id)
-            result = await db.execute(stmt.order_by(TrainingTemplate.id))
-            return [TemplateBrief.model_validate(t) for t in result.scalars()]
+    async def list_templates(db: AsyncSession, problem_id: Optional[str] = None) -> list[dict]:
+        """查询训练方案模板（可按 problem_id 过滤）。"""
+        ...
 
     @staticmethod
-    async def get_template_detail(template_code: str) -> TemplateDetail:
-        """获取模板详情。"""
-        async with get_async_session() as db:
-            tpl = await db.scalar(
-                select(TrainingTemplate).where(
-                    TrainingTemplate.template_code == template_code
-                )
-            )
-            if not tpl:
-                raise AppException(f"模板 {template_code} 不存在", 404)
-            return TemplateDetail.model_validate(tpl)
-
-    # --- 规则引擎核心 ---
+    async def get_template_detail(db: AsyncSession, template_code: str) -> dict:
+        """获取模板详情（不存在 404 code=40403）。"""
+        ...
 
     @staticmethod
-    async def match_rules(ctx: RuleContext) -> list[MatchResult]:
-        """规则引擎匹配——核心方法。
+    async def match_rules(db: AsyncSession, ctx: dict) -> list[dict]:
+        """规则引擎匹配 - 核心方法（R13-P3 文档同步）
 
-        匹配流程（按优先级顺序）：
-        1. 单次规则（single）：检查当前报告指标是否触发阈值
-        2. 趋势规则（trend_persistent / trend_improving / stagnant）：检查趋势方向
-        3. 改善规则：指标连续改善 ≥2 次 → 进步确认
-        4. 停滞规则：指标连续停滞 ≥3 次 → 停滞警告 + 方案调整
+        ctx 为 dict（非 Pydantic RuleContext 对象）:
+        {metrics: {k: v}, trends: {k: {direction, persistence, change_rate}}, current_plan: Optional[dict]}
+        按 RULE_TYPE_ORDER 优先级排序后逐条评估；单条规则解析失败仅 warning 并跳过。
         """
-        results: list[MatchResult] = []
-        async with get_async_session() as db:
-            all_rules = await db.execute(
-                select(RuleDefinition)
-                .where(RuleDefinition.is_active == True)
-                .order_by(RuleDefinition.rule_type)  # single 在前
-            )
-            rules = all_rules.scalars().all()
+        rows = await db.execute(
+            select(RuleDefinition)
+            .where(RuleDefinition.is_active == True)
+            .order_by(RuleDefinition.id)
+        )
+        all_rules = rows.scalars().all()
 
-            for rule in rules:
-                try:
-                    match = KnowledgeBaseService._evaluate_rule(rule, ctx)
-                    if match:
-                        results.append(match)
-                except Exception as e:
-                    # 规则解析失败 → 跳过，记录日志
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        f"Rule {rule.rule_id} evaluation failed: {e}"
+        # 按规则类型优先级排序（R13-P3 文档同步: 显式 RULE_TYPE_ORDER 映射；
+        # 原文档 .order_by(RuleDefinition.rule_type) 字符串排序无法保证 single 在前）
+        sorted_rules = sorted(all_rules, key=lambda r: RULE_TYPE_ORDER.get(r.rule_type, 99))
+
+        results = []
+        for rule in sorted_rules:
+            try:
+                match_result = KnowledgeBaseService._evaluate_rule(rule, ctx)
+                if match_result and match_result.get("matched"):
+                    diag = rule.diagnosis or {}
+                    # 用 suggestion_params 填充建议模板（递归占位符渲染）
+                    suggestion_template = diag.get("suggestion_template", "")
+                    suggestion = (
+                        KnowledgeBaseService._fill_placeholders(
+                            suggestion_template, match_result.get("suggestion_params", {})
+                        )
+                        if suggestion_template else ""
                     )
-                    continue
+                    results.append({
+                        "rule_id": rule.rule_id,
+                        "rule_name": rule.rule_name,
+                        "rule_type": rule.rule_type,
+                        "problem_id": diag.get("problem_id", ""),
+                        "problem_name": diag.get("problem_name", ""),
+                        # R12-KB-2: severity 取自 diagnosis JSONB（设计规定 severity
+                        # 是诊断结论属性），不再从 condition 读取（原恒为 medium 兜底）
+                        "severity": diag.get("severity", "medium"),
+                        "suggestion": suggestion,
+                        "adjustment_action": rule.adjustment_action,
+                        "training_methods": rule.training_methods,
+                        "training_plan_template": rule.training_plan_template,
+                        "field": (rule.condition or {}).get("metric"),
+                    })
+            except Exception as e:
+                logger.warning("rule_eval_failed", extra={"rule_id": rule.rule_id, "error": str(e)})
+                continue
 
-            return results
+        return results
 
     @staticmethod
-    def _evaluate_rule(rule: RuleDefinition, ctx: RuleContext) -> Optional[MatchResult]:
-        """评估单条规则是否匹配。"""
-        cond = rule.condition
-        metric = cond.get("metric")
-        operator = cond.get("operator")
-        threshold = cond.get("threshold")
-        aggregation = cond.get("aggregation", "single")
+    def _evaluate_rule(rule, ctx: dict) -> Optional[dict]:
+        """评估单条规则是否匹配 — 返回 MatchResult dict 或 None。
 
-        if aggregation == "single":
-            # 单次规则：直接比较当前指标值
-            current_value = ctx.metrics.get(metric)
-            if current_value is None:
-                return None
-            if not KnowledgeBaseService._compare(current_value, operator, threshold):
-                return None
-        elif aggregation in ("trend_persistent", "trend_improving", "stagnant"):
-            # 趋势规则：检查趋势方向和持续性
-            trend = ctx.trends.get(metric)
-            if not trend:
-                return None
-            direction = trend.get("direction")
-            persistence = trend.get("persistence", 0)
-            change_rate = trend.get("change_rate", 0)
+        R13-P3 文档同步: 返回 {matched: True, severity, suggestion_params}
+        （非 Pydantic MatchResult 对象）；R2-KB-1: 规则类型从 condition JSONB 的
+        aggregation 键读取（而非 rule.rule_type 列）。
+        """
+        cond = rule.condition or {}
+        metrics = ctx.get("metrics", {})
+        trends = ctx.get("trends", {})
+        rule_type = cond.get("aggregation", "single")
+        suggestion_params: dict[str, Any] = {}
 
-            required_direction = cond.get("direction")
-            min_persistence = cond.get("min_persistence", 1)
+        if rule_type == "single":
+            metric = cond.get("metric")
+            operator = cond.get("operator", "<")
+            threshold = cond.get("threshold")
+            value = metrics.get(metric)
+            if value is None:
+                return None
+            if KnowledgeBaseService._compare(value, operator, threshold):
+                # R2-KB-2: 使用 {current_value} 占位符（而非 {value}）
+                suggestion_params.update(
+                    {"metric": metric, "current_value": value, "threshold": threshold}
+                )
+                return {"matched": True, "severity": cond.get("severity", "medium"),
+                        "suggestion_params": suggestion_params}
+            return None
+
+        elif rule_type in ("trend_persistent", "trend_improving"):
+            metric = cond.get("metric")
+            direction = cond.get("direction")
+            min_persistence = cond.get("min_persistence", 2)
             min_change_rate = cond.get("min_change_rate", 0.0)
-
-            if required_direction and direction != required_direction:
+            trend_info = trends.get(metric, {})
+            actual_direction = trend_info.get("direction", "")
+            persistence = trend_info.get("persistence", 0)
+            change_rate = trend_info.get("change_rate", 0)
+            if direction and actual_direction != direction:
                 return None
             if persistence < min_persistence:
                 return None
             if abs(change_rate) < min_change_rate:
                 return None
+            suggestion_params.update({
+                "metric": metric, "direction": actual_direction,
+                "persistence": persistence, "change_rate": change_rate,
+            })
+            return {"matched": True, "severity": cond.get("severity", "medium"),
+                    "suggestion_params": suggestion_params}
 
-        # 规则匹配，生成诊断
-        diagnosis = rule.diagnosis
-        suggestion_template = diagnosis.get("suggestion_template", "")
+        elif rule_type == "stagnant":
+            # R12-KB-3: 条件键统一为 min_persistence（设计 §知识库规则评估），
+            # 原先误用 min_stagnation 导致设计种子规则条件键不生效；
+            # 要求 direction == "stagnant" 且 persistence >= min_persistence
+            metric = cond.get("metric")
+            min_persistence = cond.get("min_persistence", 1)
+            trend_info = trends.get(metric, {})
+            if (trend_info.get("persistence", 0) >= min_persistence
+                    and trend_info.get("direction") == "stagnant"):
+                suggestion_params.update(
+                    {"metric": metric, "persistence": trend_info.get("persistence", 0)}
+                )
+                return {"matched": True, "severity": cond.get("severity", "medium"),
+                        "suggestion_params": suggestion_params}
+            return None
 
-        # 填充模板占位符
-        suggestion = suggestion_template
-        if metric and metric in ctx.metrics:
-            suggestion = suggestion.replace(
-                "{current_value}", str(ctx.metrics[metric])
-            )
-        suggestion = suggestion.replace("{threshold}", str(threshold))
+        elif rule_type == "plan_effectiveness":
+            # R13-P3 文档同步: 方案有效性规则分支（原文档缺失）——
+            # current_plan.goal_completion[metric] >= threshold（默认 0.8）
+            current_plan = ctx.get("current_plan")
+            if not current_plan:
+                return None
+            goal_completion = current_plan.get("goal_completion", {})
+            metric = cond.get("metric")
+            threshold = cond.get("threshold", 0.8)
+            value = goal_completion.get(metric, 0)
+            if value >= threshold:
+                suggestion_params.update(
+                    {"metric": metric, "completion": value, "threshold": threshold}
+                )
+                return {"matched": True, "severity": cond.get("severity", "medium"),
+                        "suggestion_params": suggestion_params}
+            return None
 
-        return MatchResult(
-            rule_id=rule.rule_id,
-            rule_name=rule.rule_name,
-            rule_type=rule.rule_type,
-            problem_id=diagnosis.get("problem_id", ""),
-            problem_name=diagnosis.get("problem_name", ""),
-            severity=diagnosis.get("severity", "medium"),
-            suggestion=suggestion,
-            adjustment_action=rule.adjustment_action,
-            training_methods=rule.training_methods,
-            training_plan_template=rule.training_plan_template,
-        )
+        return None
 
     @staticmethod
     def _compare(value: float, operator: str, threshold: float) -> bool:
-        """比较运算符判断。"""
-        if operator == "<":
+        """比较运算符（支持别名 lt/lte/gt/gte/eq）。"""
+        if operator in ("<", "lt"):
             return value < threshold
-        elif operator == "<=":
+        elif operator in ("<=", "lte"):
             return value <= threshold
-        elif operator == ">":
+        elif operator in (">", "gt"):
             return value > threshold
-        elif operator == ">=":
+        elif operator in (">=", "gte"):
             return value >= threshold
-        elif operator == "==":
+        elif operator in ("==", "eq"):
             return abs(value - threshold) < 0.001
         return False
 
     @staticmethod
-    async def render_template(
-        template_code: str,
-        metrics: dict,
-    ) -> dict:
-        """渲染训练方案模板——用当前指标值替换占位符。
-
-        模板中的占位符格式为 {metric_name}，根据用户当前指标值填充。
-        """
-        async with get_async_session() as db:
-            tpl = await db.scalar(
-                select(TrainingTemplate).where(
-                    TrainingTemplate.template_code == template_code
-                )
-            )
-            if not tpl:
-                raise AppException(f"模板 {template_code} 不存在", 404)
-
-            template_data = tpl.template_data
-            rendered = KnowledgeBaseService._fill_placeholders(
-                template_data, metrics
-            )
-            return rendered
+    async def render_template(db: AsyncSession, template_code: str, metrics: dict) -> dict:
+        """模板参数化 - 用指标值填充占位符（db 由调用方传入）。"""
+        detail = await KnowledgeBaseService.get_template_detail(db, template_code)
+        if not detail:
+            return {}
+        return KnowledgeBaseService._fill_placeholders(detail["template_data"], metrics)
 
     @staticmethod
-    def _fill_placeholders(data, metrics: dict):
-        """递归填充模板占位符。"""
+    def _fill_placeholders(data: Any, metrics: dict) -> Any:
+        """递归填充 {metric_name} 占位符（str/dict/list 递归）。"""
         if isinstance(data, str):
             for key, value in metrics.items():
-                data = data.replace(f"{{{key}}}", str(value))
+                data = data.replace("{" + key + "}", str(value))
             return data
         elif isinstance(data, dict):
-            return {
-                k: KnowledgeBaseService._fill_placeholders(v, metrics)
-                for k, v in data.items()
-            }
+            return {k: KnowledgeBaseService._fill_placeholders(v, metrics)
+                    for k, v in data.items()}
         elif isinstance(data, list):
-            return [
-                KnowledgeBaseService._fill_placeholders(item, metrics)
-                for item in data
-            ]
+            return [KnowledgeBaseService._fill_placeholders(item, metrics)
+                    for item in data]
         return data
 ```
 
@@ -545,29 +523,31 @@ knowledge_base 模块**无独立 REST API 路由**，通过 Service 层被以下
 ### 6.1 被 training_advice 调用
 
 ```python
-# app/services/training_advice_service.py（调用方示例）
+# app/services/training_service.py（R13-P3 文档同步: 实际调用方为 training 模块的
+# TrainingAdviceService.get_advice_by_report；ctx 为 dict 而非 Pydantic RuleContext 对象）
 from app.services.knowledge_base_service import KnowledgeBaseService
-from app.schemas.knowledge_base import RuleContext
+
 
 class TrainingAdviceService:
     @staticmethod
-    async def generate_advice(report_id: int, user_id: int):
+    async def get_advice_by_report(user_id: int, report_id: int) -> dict:
         """生成训练建议——调用知识库规则引擎。"""
-        # 1. 读取分析报告指标
-        metrics = await TrainingAdviceService._extract_metrics(report_id)
-        # 2. 读取趋势数据
-        trends = await TrainingAdviceService._get_trends(user_id)
-        # 3. 构造规则上下文
-        ctx = RuleContext(metrics=metrics, trends=trends)
-        # 4. 调用知识库规则引擎
-        match_results = await KnowledgeBaseService.match_rules(ctx)
-        # 5. 渲染训练方案模板
-        for result in match_results:
-            if result.training_plan_template:
-                plan = await KnowledgeBaseService.render_template(
-                    result.training_plan_template, metrics
-                )
-                # 生成训练建议记录...
+        async with async_session_factory() as db:
+            # 1. 提取分析报告指标
+            metrics = ProgressService._extract_metrics(report.result_data or {})
+            # 2. 获取趋势数据 → {metric_name: {direction, persistence, change_rate}}
+            trends = await TrainingAdviceService._get_trends(db, user_id)
+            # 3. 构造规则上下文（dict: {metrics, trends, current_plan}）
+            ctx = {"metrics": metrics, "trends": trend_ctx, "current_plan": None}
+            # 4. 调用知识库规则引擎（db 由调用方传入）
+            matches = await KnowledgeBaseService.match_rules(db, ctx)
+            # 5. 渲染训练方案模板（field 取趋势值用于建议展示）
+            for m in matches:
+                if m.get("training_plan_template"):
+                    plan = await KnowledgeBaseService.render_template(
+                        db, m["training_plan_template"], metrics
+                    )
+                    ...
 ```
 
 ### 6.2 被 admin 调用（CRUD 管理）
@@ -584,23 +564,31 @@ class TrainingAdviceService:
 
 ```python
 # scripts/init_knowledge_base.py
-"""知识库初始化脚本——解析知识库定义文件并写入 DB。
+# R12-KB-1 补齐实现；R13-P3 文档同步: 与实际脚本一致——
+# 幂等键：分类按 code、条目按 title+category_id、规则按 rule_id、模板按 template_code；
+# 使用 async_session_factory（非 get_async_session）；输出 skipped 统计。
+"""知识库初始化脚本（R12-KB-1 补齐）
+
+依据：切片 13-infrastructure/knowledge_base.md §7 初始化脚本设计。
+功能：内置 Python 数据常量并幂等写入 DB（已存在的记录跳过，禁止重复写入）。
 
 用法: python scripts/init_knowledge_base.py
 """
-
 import asyncio
-import json
+import sys
 from pathlib import Path
 
-from app.core.database import get_async_session
-from app.models.knowledge_base import (
-    KnowledgeCategory, KnowledgeEntry,
-    RuleDefinition, TrainingTemplate,
+# 支持从项目根目录直接运行
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from sqlalchemy import select  # noqa: E402
+
+from app.core.database import async_session_factory  # noqa: E402
+from app.models.knowledge_base import (  # noqa: E402
+    KnowledgeCategory, KnowledgeEntry, RuleDefinition, TrainingTemplate,
 )
 
-
-# 8 大技术动作分类
+# 8 大技术动作分类（种子数据与设计一致）
 CATEGORIES = [
     {"name": "发球", "code": "serve", "content": {"subcategories": ["下旋发球", "侧旋发球", "不转发球"]}},
     {"name": "正手攻球", "code": "forehand_drive", "content": {"subcategories": ["正手快攻", "正手拉球", "正手扣杀"]}},
@@ -612,16 +600,15 @@ CATEGORIES = [
     {"name": "战术", "code": "tactics", "content": {"subcategories": ["发抢战术", "相持战术", "防守反击"]}},
 ]
 
-# 常见问题
+# 常见问题条目
 PROBLEMS = [
     {"title": "反手使用率不足", "entry_type": "problem", "category_code": "backhand_drive",
      "content": {"description": "反手使用率低于 30%，过度依赖正手"}},
     {"title": "正手拉球弧线过高", "entry_type": "problem", "category_code": "loop",
      "content": {"description": "拉球弧线过高，容易被对手反冲"}},
-    # ... 更多问题
 ]
 
-# 规则定义
+# 规则定义（3 条种子规则，condition 含 aggregation 键 —— R2-KB-1）
 RULES = [
     {
         "rule_id": "RULE_001",
@@ -670,11 +657,15 @@ RULES = [
     },
 ]
 
-# 训练方案模板
+# 训练方案模板（R13-P3 文档同步: 含 category/difficulty/description 字段，
+# 与 training_template 表定义一致）
 TEMPLATES = [
     {
         "template_code": "TPL_BACKHAND_IMPROVE",
         "name": "反手提升训练方案",
+        "category": "backhand_drive",
+        "difficulty": "intermediate",
+        "description": "针对反手使用率不足的提升训练方案",
         "problem_id": "PROBLEM_003",
         "template_data": {
             "goal": {"metric": "backhand_ratio", "target": 0.35},
@@ -690,32 +681,51 @@ TEMPLATES = [
 
 
 async def init_knowledge_base():
-    """初始化知识库数据。"""
-    async with get_async_session() as db:
-        # 1. 写入分类
+    """初始化知识库数据 — 幂等（已存在的记录跳过）。
+
+    R13-P3 文档同步: 原文档样例问题条目缺幂等检查（直接 add），实际实现
+    按 title + category_id 幂等；全部写入走 stats 统计 + skipped 计数。
+    """
+    async with async_session_factory() as db:
+        stats = {"categories": 0, "entries": 0, "rules": 0, "templates": 0, "skipped": 0}
+
+        # 1. 写入分类（按 code 幂等）
         for cat_data in CATEGORIES:
             existing = await db.scalar(
-                KnowledgeCategory.__table__.select().where(
+                select(KnowledgeCategory).where(
                     KnowledgeCategory.code == cat_data["code"]
                 )
             )
             if not existing:
-                cat = KnowledgeCategory(**cat_data)
-                db.add(cat)
+                db.add(KnowledgeCategory(**cat_data))
+                stats["categories"] += 1
+            else:
+                stats["skipped"] += 1
         await db.flush()
 
-        # 2. 写入问题条目
+        # 2. 写入问题条目（按 title + category_id 幂等，R12-KB-1）
         for prob_data in PROBLEMS:
+            category_code = prob_data.pop("category_code")
             cat = await db.scalar(
                 select(KnowledgeCategory).where(
-                    KnowledgeCategory.code == prob_data.pop("category_code")
+                    KnowledgeCategory.code == category_code
                 )
             )
-            if cat:
-                entry = KnowledgeEntry(category_id=cat.id, **prob_data)
-                db.add(entry)
+            if not cat:
+                continue
+            existing = await db.scalar(
+                select(KnowledgeEntry).where(
+                    KnowledgeEntry.title == prob_data["title"],
+                    KnowledgeEntry.category_id == cat.id,
+                )
+            )
+            if not existing:
+                db.add(KnowledgeEntry(category_id=cat.id, **prob_data))
+                stats["entries"] += 1
+            else:
+                stats["skipped"] += 1
 
-        # 3. 写入规则
+        # 3. 写入规则（按 rule_id 幂等）
         for rule_data in RULES:
             existing = await db.scalar(
                 select(RuleDefinition).where(
@@ -723,10 +733,12 @@ async def init_knowledge_base():
                 )
             )
             if not existing:
-                rule = RuleDefinition(**rule_data)
-                db.add(rule)
+                db.add(RuleDefinition(**rule_data))
+                stats["rules"] += 1
+            else:
+                stats["skipped"] += 1
 
-        # 4. 写入模板
+        # 4. 写入模板（按 template_code 幂等）
         for tpl_data in TEMPLATES:
             existing = await db.scalar(
                 select(TrainingTemplate).where(
@@ -734,13 +746,18 @@ async def init_knowledge_base():
                 )
             )
             if not existing:
-                tpl = TrainingTemplate(**tpl_data)
-                db.add(tpl)
+                db.add(TrainingTemplate(**tpl_data))
+                stats["templates"] += 1
+            else:
+                stats["skipped"] += 1
 
         await db.commit()
-        print(f"Knowledge base initialized: {len(CATEGORIES)} categories, "
-              f"{len(PROBLEMS)} entries, {len(RULES)} rules, "
-              f"{len(TEMPLATES)} templates")
+        print(
+            f"Knowledge base initialized: +{stats['categories']} categories, "
+            f"+{stats['entries']} entries, +{stats['rules']} rules, "
+            f"+{stats['templates']} templates (skipped {stats['skipped']} existing)"
+        )
+        return stats
 
 
 if __name__ == "__main__":
@@ -753,94 +770,120 @@ if __name__ == "__main__":
 
 ```python
 # tests/unit/test_knowledge_base.py
-"""knowledge_base 模块测试。覆盖：规则引擎匹配、模板渲染、CRUD。"""
+# R12-KB-6: 整文件补齐（22 个测试）。R13-P3 文档同步: 样例与实际测试一致——
+# Service 调用带 db_session 参数、ctx 为 dict（非 RuleContext 对象）。
+"""knowledge_base 模块测试。覆盖：规则引擎匹配（single/trend/stagnant/plan_effectiveness + 优先级）、
+占位符渲染（递归 + {current_value}）、CRUD（分类/条目/规则/模板 + 404）、初始化脚本幂等。"""
 import pytest
-from app.services.knowledge_base_service import KnowledgeBaseService
-from app.schemas.knowledge_base import RuleContext
+
+from app.models.knowledge_base import (
+    KnowledgeCategory, KnowledgeEntry, RuleDefinition, TrainingTemplate,
+)
 
 
-# === 1. 规则引擎匹配 ===
+async def _add_rule(db, rule_id, rule_type, condition, diagnosis, **kwargs):
+    """种子规则辅助（flush 后返回 rule）。"""
+    ...
+
+
+# === 1. 规则引擎 — single 类型（4 个测试）===
 @pytest.mark.asyncio
-async def test_single_rule_match(db_session):
-    """单次规则：backhand_ratio < 0.30 → 匹配。"""
-    ctx = RuleContext(
-        metrics={"backhand_ratio": 0.18, "forehand_ratio": 0.72},
-        trends={},
-    )
-    results = await KnowledgeBaseService.match_rules(ctx)
-    # 应匹配 RULE_001（反手使用率不足）
-    assert any(r.rule_id == "RULE_001" for r in results)
-    matched = next(r for r in results if r.rule_id == "RULE_001")
-    assert "反手使用率" in matched.suggestion
-    assert "0.18" in matched.suggestion
+class TestRuleEngineSingle:
+    async def test_single_lt_matched(self, db_session):
+        """single 规则命中 + 占位符渲染（{current_value}/{threshold}，R2-KB-2）。"""
+        from app.services.knowledge_base_service import KnowledgeBaseService
+
+        await _add_rule(
+            db_session, "RULE_SINGLE_LT", "single",
+            condition={"metric": "backhand_ratio", "operator": "<", "threshold": 0.30,
+                       "aggregation": "single"},
+            diagnosis={"problem_id": "P1", "problem_name": "反手不足",
+                       "severity": "medium",
+                       "suggestion_template": "当前 {current_value}，低于 {threshold}"},
+        )
+        results = await KnowledgeBaseService.match_rules(
+            db_session, {"metrics": {"backhand_ratio": 0.2}, "trends": {}}
+        )
+        assert results[0]["rule_id"] == "RULE_SINGLE_LT"
+        assert "{current_value}" not in results[0]["suggestion"]
+        assert "0.2" in results[0]["suggestion"]
+        assert "0.3" in results[0]["suggestion"]
+
+    # 另有 3 个测试：阈值不达（负对照）、ctx 缺指标、gt/gte/eq 运算符语义与边界
 
 
+# === 2. 规则引擎 — trend/stagnant/plan_effectiveness/优先级（7 个测试）===
 @pytest.mark.asyncio
-async def test_single_rule_no_match(db_session):
-    """单次规则：backhand_ratio >= 0.30 → 不匹配。"""
-    ctx = RuleContext(
-        metrics={"backhand_ratio": 0.40, "forehand_ratio": 0.60},
-        trends={},
-    )
-    results = await KnowledgeBaseService.match_rules(ctx)
-    assert not any(r.rule_id == "RULE_001" for r in results)
+class TestRuleEngineTrend:
+    async def test_trend_improving_matched(self, db_session):
+        """趋势改善规则命中（direction/persistence/change_rate 三条件齐备）。"""
+        ...
+
+    async def test_trend_persistence_below_threshold(self, db_session):
+        """persistence 不足 → 不匹配（负对照）。"""
+        ...
+
+    async def test_trend_change_rate_below_threshold(self, db_session):
+        """change_rate 不足 → 不匹配（负对照）。"""
+        ...
+
+    async def test_stagnant_matched(self, db_session):
+        """停滞规则命中（R12-KB-3: min_persistence 条件键 + direction=stagnant）。"""
+        ...
+
+    async def test_plan_effectiveness_matched(self, db_session):
+        """方案有效性规则命中（current_plan.goal_completion ≥ threshold，
+        R13-P3 文档同步: 原文档缺失此规则类型测试）。"""
+        ...
+
+    async def test_inactive_rule_not_matched(self, db_session):
+        """is_active=False 的规则不参与匹配。"""
+        ...
+
+    async def test_rule_type_priority_order(self, db_session):
+        """规则类型优先级 single > trend_persistent > trend_improving > stagnant
+        > plan_effectiveness（RULE_TYPE_ORDER 显式映射）。"""
+        ...
 
 
+# === 3. 模板渲染（2 个测试）===
 @pytest.mark.asyncio
-async def test_trend_improving_rule(db_session):
-    """趋势规则：改善中 → 匹配进步确认。"""
-    ctx = RuleContext(
-        metrics={"backhand_ratio": 0.25},
-        trends={
-            "backhand_ratio": {
-                "direction": "improving",
-                "persistence": 2,
-                "change_rate": 0.08,
-            }
-        },
-    )
-    results = await KnowledgeBaseService.match_rules(ctx)
-    assert any(r.rule_id == "RULE_TREND_001" for r in results)
+class TestTemplateRender:
+    async def test_render_template_recursive(self, db_session):
+        """递归填充 str/dict/list 占位符。"""
+        ...
+
+    async def test_render_template_not_found(self, db_session):
+        """模板不存在 → 404。"""
+        ...
 
 
+# === 4. CRUD 查询（7 个测试）===
 @pytest.mark.asyncio
-async def test_stagnant_rule(db_session):
-    """停滞规则：连续 3 次无改善 → 匹配停滞警告。"""
-    ctx = RuleContext(
-        metrics={"backhand_ratio": 0.22},
-        trends={
-            "backhand_ratio": {
-                "direction": "stagnant",
-                "persistence": 3,
-                "change_rate": 0.01,
-            }
-        },
-    )
-    results = await KnowledgeBaseService.match_rules(ctx)
-    assert any(r.rule_id == "RULE_TREND_002" for r in results)
+class TestKnowledgeCRUD:
+    # list_categories / get_category_by_code 404 / list_entries 筛（category_code+entry_type）/
+    # get_entry_detail 404 / get_rules_by_problem JSONB 查询 / list_templates_by_problem /
+    # list_rules is_active=False 筛选
+    ...
 
 
-# === 2. 模板渲染 ===
+# === 5. 初始化脚本幂等（2 个测试，R12-KB-1 回归）===
 @pytest.mark.asyncio
-async def test_template_render(db_session):
-    """模板占位符填充正确。"""
-    rendered = await KnowledgeBaseService.render_template(
-        "TPL_BACKHAND_IMPROVE",
-        {"backhand_ratio": 0.18, "landing_backhand_pct": 0.35},
-    )
-    assert rendered["goal"]["target"] == 0.35
-    assert len(rendered["sessions"]) == 2
-    assert "反手多球练习" in rendered["sessions"][0]["name"]
+class TestInitScriptIdempotency:
+    async def test_init_idempotent_double_run(self, db_session):
+        """init_knowledge_base() 双次执行：第二次全部 skipped、无重复写入。"""
+        ...
 
-
-# === 3. 查询 ===
-@pytest.mark.asyncio
-async def test_list_categories(db_session):
-    """查询 8 大分类。"""
-    categories = await KnowledgeBaseService.list_categories()
-    assert len(categories) == 8
-    assert any(c.code == "serve" for c in categories)
+    async def test_init_seeded_rules_matchable(self, db_session):
+        """初始化后的种子规则可被规则引擎匹配（端到端）。"""
+        ...
 ```
+
+**R12 修复回归测试位置**（R13-P3 文档同步汇总）：
+- KB-1（初始化脚本幂等）：本文件 TestInitScriptIdempotency
+- KB-2（severity 取 diagnosis）：本文件各匹配测试断言 `results[0]["severity"]`
+- KB-3（min_persistence 条件键）：本文件 test_stagnant_matched
+- KB-6（22 个测试）：`tests/unit/test_knowledge_base.py` 全文件
 
 ---
 
@@ -852,7 +895,7 @@ async def test_list_categories(db_session):
 - [ ] 数据库迁移已生成并执行
 - [ ] 初始化脚本可成功执行：`python scripts/init_knowledge_base.py`
 - [ ] 8 大技术动作分类树正确存储和查询
-- [ ] 规则引擎正确执行 4 类匹配（单次/趋势/改善/停滞）
+- [ ] 规则引擎正确执行 5 类匹配（single / trend_persistent / trend_improving / stagnant / plan_effectiveness，R13-P3 文档同步）
 - [ ] 训练方案模板占位符正确填充
 - [ ] 规则解析失败时正确跳过并记录日志
 - [ ] 代码注释完整（文件头、docstring、复杂逻辑注释）
@@ -867,7 +910,7 @@ async def test_list_categories(db_session):
 - 规则引擎 condition JSONB 解析失败 **必须** 跳过并记录日志，**禁止** 抛出异常中断匹配
 - 模板占位符 **必须** 使用 `{metric_name}` 格式，**禁止** 自定义占位符语法
 - 初始化脚本 **必须** 幂等（已存在的记录跳过），**禁止** 重复写入
-- 规则匹配顺序 **必须** 为 single → trend → stagnant，**禁止** 随意调整顺序
+- 规则匹配顺序 **必须** 为 single → trend_persistent → trend_improving → stagnant → plan_effectiveness（RULE_TYPE_ORDER 显式优先级映射，R13-P3 文档同步），**禁止** 随意调整顺序
 
 > **覆盖度修复说明（A-3）**：已确认 `RuleDefinition` 和 `TrainingTemplate` 模型在 `knowledge_base` 切片 §3 中定义（`app/models/knowledge_base.py`），并添加归属说明注释。
 > 其他模块（如 `training_advice`）通过 `from app.models.knowledge_base import RuleDefinition, TrainingTemplate` 引用，不重复定义。

@@ -19,8 +19,8 @@ from app.services.gamification_service import GamificationService, BadgeService
 router = APIRouter(prefix="/gamification", tags=["游戏化/积分徽章"])
 
 
-@limiter.limit("100/minute")
 @router.get("/points", summary="积分查询")
+@limiter.limit("100/minute")
 async def get_points(
     request: Request,
     user: User = Depends(get_current_user),
@@ -30,8 +30,8 @@ async def get_points(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/checkin-calendar", summary="打卡日历")
+@limiter.limit("100/minute")
 async def get_checkin_calendar(
     request: Request,
     year: int = Query(default=None, ge=2020, le=2100),
@@ -59,8 +59,8 @@ def _user_key_func(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-@limiter.limit("1/day", key_func=_user_key_func)
 @router.post("/checkin", summary="每日打卡")
+@limiter.limit("1/day", key_func=_user_key_func)
 async def checkin(
     request: Request,
     user: User = Depends(get_current_user),
@@ -71,8 +71,8 @@ async def checkin(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/badges", summary="徽章列表")
+@limiter.limit("100/minute")
 async def get_badges(
     request: Request,
     user: User = Depends(get_current_user),

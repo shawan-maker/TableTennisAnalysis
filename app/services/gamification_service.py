@@ -30,8 +30,6 @@ from app.models.gamification import (
     UserBadge,
     UserPoints,
 )
-from app.models.match import Match, MatchRecord
-from app.models.video_analysis import AnalysisReport
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +44,6 @@ POINTS_RULES = {
     "share": 2,
     "feedback": 1,
 }
-
-STREAK_ICONS = {0: "", 7: "🔥", 30: "🌟"}
 
 BADGE_SEEDS = [
     {"id": "first_analysis", "name": "首分析", "icon": "📹", "category": "analysis",
@@ -69,22 +65,30 @@ class GamificationService:
     """游戏化业务逻辑层"""
 
     @staticmethod
+    async def _get_streak(user_id: int, db_streak: int = 0) -> int:
+        """连续打卡天数 — Redis 实时值优先，DB 回退（R12-Gam-3 统一数据源）
+
+        Redis key 由 _update_streak 写入：gamification:streak:user:{user_id}
+        （R6-Gami-4）get_points 与 get_checkin_calendar 共用，日历不再只读 DB。
+        """
+        try:
+            redis = await get_redis()
+            redis_streak = await redis.get(f"gamification:streak:user:{user_id}")
+            if redis_streak is not None:
+                return int(redis_streak)
+        except Exception as e:
+            logger.debug("get_streak_redis_fallback", extra={"error": str(e)})
+        return db_streak
+
+    @staticmethod
     async def get_points(db: AsyncSession, user_id: int) -> dict:
         up = await db.scalar(select(UserPoints).where(UserPoints.user_id == user_id))
         if not up:
             return {"total_points": 0, "monthly_points": 0, "current_streak": 0, "streak_icon": ""}
-        # R6-Gami-4: 优先从 Redis 读取连续打卡天数（实时），无 key 时回退 DB
-        # Redis key 由 _update_streak 写入：gamification:streak:user:{user_id}
-        streak = up.current_streak
-        try:
-            redis = await get_redis()
-            redis_streak = await redis.get("gamification:streak:user:%s" % user_id)
-            if redis_streak is not None:
-                streak = int(redis_streak)
-        except Exception as e:
-            logger.debug("get_points_redis_fallback", extra={"error": str(e)})
+        streak = await GamificationService._get_streak(user_id, db_streak=up.current_streak)
 
-        icon = "🌟" if streak >= 30 else "🔥" if streak >= 7 else ""
+        # R12-Gam-2: streak icon 按设计阈值 3（原 7/30 双档与设计不符，STREAK_ICONS 死常量移除）
+        icon = "🔥" if streak >= 3 else ""
         return {
             "total_points": up.total_points,
             "monthly_points": up.monthly_points,
@@ -120,7 +124,9 @@ class GamificationService:
             })
 
         up = await db.scalar(select(UserPoints).where(UserPoints.user_id == user_id))
-        streak = up.current_streak if up else 0
+        # R12-Gam-3: 日历 streak 改用 _get_streak（Redis 实时值优先，与 get_points 一致）
+        db_streak = up.current_streak if up else 0
+        streak = await GamificationService._get_streak(user_id, db_streak=db_streak)
 
         return {
             "year": year,
@@ -177,29 +183,40 @@ class GamificationService:
     async def add_points(
         db: AsyncSession, user_id: int, event_type: str, ref_id: Optional[int] = None
     ) -> int:
-        """公开 API - 供其他模块调用，try/except 不阻塞"""
+        """公开 API - 供其他模块调用，try/except 不阻塞
+
+        R13-Gam-N1: DB 写入段用 SAVEPOINT（begin_nested）隔离 — 原实现
+        except 仅记日志 + return 0，若 _add_points/_auto_checkin 的 flush 抛
+        IntegrityError（如并发首次创建 UserPoints 行触发 unique 冲突），
+        session 进入 invalid 状态，调用方（video_analysis/scoring/match_data
+        完成链路）后续 commit 将抛 PendingRollbackError → 业务接口 500。
+        SAVEPOINT 回滚仅撤销本段写入，调用方事务不受污染（"积分失败不
+        阻塞业务"设计意图），与 check_badges 的 R6-Gami-1 模式一致。
+        """
+        points = POINTS_RULES.get(event_type, 0)
+        if points <= 0:
+            return 0
         try:
-            points = POINTS_RULES.get(event_type, 0)
-            if points <= 0:
-                return 0
+            async with db.begin_nested():
+                await GamificationService._add_points(
+                    db, user_id, event_type, points, ref_id
+                )
 
-            await GamificationService._add_points(db, user_id, event_type, points, ref_id)
+                # 自动打卡（analysis/match/record 事件触发）
+                if event_type in ("analysis", "match", "record"):
+                    await GamificationService._auto_checkin(db, user_id, event_type)
 
-            # 自动打卡（analysis/match/record 事件触发）
-            if event_type in ("analysis", "match", "record"):
-                await GamificationService._auto_checkin(db, user_id, event_type)
-
-            await db.flush()
-
-            try:
-                await BadgeService.check_badges(db, user_id)
-            except Exception as e:
-                logger.warning("badge_check_failed", extra={"error": str(e)})
-
-            return points
+                await db.flush()
         except Exception as e:
             logger.warning("add_points_failed", extra={"user_id": user_id, "event": event_type, "error": str(e)})
             return 0
+
+        try:
+            await BadgeService.check_badges(db, user_id)
+        except Exception as e:
+            logger.warning("badge_check_failed", extra={"error": str(e)})
+
+        return points
 
     @staticmethod
     async def grant_badge_points(
@@ -418,27 +435,36 @@ class BadgeService:
 
     @staticmethod
     async def _get_user_metrics(db: AsyncSession, user_id: int) -> dict:
-        # R6-Gami-3 (设计偏差，Phase 2+ 修复):
-        # 设计要求按 CheckInRecord.checkin_type 统计 analysis_count/match_count，
-        # 但当前实现使用 AnalysisReport/Match 计数。两者在标准流程下（analysis/match
-        # 事件触发 auto_checkin）功能等价，但存在边界差异：若用户先手动打卡再分析视频，
-        # auto_checkin 会被跳过（当日已有打卡），CheckInRecord.checkin_type 为 "manual"
-        # 而非 "analysis"，此时 CheckInRecord 方案将无法解锁 analysis 徽章。
-        # 当前 AnalysisReport/Match 方案在此时更准确。保留现有实现，待 Phase 2+ 统一重构。
+        # R12-Gam-4: 按设计以 CheckInRecord.checkin_type 为统计源 —
+        # match_count 含 "record"（手动录入比赛记录），原 Match 表计数漏掉手动录入；
+        # streak_days 与 get_points/_get_streak 统一（Redis 实时值优先）
         analysis_count = await db.scalar(
-            select(func.count()).select_from(AnalysisReport).where(AnalysisReport.user_id == user_id)
+            select(func.count()).select_from(CheckInRecord).where(
+                and_(
+                    CheckInRecord.user_id == user_id,
+                    CheckInRecord.checkin_type == "analysis",
+                )
+            )
         ) or 0
 
         match_count = await db.scalar(
-            select(func.count()).select_from(Match).where(Match.user_id == user_id)
+            select(func.count()).select_from(CheckInRecord).where(
+                and_(
+                    CheckInRecord.user_id == user_id,
+                    CheckInRecord.checkin_type.in_(["match", "record"]),
+                )
+            )
         ) or 0
 
         checkin_count = await db.scalar(
-            select(func.count()).select_from(CheckInRecord).where(CheckInRecord.user_id == user_id)
+            select(func.count()).select_from(CheckInRecord).where(
+                CheckInRecord.user_id == user_id
+            )
         ) or 0
 
         up = await db.scalar(select(UserPoints).where(UserPoints.user_id == user_id))
-        streak_days = up.current_streak if up else 0
+        db_streak = up.current_streak if up else 0
+        streak_days = await GamificationService._get_streak(user_id, db_streak=db_streak)
 
         return {
             "analysis_count": analysis_count,
@@ -451,3 +477,50 @@ class BadgeService:
     def _evaluate_condition(condition: dict, metrics: dict) -> int:
         metric = condition.get("metric", "")
         return int(metrics.get(metric, 0))
+
+    @staticmethod
+    async def seed_badge_definitions(db: AsyncSession) -> dict:
+        """预置 6 个基础徽章定义（幂等 upsert）— R12-Gam-1
+
+        依据：切片 09-gamification/backend.md「预置徽章数据（通过 Alembic data
+        migration 或 seed 脚本）」。原 BADGE_SEEDS 零引用为死代码，生产
+        badge_definition 恒空导致徽章功能不可用。
+
+        幂等：已存在的徽章按 seed 更新定义字段并重置 is_active，不存在的插入；
+        可重复执行（seed 脚本 scripts/seed_badges.py 或 Alembic data migration 调用）。
+        只 flush 不 commit，由调用方控制事务。
+        """
+        inserted = updated = skipped = 0
+        for sort_order, s in enumerate(BADGE_SEEDS):
+            existing = await db.scalar(
+                select(BadgeDefinition).where(BadgeDefinition.id == s["id"])
+            )
+            if existing is None:
+                db.add(BadgeDefinition(
+                    id=s["id"], name=s["name"], icon=s["icon"], category=s["category"],
+                    condition=s["condition"], points_reward=s["points_reward"],
+                    sort_order=sort_order, is_active=True,
+                ))
+                inserted += 1
+            else:
+                if (
+                    existing.name != s["name"]
+                    or existing.icon != s["icon"]
+                    or existing.category != s["category"]
+                    or existing.condition != s["condition"]
+                    or existing.points_reward != s["points_reward"]
+                    or existing.sort_order != sort_order
+                    or existing.is_active is not True
+                ):
+                    existing.name = s["name"]
+                    existing.icon = s["icon"]
+                    existing.category = s["category"]
+                    existing.condition = s["condition"]
+                    existing.points_reward = s["points_reward"]
+                    existing.sort_order = sort_order
+                    existing.is_active = True
+                    updated += 1
+                else:
+                    skipped += 1
+        await db.flush()
+        return {"inserted": inserted, "updated": updated, "skipped": skipped}

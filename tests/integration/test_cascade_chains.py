@@ -328,6 +328,22 @@ class TestCeleryBeatTasks:
             assert "task" in config, f"任务 {name} 缺少 task 字段"
             assert "schedule" in config, f"任务 {name} 缺少 schedule 字段"
 
+    async def test_beat_tasks_registered_in_celery(self):
+        """R12-BeatTasks-5: 每个 Beat 条目的 task 名称均已注册到 Celery 任务表
+
+        防止 beat_schedule 引用了未定义/未导入的任务（运行期 UnknownTaskError）。
+        app/tasks/__init__.py 显式导入全部任务模块，注册表应全覆盖。
+        """
+        from app.core.celery import celery_app
+
+        beat = self._get_beat_schedule()
+        assert len(beat) > 0
+        for name, config in beat.items():
+            task_name = config["task"]
+            assert task_name in celery_app.tasks, (
+                f"Beat 条目 {name} 的任务 {task_name} 未在 Celery 注册表"
+            )
+
 
 @pytest.mark.asyncio
 class TestPaginationBoundary:

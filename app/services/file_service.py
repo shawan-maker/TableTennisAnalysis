@@ -135,3 +135,49 @@ class FileService:
     def validate_file_size(file_size: int) -> bool:
         """验证文件大小"""
         return settings.MIN_FILE_SIZE <= file_size <= settings.MAX_FILE_SIZE
+
+    @staticmethod
+    async def cleanup_orphan_files() -> dict:
+        """
+        孤儿文件清理 — R12-BeatTasks-1 实现设计（file_management.md §5）。
+
+        流程：
+        1. 查询 file_record WHERE status='uploading' AND created_at < NOW() - 1h
+        2. 尝试删除 OSS 对象（忽略 404 / Mock 模式本地文件缺失）
+        3. 更新 file_record.status='abandoned'
+
+        幂等：基于 WHERE 条件，重复执行无副作用。
+        """
+        from sqlalchemy import select
+
+        from app.core.database import async_session_factory
+        from app.models.video_analysis import FileRecord
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        cleaned_count = 0
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(FileRecord).where(
+                    FileRecord.status == "uploading",
+                    FileRecord.created_at < cutoff,
+                )
+            )
+            orphans = result.scalars().all()
+
+            for record in orphans:
+                try:
+                    FileService.delete_object(record.oss_key)
+                except Exception as e:
+                    # OSS 删除失败 → 记录日志，不阻塞状态更新
+                    logger.warning(
+                        "orphan_oss_delete_failed",
+                        extra={"oss_key": record.oss_key, "error": str(e)},
+                    )
+                record.status = "abandoned"
+                cleaned_count += 1
+
+            await db.commit()
+
+        logger.info("orphan_cleanup_done", extra={"cleaned_count": cleaned_count})
+        return {"cleaned_count": cleaned_count}

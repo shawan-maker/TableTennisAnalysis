@@ -48,10 +48,10 @@ from app.core.exceptions import AppException
 @pytest.fixture
 async def dashboard_data(db_session, auth_user):
     """创建测试上下文：用户 + 比赛记录 + 分析报告。"""
-    from app.models.match_data import MatchRecord
+    from app.models.match import MatchRecord
     from app.models.video_analysis import AnalysisReport
 
-    user_id = auth_user["id"]
+    user_id = auth_user["user_id"]
     now = datetime.now(timezone.utc)
 
     # 创建 3 场比赛（2 胜 1 负）
@@ -219,7 +219,8 @@ async def test_cache_bust_on_match_end(dashboard_data, mock_redis):
     await DashboardService.get_win_rate_trend(user.id, period="month")
     await DashboardService.bust_cache(user.id, event="match_end")
     assert await mock_redis.get(f"dashboard:overview:{user.id}") is None
-    assert await mock_redis.get(f"dashboard:winrate:{user.id}") is None
+    # R13-P3 文档同步：winrate 缓存键带 :period 后缀（bust 时删除三个 period）
+    assert await mock_redis.get(f"dashboard:winrate:{user.id}:month") is None
 
 @pytest.mark.asyncio
 async def test_heatmap_limits_recent_reports(dashboard_data):
@@ -250,8 +251,8 @@ data_dashboard 不创建独立 Model，复用以下已有表：
 | 表名 | 文件 | 用途 |
 |------|------|------|
 | `analysis_report` | `app/models/video_analysis.py` | 分析报告，提供 result_data JSONB（技术分布/落点热图/指标） |
-| `match_record` | `app/models/match_data.py` | 比赛记录，提供胜负/比分 |
-| `progress_snapshot` | `app/models/progress_analysis.py` | 进度快照，提供训练频次等衍生指标 |
+| `match_record` | `app/models/match.py` | 比赛记录，提供胜负/比分 |
+| `progress_snapshot` | `app/models/progress_analysis.py` | 进度快照（R13-P3 文档同步：实现未直接使用，训练频次由 match_record + analysis_report 最近 7 天聚合计算） |
 | `user_points` | `app/models/gamification.py` | 积分/连续天数 |
 
 关键 Model 字段引用：
@@ -265,8 +266,8 @@ data_dashboard 不创建独立 Model，复用以下已有表：
 #     # 关键字段: id, task_id, user_id, result_data(JSONB), report_text(JSONB), created_at
 #     # 详见 app/models/video_analysis.py
 
-# app/models/match_data.py（已有，无需修改）
-# # MatchRecord 定义在 app/models/match_data.py，此处引用字段供参考
+# app/models/match.py（已有，无需修改）
+# # MatchRecord 定义在 app/models/match.py，此处引用字段供参考
 # class MatchRecord(Base):
 #     """手动录入比赛记录。"""
 #     __tablename__ = "match_record"
@@ -282,6 +283,8 @@ class MatchRecordsResponse(BaseModel):
     items: list[MatchRecordBrief]
 
 # --- 查询参数 ---
+# R13-P3 文档同步：MatchRecordsQuery 未在 app/schemas/dashboard.py 中实现，
+# 查询参数由路由层 Query(...) 直接声明（见 §6 样例）
 class MatchRecordsQuery(BaseModel):
     """比赛记录查询参数。"""
     result_filter: str = Field(default="all")  # win/lose/all
@@ -309,21 +312,21 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select, case, cast, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_async_session
+from app.core.database import async_session_factory
 from app.core.exceptions import AppException
 from app.core.redis import get_redis
 from app.models.video_analysis import AnalysisReport
-from app.models.match_data import MatchRecord
+from app.models.match import MatchRecord
 from app.models.gamification import UserPoints
 from app.schemas.dashboard import (
     OverviewResponse, AdviceSummaryBrief,
     WinRateTrendResponse, TrendSeries,
     TechniqueStatsResponse, TechniqueItem,
     LandingHeatmapResponse,
-    MatchRecordBrief, MatchRecordsResponse, MatchRecordsQuery,
+    MatchRecordBrief, MatchRecordsResponse,
 )
 
 # 缓存 TTL（秒）
@@ -346,21 +349,23 @@ class DashboardService:
     # ========== 概览 ==========
 
     @staticmethod
-    async def get_overview(user_id: int) -> OverviewResponse:
+    async def get_overview(user_id: int) -> dict:
         """概览卡片：胜率/分析次数/训练频次/连续天数/趋势。缓存 5min。"""
         redis = await get_redis()
         # 降级用户只读检查 (TD-2 实现)
         readonly = await redis.get(f"downgrade:report:readonly:{user_id}")
-        is_readonly = readonly is not None
-        # 若存在则返回简化版数据看板（tier=free 降级策略，仅展示基础统计）
+        # R13-P3 文档同步：命中即返回简化看板（实时计算、不缓存、不含
+        # latest_advice_summary 等会员专属数据），与实现 _get_readonly_overview 一致
+        if readonly is not None:
+            return await DashboardService._get_readonly_overview(user_id)
         # 参见 10-membership/backend.md apply_downgrade_policy 方法
         cache_key = f"dashboard:overview:{user_id}"
         cached = await redis.get(cache_key)
         if cached:
-            return OverviewResponse(**json.loads(cached))
+            return json.loads(cached)
 
         # 缓存未命中 → 实时计算
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             # 比赛统计
             win_count = await db.scalar(
                 select(func.count()).select_from(MatchRecord)
@@ -395,6 +400,8 @@ class DashboardService:
             training_freq = week_matches + week_reports
 
             # 连续天数
+            # R13-P3 文档同步：实现此处包裹 try/except ImportError
+            # （UserPoints 表 S4 才创建，缺表时返回 0）
             streak_days = 0
             up = await db.scalar(
                 select(UserPoints).where(UserPoints.user_id == user_id)
@@ -408,20 +415,60 @@ class DashboardService:
             # 最近训练建议摘要
             latest_advice = await DashboardService._get_latest_advice_summary(db, user_id)
 
-        result = OverviewResponse(
-            win_rate=win_rate,
-            wins=wins,
-            losses=losses,
-            analysis_count=analysis_count,
-            training_frequency_per_week=training_freq,
-            streak_days=streak_days,
-            trend=trend,
-            latest_advice_summary=latest_advice,
-        )
+        # R13-P3 文档同步：实现返回 dict（路由层 success(data=...) 直接序列化），非 Pydantic 模型
+        result = {
+            "win_rate": win_rate,
+            "wins": wins,
+            "losses": losses,
+            "analysis_count": analysis_count,
+            "training_frequency_per_week": training_freq,
+            "streak_days": streak_days,
+            "trend": trend,
+            "latest_advice_summary": latest_advice,
+        }
 
         # 回填缓存
-        await redis.setex(cache_key, CACHE_TTL_OVERVIEW, result.model_dump_json())
+        await redis.setex(cache_key, CACHE_TTL_OVERVIEW, json.dumps(result, default=str))
         return result
+
+    @staticmethod
+    async def _get_readonly_overview(user_id: int) -> dict:
+        """
+        R12-Dash-2 / R13-P3 文档同步：降级用户简化看板 — 仅基础统计，
+        不含训练建议摘要（会员专属）。apply_downgrade_policy 设置
+        downgrade:report:readonly:{uid} 后生效；实时计算、不写缓存。
+        """
+        async with async_session_factory() as db:
+            wins = await db.scalar(
+                select(func.count()).select_from(MatchRecord).where(
+                    and_(MatchRecord.user_id == user_id, MatchRecord.is_win.is_(True))
+                )
+            ) or 0
+            losses = await db.scalar(
+                select(func.count()).select_from(MatchRecord).where(
+                    and_(MatchRecord.user_id == user_id, MatchRecord.is_win.is_(False))
+                )
+            ) or 0
+            total_matches = wins + losses
+            win_rate = round(wins / total_matches, 2) if total_matches > 0 else 0.0
+
+            analysis_count = await db.scalar(
+                select(func.count()).select_from(AnalysisReport).where(
+                    AnalysisReport.user_id == user_id
+                )
+            ) or 0
+
+        return {
+            "win_rate": win_rate,
+            "wins": wins,
+            "losses": losses,
+            "analysis_count": analysis_count,
+            "training_frequency_per_week": 0,
+            "streak_days": 0,
+            "trend": "flat",
+            "latest_advice_summary": None,
+            "is_readonly": True,
+        }
 
     @staticmethod
     async def _calc_trend(db: AsyncSession, user_id: int) -> str:
@@ -494,7 +541,7 @@ class DashboardService:
     # ========== 战绩趋势 ==========
 
     @staticmethod
-    async def get_win_rate_trend(user_id: int, period: str = "month") -> WinRateTrendResponse:
+    async def get_win_rate_trend(user_id: int, period: str = "month") -> dict:
         """战绩趋势折线图数据。缓存 1h。"""
         # period 校验与降级
         valid_periods = {"month": 30, "quarter": 90, "year": 365}
@@ -504,7 +551,7 @@ class DashboardService:
         cache_key = f"dashboard:winrate:{user_id}:{period}"
         cached = await redis.get(cache_key)
         if cached:
-            return WinRateTrendResponse(**json.loads(cached))
+            return json.loads(cached)
 
         async with get_async_session() as db:
             now = datetime.now(timezone.utc)
@@ -515,7 +562,7 @@ class DashboardService:
                 select(
                     func.date_trunc("day", MatchRecord.match_date).label("day"),
                     func.count().label("total"),
-                    func.sum(func.cast(MatchRecord.is_win, Integer)).label("wins"),
+                    func.sum(case((MatchRecord.is_win.is_(True), 1), else_=0)).label("wins"),
                 )
                 .where(and_(MatchRecord.user_id == user_id,
                            MatchRecord.match_date >= start_date))
@@ -537,27 +584,28 @@ class DashboardService:
             win_rates.append(rate)
             match_counts.append(total)
 
-        result_data = WinRateTrendResponse(
-            labels=labels,
-            series=[
-                TrendSeries(name="胜率", data=win_rates),
-                TrendSeries(name="比赛场次", data=match_counts),
+        # R13-P3 文档同步：实现返回 dict（series 项为 {"name": ..., "data": [...]}）
+        result_data = {
+            "labels": labels,
+            "series": [
+                {"name": "胜率", "data": win_rates},
+                {"name": "比赛场次", "data": match_counts},
             ],
-        )
+        }
 
-        await redis.setex(cache_key, CACHE_TTL_TREND, result_data.model_dump_json())
+        await redis.setex(cache_key, CACHE_TTL_TREND, json.dumps(result_data))
         return result_data
 
     # ========== 技术统计 ==========
 
     @staticmethod
-    async def get_technique_stats(user_id: int) -> TechniqueStatsResponse:
+    async def get_technique_stats(user_id: int) -> dict:
         """技术统计环形图数据（聚合最近所有报告的技术分布）。缓存 1h。"""
         redis = await get_redis()
         cache_key = f"dashboard:technique:{user_id}"
         cached = await redis.get(cache_key)
         if cached:
-            return TechniqueStatsResponse(**json.loads(cached))
+            return json.loads(cached)
 
         async with get_async_session() as db:
             # 读取最近 10 份报告
@@ -575,30 +623,31 @@ class DashboardService:
         for raw in rows:
             if not raw:
                 continue
-            dist = raw.get("technique_distribution", {})
+            # R13-P3 文档同步：兼容 technique_distribution 与 technique_stats 两种字段名
+            dist = raw.get("technique_distribution") or raw.get("technique_stats") or {}
             for tech, count in dist.items():
                 totals[tech] = totals.get(tech, 0) + count
 
         items = []
         for tech_key, count in totals.items():
             name, color = TECHNIQUE_COLORS.get(tech_key, (tech_key, "#1D3557"))
-            items.append(TechniqueItem(name=name, value=count, color=color))
+            items.append({"name": name, "value": count, "color": color})
 
-        result_data = TechniqueStatsResponse(technique_distribution=items)
+        result_data = {"technique_distribution": items}
 
-        await redis.setex(cache_key, CACHE_TTL_TECHNIQUE, result_data.model_dump_json())
+        await redis.setex(cache_key, CACHE_TTL_TECHNIQUE, json.dumps(result_data))
         return result_data
 
     # ========== 落点热图 ==========
 
     @staticmethod
-    async def get_landing_heatmap(user_id: int) -> LandingHeatmapResponse:
+    async def get_landing_heatmap(user_id: int) -> dict:
         """累计落点热图（跨多次报告聚合九宫格）。缓存 1h。"""
         redis = await get_redis()
         cache_key = f"dashboard:heatmap:{user_id}"
         cached = await redis.get(cache_key)
         if cached:
-            return LandingHeatmapResponse(**json.loads(cached))
+            return json.loads(cached)
 
         async with get_async_session() as db:
             # 限制最近 10 次报告
@@ -622,20 +671,24 @@ class DashboardService:
         for raw in rows:
             if not raw:
                 continue
-            heatmap = raw.get("landing_heatmap", {})
+            # R13-P3 文档同步：兼容 landing_heatmap（旧）与 landing_points（新）两种字段名
+            heatmap = raw.get("landing_heatmap") or raw.get("landing_points") or {}
             nine_grid = heatmap.get("nine_grid")
             if not nine_grid or len(nine_grid) != 3:
                 continue
             source_count += 1
-            for i in range(3):
-                for j in range(3):
+            # R13-P3 文档同步：实现带 min(3, len(...)) 防御（畸形行跳过）
+            for i in range(min(3, len(nine_grid))):
+                for j in range(min(3, len(nine_grid[i]))):
                     grid[i][j] += nine_grid[i][j]
                     total_rallies += nine_grid[i][j]
 
-            dist = raw.get("metrics", {})
-            forehand_total += dist.get("landing_forehand_pct", 0)
-            backhand_total += dist.get("landing_backhand_pct", 0)
-            middle_total += dist.get("landing_middle_pct", 0)
+            # R13-P3 文档同步：metrics 优先；值为 0/缺失时回退 landing_points.distribution（or 链语义）
+            metrics = raw.get("metrics", {})
+            dist = raw.get("landing_points", {}).get("distribution", {})
+            forehand_total += metrics.get("landing_forehand_pct", 0) or dist.get("forehand", 0) or 0
+            backhand_total += metrics.get("landing_backhand_pct", 0) or dist.get("backhand", 0) or 0
+            middle_total += metrics.get("landing_middle_pct", 0) or dist.get("middle", 0) or 0
 
         # 归一化分布
         dist_sum = forehand_total + backhand_total + middle_total
@@ -648,14 +701,15 @@ class DashboardService:
         else:
             distribution = {"forehand": 0, "backhand": 0, "middle": 0}
 
-        result_data = LandingHeatmapResponse(
-            nine_grid=grid,
-            distribution=distribution,
-            total_rallies=total_rallies,
-            source_reports_count=source_count,
-        )
+        # R13-P3 文档同步：实现返回 dict
+        result_data = {
+            "nine_grid": grid,
+            "distribution": distribution,
+            "total_rallies": total_rallies,
+            "source_reports_count": source_count,
+        }
 
-        await redis.setex(cache_key, CACHE_TTL_HEATMAP, result_data.model_dump_json())
+        await redis.setex(cache_key, CACHE_TTL_HEATMAP, json.dumps(result_data))
         return result_data
 
     # ========== 比赛记录列表 ==========
@@ -666,7 +720,7 @@ class DashboardService:
         result_filter: str = "all",
         page: int = 1,
         page_size: int = 20,
-    ) -> MatchRecordsResponse:
+    ) -> dict:
         """比赛记录列表（实时查询，不缓存）。"""
         # 参数降级
         if result_filter not in ("win", "lose", "all"):
@@ -679,9 +733,15 @@ class DashboardService:
             elif result_filter == "lose":
                 qs = qs.where(MatchRecord.is_win.is_(False))
 
-            # 总数
-            count_stmt = select(func.count()).select_from(qs.subquery())
-            total = await db.scalar(count_stmt) or 0
+            # 总数 — R13-P3 文档同步：实现用独立 count 查询（与 qs 同条件）
+            count_qs = select(func.count()).select_from(MatchRecord).where(
+                MatchRecord.user_id == user_id
+            )
+            if result_filter == "win":
+                count_qs = count_qs.where(MatchRecord.is_win.is_(True))
+            elif result_filter == "lose":
+                count_qs = count_qs.where(MatchRecord.is_win.is_(False))
+            total = await db.scalar(count_qs) or 0
 
             # 分页
             offset = (page - 1) * page_size
@@ -689,10 +749,22 @@ class DashboardService:
             result = await db.execute(qs)
             records = result.scalars().all()
 
-        items = [MatchRecordBrief.model_validate(r) for r in records]
-        return MatchRecordsResponse(
-            total=total, page=page, page_size=page_size, items=items,
-        )
+        # R13-P3 文档同步：实现手动构造 dict 列表（match_date 转 isoformat 字符串）
+        items = [
+            {
+                "id": r.id,
+                "opponent_name": r.opponent_name,
+                "opponent_rating": r.opponent_rating,
+                "my_score": r.my_score,
+                "opponent_score": r.opponent_score,
+                "is_win": r.is_win,
+                "format": r.format,
+                "match_type": r.match_type,
+                "match_date": r.match_date.isoformat() if r.match_date else None,
+            }
+            for r in records
+        ]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     # ========== 缓存 bust ==========
 
@@ -724,44 +796,31 @@ class DashboardService:
             await redis.delete(*keys)
 ```
 
-> **注意**：`func.cast(MatchRecord.is_win, Integer)` 需要在实际实现中导入 `from sqlalchemy import Integer` 并确保 PostgreSQL 兼容。也可改为 `func.sum(func.case((MatchRecord.is_win.is_(True), 1), else_=0))`。
+> **注意**：R13-P3 文档同步 — 实现已采用 `func.sum(case((MatchRecord.is_win.is_(True), 1), else_=0))` 写法（见上文样例），`case` 从 `sqlalchemy` 导入。
 
-### 5.2 缓存清理 Celery Task
+### 5.2 缓存清理触发路径（R13-P3 文档同步）
+
+> 原设计为 Celery Task（`app/tasks/dashboard_beat.py`，任务名 `dashboard.bust_cache`，事件驱动、无需注册 beat）。
+> 实际实现未创建该 Task 文件：`bust_cache` 由跨模块调用方在事务提交后**进程内直接 await 调用**。以实现为准，调用方如下：
 
 ```python
-# app/tasks/dashboard_beat.py
-"""数据看板缓存清理任务。"""
-
-from app.core.celery import celery_app
-
-
-@celery_app.task(name="dashboard.bust_cache")
-def bust_cache_task(user_id: int, event: str = "manual"):
-    """数据看板缓存清理——事件驱动触发。
-
-    逻辑：
-    1. 接收 user_id + event（analysis_complete / match_end / manual）
-    2. 调用 DashboardService.bust_cache() 清除该用户的看板缓存
-    3. 清除的缓存键包括：dashboard:overview:{user_id}、dashboard:trends:{user_id} 等
-
-    触发场景：
-    - video_analysis 分析完成 → event="analysis_complete"
-    - match_data 比赛结束 → event="match_end"
-    - 手动触发 → event="manual"
-
-    注意：此任务为事件驱动（跨模块调用），
-    无需在 beat_schedule 中注册定时触发。
-    """
-    import asyncio
-    asyncio.run(_bust_cache_async(user_id, event))
-
-
-async def _bust_cache_async(user_id: int, event: str):
-    """缓存清理异步实现。"""
+# app/ai_pipeline/report_generator.py — 分析完成级联（R12-Dash-1）
+try:
     from app.services.dashboard_service import DashboardService
+    await DashboardService.bust_cache(user_id, "analysis_complete")
+except Exception as e:
+    logger.error("cascade_bust_cache_failed", extra={"error": str(e)})
 
-    await DashboardService.bust_cache(user_id=user_id, event=event)
+# app/services/scoring_service.py — 比赛结束级联（R12-Dash-1）
+try:
+    from app.services.dashboard_service import DashboardService
+    await DashboardService.bust_cache(match.user_id, "match_end")
+except Exception as e:
+    logger.error("scoring_bust_cache_failed", extra={"error": str(e), "match_id": match_id})
 ```
+
+> 清除键：`analysis_complete` → `dashboard:overview:{uid}` / `dashboard:technique:{uid}` / `dashboard:heatmap:{uid}`；
+> `match_end` → `dashboard:overview:{uid}` + `dashboard:winrate:{uid}:{period}`（month/quarter/year 三 period）。
 
 ---
 
@@ -769,7 +828,7 @@ async def _bust_cache_async(user_id: int, event: str):
 
 ```python
 # app/api/v1/dashboard/router.py
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from app.core.deps import get_current_user
 from app.core.response import success
 from app.models.user import User
@@ -778,41 +837,46 @@ from app.services.dashboard_service import DashboardService
 
 router = APIRouter(prefix="/dashboard", tags=["数据看板"])
 
-@limiter.limit("100/minute")
+# R13-P3 文档同步：装饰器顺序为 @router.get 在上、@limiter.limit 在下（slowapi 要求，
+# 反置会使路由表注册原始函数、限流永不执行）；限流端点函数签名必须含 request: Request 参数。
+
 @router.get("/overview", summary="概览卡片")
-async def get_overview(user: User = Depends(get_current_user)):
+@limiter.limit("100/minute")
+async def get_overview(request: Request, user: User = Depends(get_current_user)):
     """胜率/分析次数/训练频次/连续天数/趋势。缓存 5min。"""
     data = await DashboardService.get_overview(user.id)
     return success(data=data)
 
-@limiter.limit("100/minute")
 @router.get("/win-rate-trend", summary="战绩趋势")
+@limiter.limit("100/minute")
 async def get_win_rate_trend(
-    period: str = Query(default="month", regex="^(month|quarter|year)$"),
+    request: Request,
+    period: str = Query(default="month", pattern="^(month|quarter|year)$"),
     user: User = Depends(get_current_user),
 ):
     """战绩趋势折线图数据。缓存 1h。"""
     data = await DashboardService.get_win_rate_trend(user.id, period=period)
     return success(data=data)
 
-@limiter.limit("100/minute")
 @router.get("/technique-stats", summary="技术统计")
-async def get_technique_stats(user: User = Depends(get_current_user)):
+@limiter.limit("100/minute")
+async def get_technique_stats(request: Request, user: User = Depends(get_current_user)):
     """技术统计环形图数据。缓存 1h。"""
     data = await DashboardService.get_technique_stats(user.id)
     return success(data=data)
 
-@limiter.limit("100/minute")
 @router.get("/landing-heatmap", summary="累计落点热图")
-async def get_landing_heatmap(user: User = Depends(get_current_user)):
+@limiter.limit("100/minute")
+async def get_landing_heatmap(request: Request, user: User = Depends(get_current_user)):
     """累计落点热图（跨多次报告聚合九宫格）。缓存 1h。"""
     data = await DashboardService.get_landing_heatmap(user.id)
     return success(data=data)
 
-@limiter.limit("100/minute")
 @router.get("/match-records", summary="比赛记录列表")
+@limiter.limit("100/minute")
 async def get_match_records(
-    result: str = Query(default="all", regex="^(win|lose|all)$"),
+    request: Request,
+    result: str = Query(default="all", pattern="^(win|lose|all)$"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
     user: User = Depends(get_current_user),
@@ -833,6 +897,9 @@ api_router.include_router(dashboard_router)
 ---
 
 ## 7. 冒烟测试脚本
+
+> R13-P3 文档同步：`tests/smoke/dashboard_smoke_test.py` 独立脚本未创建（tests/smoke/ 仅有 `__init__.py`）；
+> 冒烟覆盖以 `tests/unit/test_supplements_p2.py::TestDashboardSmoke` 实现（overview 冒烟 + period 非法值 422）。
 
 ```python
 # tests/smoke/dashboard_smoke_test.py
@@ -921,6 +988,7 @@ if __name__ == "__main__":
 - [ ] Redis 缓存键正确（`dashboard:overview:{user_id}` / `dashboard:winrate:{user_id}:{period}` / `dashboard:technique:{user_id}` / `dashboard:heatmap:{user_id}`）
 - [ ] 缓存 TTL 配置正确（overview 5min, trend/technique/heatmap 1h, match-records 不缓存）
 - [ ] 缓存 bust 触发正确（分析完成 → overview/technique/heatmap，比赛结束 → overview/winrate）
+- [ ] 降级用户概览返回简化看板（downgrade:report:readonly:{uid} 命中 → 实时计算不缓存，R12-Dash-2 / R13-P3 文档同步）
 - [ ] 落点热图聚合限制最近 10 次报告
 - [ ] 比赛记录列表实时查询不缓存
 - [ ] 概览响应包含 `latest_advice_summary` 字段

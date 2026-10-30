@@ -344,24 +344,227 @@ async def test_cache_bust_analysis(client, auth_headers, auth_user):
 
 
 @pytest.mark.asyncio
-async def test_cache_bust_match_end(client, auth_headers, auth_user):
-    """比赛结束后缓存被 bust"""
+async def test_cache_bust_match_end(client, auth_headers, auth_user, monkeypatch):
+    """R12-Dash-1/ND-1: 比赛结束后看板缓存被 bust（match_end 事件范围）"""
     await _create_dashboard_data(client, auth_headers, auth_user)
     user_id = auth_user["user_id"]
 
     from app.services.dashboard_service import DashboardService
     from app.core.redis import get_redis
 
-    # 填充缓存
+    # 填充缓存：overview + winrate 三 period
     await DashboardService.get_overview(user_id)
-    await DashboardService.get_win_rate_trend(user_id, period="month")
-
+    for period in ("month", "quarter", "year"):
+        await DashboardService.get_win_rate_trend(user_id, period=period)
+    # 手动放置 analysis_complete 事件专属 key（technique/heatmap），
+    # 用于验证 match_end 的事件范围隔离（不应被误删）
     redis = await get_redis()
-    assert await redis.get(f"dashboard:overview:{user_id}") is not None
+    overview_key = f"dashboard:overview:{user_id}"
+    technique_key = f"dashboard:technique:{user_id}"
+    heatmap_key = f"dashboard:heatmap:{user_id}"
+    await redis.set(technique_key, "x", ex=300)
+    await redis.set(heatmap_key, "x", ex=300)
+
+    assert await redis.get(overview_key) is not None
     assert await redis.get(f"dashboard:winrate:{user_id}:month") is not None
+    assert await redis.get(f"dashboard:winrate:{user_id}:quarter") is not None
+    assert await redis.get(f"dashboard:winrate:{user_id}:year") is not None
 
-    # bust
-    await DashboardService.bust_cache(user_id, event="match_end")
+    # ---- 执行 bust（match_end 事件：service 层直调，主循环内无跨循环风险）----
+    # 完整链路分工：
+    #   scoring finish_match -> bust_cache_task.delay(user_id, "match_end")
+    #   （投递断言见 test_scoring.py SC-1 / test_ai_pipeline.py 级联 spy）
+    #   task 体 -> _bust_cache_async -> DashboardService.bust_cache（本测试直调验证）
+    await DashboardService.bust_cache(user_id, "match_end")
 
-    assert await redis.get(f"dashboard:overview:{user_id}") is None
+    # ---- 断言：match_end 事件范围（overview + winrate 三 period 被删）----
+    assert await redis.get(overview_key) is None, "overview 缓存应被 bust"
     assert await redis.get(f"dashboard:winrate:{user_id}:month") is None
+    assert await redis.get(f"dashboard:winrate:{user_id}:quarter") is None
+    assert await redis.get(f"dashboard:winrate:{user_id}:year") is None
+    # ---- 断言：事件范围隔离（technique/heatmap 属 analysis_complete，应保留）----
+    assert await redis.get(technique_key) is not None, "technique 不属于 match_end 事件范围"
+    assert await redis.get(heatmap_key) is not None, "heatmap 不属于 match_end 事件范围"
+
+
+# =============================================================================
+# 落点热图边界分支（R12-Dash-5）
+# =============================================================================
+
+async def _create_heatmap_report(user_id: int, result_data, index: int, created_at=None):
+    """创建带指定 result_data 的分析报告行（FileRecord + VideoTask + AnalysisReport）"""
+    import uuid as _uuid
+
+    async with async_session_factory() as db:
+        file_record = FileRecord(
+            user_id=user_id,
+            oss_key=f"test/heatmap/{user_id}/{index}-{_uuid.uuid4().hex}.mp4",
+            original_filename="test.mp4",
+            file_size=10 * 1024 * 1024,  # ck_file_size_range 要求 1MB-500MB
+            file_type="mp4",
+            status="uploaded",
+        )
+        db.add(file_record)
+        await db.flush()
+
+        task = VideoTask(
+            user_id=user_id,
+            file_id=file_record.id,
+            oss_key=file_record.oss_key,
+            status="completed",
+            task_uuid=f"test-uuid-heatmap-{user_id}-{index}-{_uuid.uuid4().hex}",
+            progress=1.0,
+            current_step=10,
+        )
+        db.add(task)
+        await db.flush()
+
+        report = AnalysisReport(
+            task_id=task.id,
+            user_id=user_id,
+            report_text={"summary": "s", "issues": [], "suggestions": []},
+            result_data=result_data,
+        )
+        if created_at is not None:
+            report.created_at = created_at
+        db.add(report)
+        await db.commit()
+        return report
+
+
+@pytest.mark.asyncio
+async def test_heatmap_field_name_compatibility(db_session, test_user):
+    """R12-Dash-5: landing_heatmap（旧字段名）与 landing_points（新字段名）兼容聚合"""
+    from app.services.dashboard_service import DashboardService
+
+    grid_a = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    grid_b = [[9, 8, 7], [6, 5, 4], [3, 2, 1]]
+    metrics_a = {"landing_forehand_pct": 60, "landing_backhand_pct": 30, "landing_middle_pct": 10}
+
+    # 旧字段名：landing_heatmap + metrics
+    await _create_heatmap_report(
+        test_user.id,
+        {"landing_heatmap": {"nine_grid": grid_a}, "metrics": metrics_a},
+        index=0,
+    )
+    # 新字段名：landing_points.nine_grid（无 metrics → 分布贡献 0）
+    await _create_heatmap_report(
+        test_user.id,
+        {"landing_points": {"nine_grid": grid_b}},
+        index=1,
+    )
+
+    data = await DashboardService.get_landing_heatmap(test_user.id)
+
+    # 两种字段名的九宫格均被聚合
+    assert data["nine_grid"] == [[10, 10, 10], [10, 10, 10], [10, 10, 10]]
+    assert data["source_reports_count"] == 2
+    assert data["total_rallies"] == 90
+    # 分布归一化：仅 report A 的 metrics 贡献（60/30/10 → 归一化 0.6/0.3/0.1）
+    # report B 无 metrics 且无 distribution → 逐份回退后贡献 0
+    assert data["distribution"]["forehand"] == 0.6
+    assert data["distribution"]["backhand"] == 0.3
+    assert data["distribution"]["middle"] == 0.1
+
+
+@pytest.mark.asyncio
+async def test_heatmap_malformed_rows_skipped(db_session, test_user):
+    """R12-Dash-5: 畸形行跳过 — nine_grid 长度≠3 / 空 nine_grid / 空 result_data"""
+    from app.services.dashboard_service import DashboardService
+
+    # nine_grid 只有 2 行（≠3）→ 跳过
+    await _create_heatmap_report(
+        test_user.id,
+        {"landing_points": {"nine_grid": [[1, 2, 3], [4, 5, 6]]}},
+        index=0,
+    )
+    # nine_grid 为空列表 → 跳过
+    await _create_heatmap_report(
+        test_user.id,
+        {"landing_points": {"nine_grid": []}},
+        index=1,
+    )
+    # result_data 为空 dict（falsy）→ 跳过
+    await _create_heatmap_report(test_user.id, {}, index=2)
+
+    # 一份合法报告
+    await _create_heatmap_report(
+        test_user.id,
+        {"landing_points": {"nine_grid": [[1, 1, 1], [1, 1, 1], [1, 1, 1]]}},
+        index=3,
+    )
+
+    data = await DashboardService.get_landing_heatmap(test_user.id)
+
+    # 仅合法行参与聚合（3 份畸形行全部跳过）
+    assert data["source_reports_count"] == 1
+    assert data["nine_grid"] == [[1, 1, 1], [1, 1, 1], [1, 1, 1]]
+    assert data["total_rallies"] == 9
+
+
+@pytest.mark.asyncio
+async def test_heatmap_distribution_fallback_to_landing_points(db_session, test_user):
+    """R12-Dash-5: metrics 缺失时回退 landing_points.distribution 读取分布"""
+    from app.services.dashboard_service import DashboardService
+
+    await _create_heatmap_report(
+        test_user.id,
+        {
+            "landing_points": {
+                "nine_grid": [[1, 1, 1], [1, 1, 1], [1, 1, 1]],
+                "distribution": {"forehand": 50, "backhand": 30, "middle": 20},
+            },
+        },
+        index=0,
+    )
+
+    data = await DashboardService.get_landing_heatmap(test_user.id)
+    # 归一化：50/100=0.5, 30/100=0.3, 20/100=0.2
+    assert data["distribution"]["forehand"] == 0.5
+    assert data["distribution"]["backhand"] == 0.3
+    assert data["distribution"]["middle"] == 0.2
+
+
+@pytest.mark.asyncio
+async def test_heatmap_zero_distribution_guard(db_session, test_user):
+    """R12-Dash-5: 分布全 0 → 除零防护，返回全 0 而非异常"""
+    from app.services.dashboard_service import DashboardService
+
+    await _create_heatmap_report(
+        test_user.id,
+        {"landing_points": {"nine_grid": [[1, 1, 1], [1, 1, 1], [1, 1, 1]]}},
+        index=0,
+    )
+
+    # 无 metrics 且无 distribution → dist_sum=0，不得触发除零
+    data = await DashboardService.get_landing_heatmap(test_user.id)
+    assert data["distribution"] == {"forehand": 0, "backhand": 0, "middle": 0}
+    assert data["source_reports_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_heatmap_limits_to_10_newest_reports(db_session, test_user):
+    """R12-Dash-5: 报告数截断 — 超过 10 份时仅聚合最新 10 份（created_at 倒序）"""
+    from app.services.dashboard_service import DashboardService
+
+    now = datetime.now(timezone.utc)
+
+    # 12 份合法报告：i=0 最新 … i=11 最旧；i>=10 的两份带特征值 100
+    for i in range(12):
+        if i >= 10:
+            grid = [[100, 100, 100], [100, 100, 100], [100, 100, 100]]
+        else:
+            grid = [[1, 1, 1], [1, 1, 1], [1, 1, 1]]
+        await _create_heatmap_report(
+            test_user.id,
+            {"landing_points": {"nine_grid": grid}},
+            index=i,
+            created_at=now - timedelta(hours=i),
+        )
+
+    data = await DashboardService.get_landing_heatmap(test_user.id)
+
+    # 仅最新 10 份参与（最旧两份 100 特征值被排除）
+    assert data["source_reports_count"] == 10
+    assert data["nine_grid"] == [[10, 10, 10], [10, 10, 10], [10, 10, 10]]
+    assert data["total_rallies"] == 90

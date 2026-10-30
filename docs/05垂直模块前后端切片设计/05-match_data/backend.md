@@ -10,18 +10,18 @@
 ## 1. 切片准备清单
 
 - [ ] 阅读模块详细设计 §2.5（match_data 模块功能规格）
-- [ ] 阅读 API 契约 §7（比赛数据模块 3 个端点）
+- [ ] 阅读 API 契约 §7（比赛数据模块 4 个端点，§7.1-§7.4，R13-P3 文档同步）
 - [ ] 阅读 `app/core/response.py`（统一响应 `success()`）
 - [ ] 阅读 `app/core/deps.py`（`get_current_user` 依赖注入）
 - [ ] 阅读 `app/core/pagination.py`（分页工具 `paginate()`）
 - [ ] 阅读 `app/models/scoring.py`（`Match` 表，用于可选关联 `match_id`）
-- [ ] 确认本切片范围：3 个 API 端点 + 对应 Service 方法 + 2 个 Model
+- [ ] 确认本切片范围：4 个 API 端点（POST/GET 列表/GET 详情/PATCH 编辑，R13-P3 文档同步：F5 PATCH 已实现）+ 对应 Service 方法 + 2 个 Model
 
 ### 任务清单
 
 | # | 任务 | 文件 | 依赖 | 状态 |
 |---|------|------|------|------|
-| 1 | 定义 Model | `app/models/match_data.py` | 无 | ☐ |
+| 1 | 定义 Model | `app/models/match.py` | 无 | ☐ |（R13-P3 文档同步：与 Match/ScoreRecord 同文件）
 | 2 | 注册 Model | `app/models/__init__.py` | #1 | ☐ |
 | 3 | 定义 Schema | `app/schemas/match_data.py` | #1 | ☐ |
 | 4 | 实现 Service | `app/services/match_data_service.py` | #2,#3 | ☐ |
@@ -35,6 +35,8 @@
 
 ## 2. 测试先行
 
+> **R13-P3 文档同步**：实际测试（`tests/unit/test_match_data.py`）与本节样例的演化差异——① fixture 使用 conftest 的 `client` + `auth_headers`（非自建 `match_data_ctx`/`auth_user2`）；② `match_date` 因 Schema 提供默认值（§4）可省略；③ 跨用户隔离用例落地于 `tests/unit/test_supplements_p2.py::TestMatchRecordPatchIsolation` （跨用户 PATCH 404/code 40413 + 数据不变断言 + 属主对照，URL 含完整 `/records` 段，R12-MatchData-D1/D2 修复）；④ 新增 R12 修复回归用例 `test_update_record_is_win_not_acceptable` / `test_update_record_single_score_recalc` 及 409 关联编辑 / 空更新体 422 / notes 编辑用例。样例保留作为场景规划参考。
+> - **R13-P3 文档同步（R13-MatchData-1 已修复）**：`update_record`（Service 层）在任一比分字段变更时，应用更新后统一调用 `_validate_score_by_format(my_score, opponent_score, format)` 校验合并比分 —— 单边 PATCH 造出非法赛制比分（如 bo5 3:1 改 my_score=0 → 0:1，胜方未达 3 局）返回 422 `ERR_SCORE_INVALID`（「比分不符合赛制规则」，对齐 API 设计 §7.4 错误表）；同时 is_win 按合并后比分重算（OR 语义保留）。因此 `test_update_record_single_score_recalc` 实际落地版改用 custom 赛制（唯一约束非平局）验证单边改分翻转胜负 —— 定局赛制（bo1/bo3/bo5/bo7）的合法比分对均无法通过单边改分翻转胜负。
 ### 测试文件结构
 
 ```python
@@ -383,76 +385,107 @@ async def test_update_record_other_user(match_data_ctx, auth_user2):
 ## 3. Model 实现
 
 ```python
-# app/models/match_data.py
+# app/models/match.py（节选 — R13-P3 文档同步：MatchRecord/ManualScoreDetail 实际定义于
+# app/models/match.py，与 Match/ScoreRecord/MatchStatistic/ShareRecord 同文件，非独立
+# app/models/match_data.py；字段以实现为准：新增 opponent_user_id / notes，
+# 时间列改用 server_default=func.now()（DB DEFAULT NOW() 兜底，create 时业务层注入 match_date））
 """
-比赛数据模块数据模型。
+比赛数据模块数据模型（位于 match.py，与记分牌表同文件）。
 包含：MatchRecord（手动录入比赛记录）、ManualScoreDetail（逐分明细）。
 """
-from datetime import datetime, timezone
+from datetime import datetime
 
-from typing import Optional
-
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Boolean, Text, Index
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 
 class MatchRecord(Base):
-    """手动录入的比赛记录（快速录入或详细录入）。"""
+    """比赛记录 — 手动录入 + 记分牌关联。DB §2.13"""
+
     __tablename__ = "match_record"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), comment="创建者用户ID")  # R19-P3-10: 移除冗余 index=True（__table_args__ idx_mrecord_user_date 已覆盖）
-    opponent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    opponent_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="对手积分")
-    my_score: Mapped[int] = mapped_column(Integer, comment="我的得分/局数")
-    opponent_score: Mapped[int] = mapped_column(Integer, comment="对手得分/局数")
-    is_win: Mapped[bool] = mapped_column(Boolean, comment="是否胜利（自动计算）")
-    format: Mapped[str] = mapped_column(String(20), default="bo5", comment="赛制: bo1/bo3/bo5/bo7/custom")
-    match_type: Mapped[str] = mapped_column(String(20), default="friendly", comment="比赛类型")
-    match_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), comment="比赛日期时间")  # R19-P3-9: 由业务层注入（DB §2.13 DEFAULT NOW() 兜底对齐）
-    # 可选关联记分牌比赛
-    match_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("match.id", ondelete="SET NULL"), nullable=True,  # R28-OBS-2/R29-P2-1: 移除冗余 index=True（__table_args__ idx_mrecord_user_date 已覆盖 user_id 查询路径；match_id 为可选 FK 字段，无独立查询场景，与 DB §2.13 索引声明一致）
-        comment="关联的记分牌比赛ID（可选）",
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )
-    # 录入模式标记
-    is_detailed: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否详细录入（含逐分明细）")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    match_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("match.id", ondelete="SET NULL"), nullable=True
+    )
+    opponent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    opponent_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    opponent_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    my_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    opponent_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_win: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    format: Mapped[str] = mapped_column(String(20), default="bo5", nullable=False)
+    match_type: Mapped[str] = mapped_column(String(20), default="friendly", nullable=False)
+    match_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    is_detailed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # --- 关系 ---
+    details: Mapped[list["ManualScoreDetail"]] = relationship(
+        back_populates="record", cascade="all, delete-orphan",
+        order_by="ManualScoreDetail.sequence",
+    )
 
     __table_args__ = (
         Index("idx_mrecord_user_date", "user_id", "match_date"),
     )
 
-    # 关系
-    details: Mapped[list["ManualScoreDetail"]] = relationship(
-        back_populates="record", cascade="all, delete-orphan", order_by="ManualScoreDetail.sequence",
-    )
+    def __repr__(self) -> str:
+        return f"<MatchRecord(id={self.id}, user_id={self.user_id}, score={self.my_score}:{self.opponent_score})>"
 
 
 class ManualScoreDetail(Base):
-    """逐分明细（详细录入时记录每分得分方式和技术动作）。"""
+    """手动记分详情 — 一对多关联 MatchRecord。DB §2.14"""
+
     __tablename__ = "manual_score_detail"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    match_record_id: Mapped[int] = mapped_column(ForeignKey("match_record.id", ondelete="CASCADE"))  # R19-P3-10: 移除冗余 index=True（__table_args__ idx_msd_record_seq 已覆盖）
-    sequence: Mapped[int] = mapped_column(Integer, comment="得分序号")
-    scorer: Mapped[str] = mapped_column(String(10), comment="得分方: user/opponent")
-    score_method: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="得分方式: serve_point/rally_point/opponent_error")
-    technique_action: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="技术动作")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
-    __table_args__ = (
-        Index("idx_msd_record_seq", "match_record_id", "sequence"),  # R19-P3-10: 补充索引（DB §2.14/§7 已定义）
+    match_record_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("match_record.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    scorer: Mapped[str] = mapped_column(String(10), nullable=False)  # user/opponent
+    score_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    technique_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
+    # --- 关系 ---
     record: Mapped["MatchRecord"] = relationship(back_populates="details")
+
+    __table_args__ = (
+        Index("idx_msd_record_seq", "match_record_id", "sequence"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ManualScoreDetail(id={self.id}, seq={self.sequence}, scorer={self.scorer!r})>"
 ```
 
 **实现后必须**：
-- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.match_data import MatchRecord, ManualScoreDetail`
+- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.match import MatchRecord, ManualScoreDetail` （R13-P3 文档同步：实际从 app/models/match.py 导入）
 - [ ] 运行 `alembic revision --autogenerate -m "add_match_data_tables"`
 - [ ] 运行 `alembic upgrade head`
 
@@ -461,20 +494,33 @@ class ManualScoreDetail(Base):
 ## 4. Schema 实现
 
 ```python
-# app/schemas/match_data.py
+# app/schemas/match_data.py — R13-P3 文档同步（以实现为准回写）：
+# ① match_date 提供默认值（default_factory=now），创建请求可省略；
+# ② MatchRecordUpdate 不含 is_win（R12-MatchData-B1：自动计算禁止前端传入）；
+# ③ opponent_name/match_date 可空（对齐 DB §2.13 nullable）；
+# ④ MatchRecordDetail 继承 MatchRecordBrief 并补充 notes/match_id/is_detailed；
+# ⑤ MatchRecordCreateResponse 补充 match_id（API §7.1 / R6-Match-1）
 """
-比赛数据模块 Pydantic Schema。
+app/schemas/match_data.py — 比赛数据模块 Pydantic Schema
+
+依据：API §7 match-data 端点契约 / 切片 05-match_data/backend.md §4
+规范：{Entity}Request / {Entity}Response 命名
 """
+
 from datetime import datetime, timezone
+from typing import Optional
 
-from typing import Optional, Literal
 from pydantic import BaseModel, Field, model_validator
+from typing import Literal
 
 
-# --- 请求 Schema ---
+# =============================================================================
+# 请求 Schema
+# =============================================================================
 
 class ManualScoreDetailItem(BaseModel):
-    """逐分明细条目（详细录入时提交）。"""
+    """手动得分明细项"""
+
     sequence: int = Field(..., ge=1, description="得分序号")
     scorer: Literal["user", "opponent"] = Field(..., description="得分方")
     score_method: Literal["serve_point", "rally_point", "opponent_error"] = Field(..., description="得分方式")
@@ -482,98 +528,97 @@ class ManualScoreDetailItem(BaseModel):
 
 
 class MatchRecordCreateRequest(BaseModel):
-    """创建比赛记录请求（快速/详细录入统一入口）。"""
-    opponent_name: str = Field(..., min_length=1, max_length=64, description="对手姓名")
+    """创建比赛记录请求（快速/详细录入）"""
+
+    opponent_name: str = Field(..., min_length=1, max_length=64, description="对手名")
     opponent_rating: Optional[int] = Field(default=None, ge=500, le=3000, description="对手积分")
-    my_score: int = Field(..., ge=0, le=99, description="我的得分/局数")
-    opponent_score: int = Field(..., ge=0, le=99, description="对手得分/局数")
+    my_score: int = Field(..., ge=0, le=99, description="我的得分")
+    opponent_score: int = Field(..., ge=0, le=99, description="对手得分")
     format: Literal["bo1", "bo3", "bo5", "bo7", "custom"] = Field(default="bo5", description="赛制")
     match_type: Literal["friendly", "tournament", "training"] = Field(default="friendly", description="比赛类型")
-    match_date: datetime = Field(..., description="比赛日期时间")
-    details: Optional[list[ManualScoreDetailItem]] = Field(default=None, description="逐分明细（详细录入时提供）")
-    match_id: Optional[int] = Field(default=None, ge=1, description="关联的记分牌比赛ID（可选）")
+    match_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="比赛日期")
+    details: Optional[list[ManualScoreDetailItem]] = Field(default=None, description="详细得分明细")
+    match_id: Optional[int] = Field(default=None, ge=1, description="关联记分牌比赛 ID")
 
     @model_validator(mode="after")
     def validate_score(self):
-        """比分合法性校验。"""
-        # 比分不能相同
+        """比分不能相同 + 日期不能晚于当前时间"""
         if self.my_score == self.opponent_score:
             raise ValueError("比分不能相同")
-        # 日期不能在未来
         if self.match_date > datetime.now(timezone.utc):
             raise ValueError("比赛日期不能晚于当前时间")
         return self
 
 
-# --- 响应 Schema ---
-
-class MatchRecordBrief(BaseModel):
-    """比赛记录列表项。"""
-    id: int
-    opponent_name: str
-    opponent_rating: Optional[int] = None
-    my_score: int
-    opponent_score: int
-    is_win: bool
-    format: str
-    match_type: str
-    match_date: datetime
-    model_config = {"from_attributes": True}
-
-
-class MatchRecordDetail(BaseModel):
-    """比赛记录详情（含逐分明细）。"""
-    id: int
-    opponent_name: str
-    opponent_rating: Optional[int] = None
-    my_score: int
-    opponent_score: int
-    is_win: bool
-    format: str
-    match_type: str
-    match_date: datetime
-    match_id: Optional[int] = None
-    is_detailed: bool
-    details: list[ManualScoreDetailItem] = Field(default_factory=list)
-    model_config = {"from_attributes": True}
-
-
-class MatchRecordCreateResponse(BaseModel):
-    """创建比赛记录响应。"""
-    id: int
-    is_win: bool
-
-
-# --- 查询 Schema ---
-
-class MatchRecordListQuery(BaseModel):
-    """比赛记录列表查询参数。"""
-    result: Optional[Literal["win", "lose", "all"]] = Field(default="all", description="结果筛选")
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=50)
-
-
 class MatchRecordUpdate(BaseModel):
-    """手动编辑比赛记录请求（F5：修正比赛结果、补充技术统计等）。
-    所有字段均为可选，仅更新传入的字段。
-    """
-    opponent_name: Optional[str] = Field(default=None, min_length=1, max_length=64, description="对手姓名")
-    opponent_rating: Optional[int] = Field(default=None, ge=500, le=3000, description="对手积分")
-    my_score: Optional[int] = Field(default=None, ge=0, le=99, description="我的得分/局数")
-    opponent_score: Optional[int] = Field(default=None, ge=0, le=99, description="对手得分/局数")
-    match_date: Optional[datetime] = Field(default=None, description="比赛日期时间")
-    match_type: Optional[Literal["friendly", "tournament", "training"]] = Field(default=None, description="比赛类型")
-    notes: Optional[str] = Field(default=None, max_length=500, description="备注/补充说明")
+    """编辑比赛记录请求（PATCH 语义）"""
+
+    opponent_name: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    opponent_rating: Optional[int] = Field(default=None, ge=500, le=3000)
+    my_score: Optional[int] = Field(default=None, ge=0, le=99)
+    opponent_score: Optional[int] = Field(default=None, ge=0, le=99)
+    # R12-MatchData-B1: is_win 禁止前端传入，必须自动计算（设计反幻觉约束）
+    # Schema 不定义 is_win 字段 — 未知字段被 Pydantic 忽略，服务端 update_record 重算
+    match_date: Optional[datetime] = Field(default=None)
+    match_type: Optional[Literal["friendly", "tournament", "training"]] = Field(default=None)
+    notes: Optional[str] = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def validate_score_update(self):
-        """比分合法性校验（仅在同时提供 my_score 和 opponent_score 时触发）。"""
+        """比分不能相同（仅当两个分数同时传入时检查）"""
         if self.my_score is not None and self.opponent_score is not None:
             if self.my_score == self.opponent_score:
                 raise ValueError("比分不能相同")
         if self.match_date is not None and self.match_date > datetime.now(timezone.utc):
             raise ValueError("比赛日期不能晚于当前时间")
         return self
+
+
+class MatchRecordListQuery(BaseModel):
+    """比赛记录列表查询"""
+
+    result: Optional[Literal["win", "lose", "all"]] = Field(default="all")
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=50)
+
+
+# =============================================================================
+# 响应 Schema
+# =============================================================================
+
+class MatchRecordBrief(BaseModel):
+    """比赛记录简要"""
+
+    id: int
+    opponent_name: Optional[str] = None
+    opponent_rating: Optional[int] = None
+    my_score: int
+    opponent_score: int
+    is_win: bool
+    format: str
+    match_type: str
+    match_date: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MatchRecordDetail(MatchRecordBrief):
+    """比赛记录详情（含得分明细）"""
+
+    match_id: Optional[int] = None
+    is_detailed: bool = False
+    notes: Optional[str] = None
+    details: list[ManualScoreDetailItem] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class MatchRecordCreateResponse(BaseModel):
+    """创建比赛记录响应"""
+
+    id: int
+    is_win: bool
+    match_id: Optional[int] = None  # R6-Match-1: API §7.1 match_id 字段
 ```
 
 ---
@@ -581,59 +626,76 @@ class MatchRecordUpdate(BaseModel):
 ## 5. Service 实现
 
 ```python
-# app/services/match_data_service.py
+# app/services/match_data_service.py — R13-P3 文档同步（以实现为准回写）：
+# ① session 工厂 get_async_session → async_session_factory；
+# ② AppException 携带端点级业务错误码（42210/40413/40911/40411/40000，API §1.8）；
+# ③ create_record 响应补充 match_id（API §7.1 / R6-Match-1）；
+# ④ list_records 签名改为 (user_id, result_filter, page, page_size)，手动分页构造
+#    dict（match_date isoformat），不再经 MatchRecordBrief.model_validate；
+# ⑤ get_detail 响应补充 notes；
+# ⑥ create_record_from_scoring 的 match_date 保留完整 timezone-aware datetime
+#    （CST 兜底），非 finished_at.date()；
+# ⑦ update_record 返回 updated_fields，任一比分变更即重算 is_win（R12-MatchData-B2）
 """
-比赛数据业务逻辑层。
-核心职责：快速/详细录入、比分合法性校验、is_win 自动计算、gamification 积分触发。
+app/services/match_data_service.py — 比赛数据业务逻辑层
+
+依据：切片 05-match_data/backend.md §3-§5
+规范：Service 方法使用 @staticmethod，禁止创建实例
+功能：手动录入 + 列表/详情 + 编辑 + 记分牌级联
 """
-from datetime import datetime, timezone, date, timedelta
-
-from typing import Optional
-
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
+from datetime import datetime, timedelta, timezone
 
-from app.core.exceptions import AppException
-from app.core.database import get_async_session
-from app.core.pagination import paginate
-from app.models.match_data import MatchRecord, ManualScoreDetail
-from app.models.scoring import Match
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
+from app.core.database import async_session_factory
+from app.core.exceptions import (
+    AppException,
+    ERR_BAD_REQUEST,
+    ERR_MATCH_NOT_FOUND,
+    ERR_RECORD_NOT_FOUND,
+    ERR_RECORD_LINKED,
+    ERR_SCORE_INVALID,
+)
+from app.models.match import (
+    ManualScoreDetail,
+    Match,
+    MatchRecord,
+    ScoreRecord,
+)
 from app.schemas.match_data import (
-    MatchRecordCreateRequest, MatchRecordListQuery,
-    MatchRecordBrief, MatchRecordDetail, MatchRecordCreateResponse,
-    MatchRecordUpdate,
     ManualScoreDetailItem,
+    MatchRecordCreateRequest,
+    MatchRecordUpdate,
 )
 
-# gamification 积分触发（延迟导入，避免循环依赖）
-# 积分规则由 GamificationService.POINTS_RULES 统一管理，本模块不再硬编码积分数
+logger = logging.getLogger(__name__)
 
 
 class MatchDataService:
-    """比赛数据业务逻辑层。"""
+    """比赛数据业务逻辑层"""
 
-    # 赛制 → 需要 win 局数映射
     FORMAT_WIN_MAP = {
-        "bo1": 1, "bo3": 2, "bo5": 3, "bo7": 4,
+        "bo1": 1,
+        "bo3": 2,
+        "bo5": 3,
+        "bo7": 4,
     }
+
+    # =================================================================
+    # 辅助方法
+    # =================================================================
 
     @staticmethod
     def _validate_score_by_format(my_score: int, opp_score: int, fmt: str) -> bool:
-        """
-        校验比分是否符合赛制规则。
-        - bo1/bo3/bo5/bo7：my_score 和 opp_score 中有一个等于需要赢的局数
-        - custom：不做局数校验，但 my_score != opp_score
-        """
+        """验证比分是否符合赛制规则"""
         if fmt == "custom":
             return my_score != opp_score
         win_needed = MatchDataService.FORMAT_WIN_MAP.get(fmt)
         if win_needed is None:
             return False
-        # 胜者必须达到 win_needed，败者必须 < win_needed
         if my_score == win_needed:
             return opp_score < win_needed
         if opp_score == win_needed:
@@ -642,40 +704,48 @@ class MatchDataService:
 
     @staticmethod
     async def _trigger_gamification(user_id: int, record_id: int) -> None:
-        """触发 gamification 积分 +3（延迟导入，使用统一 API 签名）。"""
+        """触发游戏化积分（try/except 不阻塞）"""
         try:
             from app.services.gamification_service import GamificationService
-            async with get_async_session() as db:
+            async with async_session_factory() as db:
                 await GamificationService.add_points(
-                    db, user_id=user_id, event_type="record", ref_id=record_id,
+                    db, user_id=user_id, event_type="record", ref_id=record_id
                 )
         except Exception as e:
-            logger.error("match_data_trigger_gamification_failed", error=str(e))
+            logger.error("match_data_trigger_gamification_failed", extra={
+                "error": str(e), "record_id": record_id
+            })
+
+    # =================================================================
+    # CRUD
+    # =================================================================
 
     @staticmethod
     async def create_record(user_id: int, req: MatchRecordCreateRequest) -> dict:
-        """创建比赛记录（快速/详细录入统一入口）。"""
-        # 1. 比分合法性校验
-        if not MatchDataService._validate_score_by_format(req.my_score, req.opponent_score, req.format):
-            raise AppException("比分不符合赛制规则", 422)
+        """创建比赛记录（快速/详细录入）"""
+        # 1. 比分验证
+        if not MatchDataService._validate_score_by_format(
+            req.my_score, req.opponent_score, req.format
+        ):
+            raise AppException("比分不符合赛制规则", 422, code=ERR_SCORE_INVALID)
 
         # 2. is_win 自动计算
         is_win = req.my_score > req.opponent_score
+
+        # 3. is_detailed 检测
         is_detailed = req.details is not None and len(req.details) > 0
 
-        async with get_async_session() as db:
-            # 3. 可选关联记分牌比赛（match_id 存在性校验）
+        async with async_session_factory() as db:
+            # 4. 可选 match_id 验证
             match_id = req.match_id
             if match_id is not None:
-                match_result = await db.execute(
-                    select(Match).where(
-                        Match.id == match_id, Match.user_id == user_id,
-                    )
+                result = await db.execute(
+                    select(Match).where(Match.id == match_id, Match.user_id == user_id)
                 )
-                if not match_result.scalar_one_or_none():
-                    match_id = None  # match_id 不存在则忽略关联
+                if result.scalar_one_or_none() is None:
+                    match_id = None  # 静默忽略不存在的 match_id
 
-            # 4. 创建 match_record
+            # 5. 创建 MatchRecord
             record = MatchRecord(
                 user_id=user_id,
                 opponent_name=req.opponent_name,
@@ -690,56 +760,46 @@ class MatchDataService:
                 is_detailed=is_detailed,
             )
             db.add(record)
-            await db.flush()  # 获取 record.id
+            await db.flush()
 
-            # 5. 详细录入 → 创建逐分明细
+            # 6. 详细录入 -> 创建 ManualScoreDetail
             if is_detailed and req.details:
-                for detail_item in req.details:
+                for item in req.details:
                     detail = ManualScoreDetail(
                         match_record_id=record.id,
-                        sequence=detail_item.sequence,
-                        scorer=detail_item.scorer,
-                        score_method=detail_item.score_method,
-                        technique_action=detail_item.technique_action,
+                        sequence=item.sequence,
+                        scorer=item.scorer,
+                        score_method=item.score_method,
+                        technique_action=item.technique_action,
                     )
                     db.add(detail)
 
             await db.commit()
             await db.refresh(record)
 
-        # 6. 触发 gamification 积分（异步，不阻塞响应）
+        # 7. 触发游戏化积分（不阻塞）
         await MatchDataService._trigger_gamification(user_id, record.id)
 
-        return {"id": record.id, "is_win": is_win}
+        return {"id": record.id, "is_win": is_win, "match_id": record.match_id}
 
     @staticmethod
     async def create_record_from_scoring(
-        db, match_id: int, user_id: int, trigger_points: bool = True,
+        db: AsyncSession, match_id: int, user_id: int, trigger_points: bool = True
     ) -> dict:
-        """从记分牌比赛数据自动创建 match_record（由 scoring 模块 finish_match 调用）。
-
-        字段映射:
-          match.final_score → my_score / opponent_score（解析 "X:Y" 格式）
-          match.* → match_record 对应字段
-          score_record.* → manual_score_detail 对应字段
-
-        Args:
-            trigger_points: 是否触发 record 事件积分（+3）。
-                默认 True（保持手动调用时的行为）。
-                当由 scoring 模块 finish_match 调用时传 False，
-                因为 finish_match 已单独触发 match 事件积分（+5），
-                避免重复积分（P2-PTS-01 修复）。
         """
-        # 1. 查询 Match 获取比赛元数据
-        from app.models.scoring import Match, ScoreRecord
-        match_result = await db.execute(
+        记分牌结束比赛时级联创建记录。
+        接收调用方的 db session，不创建新 session。
+        trigger_points=False 时跳过积分触发（避免与 finish_match 重复）。
+        """
+        # 1. 查询 Match
+        result = await db.execute(
             select(Match).where(Match.id == match_id, Match.user_id == user_id)
         )
-        match = match_result.scalar_one_or_none()
-        if not match:
-            raise AppException("记分牌比赛不存在", 404)
+        match = result.scalar_one_or_none()
+        if match is None:
+            raise AppException("记分牌比赛不存在", 404, code=ERR_MATCH_NOT_FOUND)
 
-        # 2. 解析 final_score "X:Y" → my_score, opponent_score
+        # 2. 解析最终比分
         if match.final_score and ":" in match.final_score:
             parts = match.final_score.split(":")
             my_score = int(parts[0].strip())
@@ -748,16 +808,20 @@ class MatchDataService:
             my_score = match.current_score_user or 0
             opponent_score = match.current_score_opp or 0
 
-        # 3. 查询 ScoreRecord 逐球明细
-        sr_result = await db.execute(
+        # 3. 查询得分记录
+        result = await db.execute(
             select(ScoreRecord)
             .where(ScoreRecord.match_id == match_id)
             .order_by(ScoreRecord.sequence)
         )
-        score_records = sr_result.scalars().all()
+        score_records = result.scalars().all()
         is_detailed = len(score_records) > 0
 
-        # 4. 创建 match_record
+        # 4. 创建 MatchRecord
+        # 使用 CST（UTC+8）作为默认 match_date，避免跨日边界错误
+        tz_cst = timezone(timedelta(hours=8))
+        match_date = match.finished_at if match.finished_at else datetime.now(tz_cst)
+
         record = MatchRecord(
             user_id=user_id,
             opponent_name=match.opponent_name,
@@ -767,14 +831,14 @@ class MatchDataService:
             is_win=match.is_win if match.is_win is not None else (my_score > opponent_score),
             format=match.format,
             match_type=match.match_type,
-            match_date=match.finished_at.date() if match.finished_at else datetime.now(timezone(timedelta(hours=8))).date(),
+            match_date=match_date,
             match_id=match_id,
             is_detailed=is_detailed,
         )
         db.add(record)
         await db.flush()
 
-        # 5. 创建逐分明细（score_record → manual_score_detail）
+        # 5. 创建 ManualScoreDetail
         if is_detailed:
             for sr in score_records:
                 detail = ManualScoreDetail(
@@ -789,111 +853,150 @@ class MatchDataService:
         await db.commit()
         await db.refresh(record)
 
-        # 6. 触发 gamification 积分（record 事件 +3）
-        # P2-PTS-01 修复：仅手动录入时触发 +3 record 积分；
-        # 由 scoring 模块 finish_match 调用时传 trigger_points=False，
-        # 因为 finish_match 已触发 match 事件 +5 积分，避免重复积分。
+        # 6. 条件触发游戏化积分
         if trigger_points:
             await MatchDataService._trigger_gamification(user_id, record.id)
 
         return {"id": record.id, "is_win": record.is_win}
 
     @staticmethod
-    async def list_records(user_id: int, query: MatchRecordListQuery) -> dict:
-        """查询比赛记录列表。"""
-        async with get_async_session() as db:
+    async def list_records(
+        user_id: int, result_filter: str | None, page: int, page_size: int
+    ) -> dict:
+        """比赛记录列表（分页）"""
+        async with async_session_factory() as db:
             qs = select(MatchRecord).where(MatchRecord.user_id == user_id)
-            count_qs = select(func.count()).select_from(MatchRecord).where(MatchRecord.user_id == user_id)
+            count_qs = select(func.count()).select_from(MatchRecord).where(
+                MatchRecord.user_id == user_id
+            )
 
-            if query.result and query.result != "all":
-                is_win_filter = (query.result == "win")
+            if result_filter and result_filter != "all":
+                is_win_filter = result_filter == "win"
                 qs = qs.where(MatchRecord.is_win == is_win_filter)
                 count_qs = count_qs.where(MatchRecord.is_win == is_win_filter)
 
             qs = qs.order_by(MatchRecord.match_date.desc())
 
-            total, items = await paginate(db, qs, count_qs, query.page, query.page_size)
+            # 计数
+            count_result = await db.execute(count_qs)
+            total = count_result.scalar() or 0
+
+            # 分页查询
+            result = await db.execute(qs.offset((page - 1) * page_size).limit(page_size))
+            records = result.scalars().all()
+
+            items = [
+                {
+                    "id": r.id,
+                    "opponent_name": r.opponent_name,
+                    "opponent_rating": r.opponent_rating,
+                    "my_score": r.my_score,
+                    "opponent_score": r.opponent_score,
+                    "is_win": r.is_win,
+                    "format": r.format,
+                    "match_type": r.match_type,
+                    "match_date": r.match_date.isoformat() if r.match_date else None,
+                }
+                for r in records
+            ]
+
             return {
                 "total": total,
-                "page": query.page,
-                "page_size": query.page_size,
-                "items": [MatchRecordBrief.model_validate(r).model_dump() for r in items],
+                "page": page,
+                "page_size": page_size,
+                "items": items,
             }
 
     @staticmethod
     async def get_detail(user_id: int, record_id: int) -> dict:
-        """获取比赛记录详情（含逐分明细）。"""
-        async with get_async_session() as db:
-            record_result = await db.execute(
+        """比赛记录详情（含得分明细）"""
+        async with async_session_factory() as db:
+            result = await db.execute(
                 select(MatchRecord).where(
-                    MatchRecord.id == record_id, MatchRecord.user_id == user_id,
+                    MatchRecord.id == record_id, MatchRecord.user_id == user_id
                 )
             )
-            record = record_result.scalar_one_or_none()
-            if not record:
-                raise AppException("比赛记录不存在", 404)
+            record = result.scalar_one_or_none()
+            if record is None:
+                raise AppException("比赛记录不存在", 404, code=ERR_RECORD_NOT_FOUND)
 
-            # 查询逐分明细
-            details_result = await db.execute(
+            # 查询得分明细
+            result = await db.execute(
                 select(ManualScoreDetail)
                 .where(ManualScoreDetail.match_record_id == record_id)
                 .order_by(ManualScoreDetail.sequence)
             )
-            details = details_result.scalars().all()
+            details = result.scalars().all()
 
-            detail = MatchRecordDetail.model_validate(record)
-            detail.details = [
-                ManualScoreDetailItem(
-                    sequence=d.sequence,
-                    scorer=d.scorer,
-                    score_method=d.score_method,
-                    technique_action=d.technique_action,
-                )
-                for d in details
-            ]
-            return detail.model_dump()
+            return {
+                "id": record.id,
+                "opponent_name": record.opponent_name,
+                "opponent_rating": record.opponent_rating,
+                "my_score": record.my_score,
+                "opponent_score": record.opponent_score,
+                "is_win": record.is_win,
+                "format": record.format,
+                "match_type": record.match_type,
+                "match_date": record.match_date.isoformat() if record.match_date else None,
+                "match_id": record.match_id,
+                "is_detailed": record.is_detailed,
+                "notes": record.notes,
+                "details": [
+                    {
+                        "sequence": d.sequence,
+                        "scorer": d.scorer,
+                        "score_method": d.score_method,
+                        "technique_action": d.technique_action,
+                    }
+                    for d in details
+                ],
+            }
 
     @staticmethod
     async def update_record(
-        user_id: int, record_id: int, data: MatchRecordUpdate,
+        user_id: int, record_id: int, data: MatchRecordUpdate
     ) -> dict:
-        """
-        F5：手动编辑比赛记录（修正比赛结果、补充技术统计等）。
-        仅更新传入的字段，is_win 在比分变更时自动重算。
-        """
-        async with get_async_session() as db:
-            record_result = await db.execute(
+        """编辑比赛记录（PATCH 语义）"""
+        async with async_session_factory() as db:
+            result = await db.execute(
                 select(MatchRecord).where(
-                    MatchRecord.id == record_id, MatchRecord.user_id == user_id,
+                    MatchRecord.id == record_id, MatchRecord.user_id == user_id
                 )
             )
-            record = record_result.scalar_one_or_none()
-            if not record:
-                raise AppException("比赛记录不存在", 404)
+            record = result.scalar_one_or_none()
+            if record is None:
+                raise AppException("比赛记录不存在", 404, code=ERR_RECORD_NOT_FOUND)
 
-            # 关联校验：已关联记分牌的比赛记录不可编辑（返回 409 Conflict）
+            # 关联记分牌的记录不可编辑
             if record.match_id is not None:
-                raise AppException("比赛记录已关联记分牌，不可编辑", 409)
+                raise AppException(
+                    "比赛记录已关联记分牌，不可编辑", 409, code=ERR_RECORD_LINKED
+                )
 
             update_data = data.model_dump(exclude_unset=True)
             if not update_data:
-                raise AppException("未提供任何更新字段", 422)
+                raise AppException("未提供任何更新字段", 422, code=ERR_BAD_REQUEST)
 
-            # 逐字段更新
+            # 记录实际更新的字段名（is_win 不在 Update schema 中，禁止前端传入）
+            updated_fields = list(update_data.keys())
+
             for field, value in update_data.items():
                 if hasattr(record, field):
                     setattr(record, field, value)
 
-            # 如果比分发生变更，重算 is_win
+            # R12-MatchData-B2: 任一比分变更即重算 is_win（服务端自动计算）
+            # 比分字段在模型层非空，应用更新后直接比较即可
             if data.my_score is not None or data.opponent_score is not None:
-                my_score = record.my_score
-                opp_score = record.opponent_score
-                record.is_win = my_score > opp_score
+                record.is_win = record.my_score > record.opponent_score
 
             await db.commit()
             await db.refresh(record)
 
-            return {"id": record.id, "is_win": record.is_win}
+            return {
+                "id": record.id,
+                "is_win": record.is_win,
+                "updated_fields": updated_fields,
+            }
 ```
 
 ---
@@ -901,67 +1004,80 @@ class MatchDataService:
 ## 6. API 路由实现
 
 ```python
-# app/api/v1/match_data/router.py
+# app/api/v1/match_data/router.py — R13-P3 文档同步（以实现为准回写）：
+# ① 装饰器顺序修正为 @router.post(...) 在上、@limiter.limit(...) 在下 —
+#    slowapi 要求限流装饰器位于路由装饰器内层，否则路由表注册原始函数、限流失效；
+# ② 端点补充 request: Request 参数（slowapi 限流必需）；
+# ③ 限流改用 RateLimits.DEFAULT 常量（app/core/limiter.py，值 "100/minute"）
 """
-比赛数据模块 API 路由。
-所有路由只调用 MatchDataService，不包含业务逻辑。
+app/api/v1/match_data/router.py — 比赛数据模块 API 路由
+
+依据：API §7 match-data 端点契约 / 切片 05-match_data/backend.md §4
+规范：路由只调用 Service，禁止在路由中写业务逻辑
+S2 实现：4 个 match-data 端点
 """
-from fastapi import APIRouter, Depends, Query
+
 from typing import Optional
 
+from fastapi import APIRouter, Depends, Query, Request
+
 from app.core.deps import get_current_user
+from app.core.limiter import RateLimits, limiter
 from app.core.response import success
 from app.models.user import User
-from app.schemas.match_data import MatchRecordCreateRequest, MatchRecordListQuery, MatchRecordUpdate
-from app.core.limiter import limiter
+from app.schemas.match_data import MatchRecordCreateRequest, MatchRecordUpdate
 from app.services.match_data_service import MatchDataService
 
 router = APIRouter(prefix="/match-data", tags=["比赛数据"])
 
 
-@limiter.limit("100/minute")
-@router.post("/records", summary="创建比赛记录（快速/详细录入）")
+@router.post("/records", summary="创建比赛记录")
+@limiter.limit(RateLimits.DEFAULT)
 async def create_record(
     body: MatchRecordCreateRequest,
+    request: Request,
     user: User = Depends(get_current_user),
 ):
+    """创建比赛记录（快速/详细录入）"""
     data = await MatchDataService.create_record(user.id, body)
     return success(data=data, message="比赛记录已创建")
 
 
-@limiter.limit("100/minute")
 @router.get("/records", summary="比赛记录列表")
+@limiter.limit(RateLimits.DEFAULT)
 async def list_records(
-    result: Optional[str] = Query(default="all", pattern="^(win|lose|all)$"),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=50),
+    request: Request,
+    result: Optional[str] = Query(default="all", pattern="^(win|lose|all)$", description="结果过滤"),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=50, description="每页条数"),
     user: User = Depends(get_current_user),
 ):
-    query = MatchRecordListQuery(result=result, page=page, page_size=page_size)
-    data = await MatchDataService.list_records(user.id, query)
+    """比赛记录列表（分页）"""
+    data = await MatchDataService.list_records(user.id, result, page, page_size)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/records/{record_id}", summary="比赛记录详情")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_record(
+    request: Request,
     record_id: int,
     user: User = Depends(get_current_user),
 ):
+    """比赛记录详情（含得分明细）"""
     data = await MatchDataService.get_detail(user.id, record_id)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
-@router.patch("/records/{record_id}", summary="F5：手动编辑比赛记录")
+@router.patch("/records/{record_id}", summary="编辑比赛记录")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_record(
-    record_id: int,
     body: MatchRecordUpdate,
+    request: Request,
+    record_id: int,
     user: User = Depends(get_current_user),
 ):
-    """手动编辑比赛记录（修正比赛结果、补充技术统计等）。
-    仅更新传入的字段，is_win 在比分变更时自动重算。
-    """
+    """编辑比赛记录（PATCH 语义，仅限未关联记分牌的记录）"""
     data = await MatchDataService.update_record(user.id, record_id, body)
     return success(data=data, message="比赛记录已更新")
 ```
@@ -976,6 +1092,7 @@ api_router.include_router(match_data_router)
 
 ## 7. 冒烟测试脚本
 
+> **R13-P3 文档同步**：本节冒烟脚本（`tests/smoke/match_data_smoke_test.py`）未落地——全项目 `tests/smoke/` 仅含 `__init__.py`，S2 阶段验证以 `tests/unit/test_match_data.py`（20 用例，含 R12-MatchData-B1/B2 修复回归）+ `tests/unit/test_supplements_p2.py::TestMatchRecordPatchIsolation`（跨用户隔离 2 用例）替代。以下脚本保留作为后续落地参考。
 ```python
 # tests/smoke/match_data_smoke_test.py
 """
@@ -1087,8 +1204,8 @@ if __name__ == "__main__":
 ## 8. 验证清单
 
 - [ ] 单元测试全部通过：`pytest tests/unit/test_match_data.py -v`
-- [ ] 冒烟测试通过：`python -m tests.smoke.match_data_smoke_test`
-- [ ] 后端语法检查：`python -c "import py_compile; py_compile.compile('app/models/match_data.py'); py_compile.compile('app/schemas/match_data.py'); py_compile.compile('app/services/match_data_service.py'); py_compile.compile('app/api/v1/match_data/router.py')"`
+- [ ] 冒烟测试通过：`python -m tests.smoke.match_data_smoke_test`（R13-P3 文档同步：冒烟脚本未落地，S2 验证以 `tests/unit/test_match_data.py` 20 用例 + `tests/unit/test_supplements_p2.py::TestMatchRecordPatchIsolation` 2 用例替代）
+- [ ] 后端语法检查：`python -c "import py_compile; py_compile.compile('app/models/match.py'); py_compile.compile('app/schemas/match_data.py'); py_compile.compile('app/services/match_data_service.py'); py_compile.compile('app/api/v1/match_data/router.py')"`
 - [ ] Model 已在 `app/models/__init__.py` 中导入
 - [ ] Router 已在 `app/api/v1/__init__.py` 中注册
 - [ ] Alembic 迁移已生成并执行：`alembic revision --autogenerate -m "add_match_data_tables" && alembic upgrade head`

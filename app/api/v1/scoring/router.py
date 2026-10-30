@@ -26,8 +26,8 @@ from app.services.scoring_service import ScoringService
 router = APIRouter(prefix="/scoring", tags=["记分牌"])
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/matches", summary="创建比赛")
+@limiter.limit(RateLimits.DEFAULT)
 async def create_match(
     body: MatchCreateRequest,
     request: Request,
@@ -38,8 +38,8 @@ async def create_match(
     return success(data=data, message="比赛已创建")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/matches", summary="比赛列表")
+@limiter.limit(RateLimits.DEFAULT)
 async def list_matches(
     request: Request,
     status: Optional[str] = Query(default=None, description="状态过滤"),
@@ -52,8 +52,8 @@ async def list_matches(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/matches/{match_id}", summary="比赛详情")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_match(
     request: Request,
     match_id: int,
@@ -64,8 +64,8 @@ async def get_match(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/matches/{match_id}/start", summary="开始比赛")
+@limiter.limit(RateLimits.DEFAULT)
 async def start_match(
     request: Request,
     match_id: int,
@@ -76,8 +76,8 @@ async def start_match(
     return success(data=data, message="比赛已开始")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/matches/{match_id}/score", summary="记分")
+@limiter.limit(RateLimits.DEFAULT)
 async def score(
     body: ScoreRequest,
     request: Request,
@@ -89,8 +89,8 @@ async def score(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/matches/{match_id}/undo", summary="撤销最近一球")
+@limiter.limit(RateLimits.DEFAULT)
 async def undo(
     request: Request,
     match_id: int,
@@ -102,8 +102,8 @@ async def undo(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/matches/{match_id}/finish", summary="结束比赛")
+@limiter.limit(RateLimits.DEFAULT)
 async def finish_match(
     request: Request,
     match_id: int,
@@ -114,8 +114,8 @@ async def finish_match(
     return success(data=data, message="比赛已结束")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/matches/{match_id}/statistics", summary="比赛统计")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_statistics(
     request: Request,
     match_id: int,
@@ -126,8 +126,8 @@ async def get_statistics(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/matches/{match_id}/abandon", summary="放弃比赛")
+@limiter.limit(RateLimits.DEFAULT)
 async def abandon_match(
     request: Request,
     match_id: int,
@@ -138,8 +138,8 @@ async def abandon_match(
     return success(data=data, message="比赛已放弃")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/matches/{match_id}/resume", summary="恢复比赛")
+@limiter.limit(RateLimits.DEFAULT)
 async def resume_match(
     request: Request,
     match_id: int,

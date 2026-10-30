@@ -15,6 +15,7 @@ tests/conftest.py — 共享测试 Fixture
 """
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
@@ -22,6 +23,12 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+
+# R13-Test-N3: 测试进程启用 DB NullPool —— pytest-asyncio 每测试独立 event loop
+# （R13-Test-N1），共享连接池会检出上一个已关闭 loop 的 asyncpg 连接
+# （RuntimeError: Event loop is closed），Celery 任务线程循环同理。
+# 必须在下方 app.core.* 导入（最终导入 app.core.database）之前设置。
+os.environ.setdefault("DB_NULLPOOL", "1")
 
 from app.core.config import settings
 from app.core.database import Base, async_session_factory, engine
@@ -34,18 +41,50 @@ from app.core.celery import celery_app
 celery_app.conf.task_always_eager = True
 celery_app.conf.task_eager_propagates = True
 
+# R12-Gam-13: 测试环境默认禁用 API 限流 —
+# 装饰器顺序修复（router 在上/limiter 在下）后限流真实生效，
+# 大量测试请求（同一 client IP）会触发 429 污染测试断言。
+# 限流专项测试（test_gamification TestRateLimit*）临时 limiter.enabled = True。
+from app.core.limiter import limiter
+limiter.enabled = False
+
 # 测试环境禁用 SQL echo（减少输出噪音，DEBUG=True 用于保持 eager 模式）
 engine.echo = False
 import logging as _logging
 _logging.getLogger("sqlalchemy.engine.Engine").setLevel(_logging.WARNING)
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """全局事件循环"""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+# R13-Test-N1: 移除自定义 session-scope event_loop fixture ——
+# pytest-asyncio 0.24 中该模式已废弃（行为未定义，与 function-scope
+# async fixture 生命周期竞态导致间歇性 "relation user does not exist"）。
+# 循环作用域改由 pytest.ini 的 asyncio_default_fixture_loop_scope=function 管理。
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _redis_pool_per_loop():
+    """R13-Test-N2: 每测试独立 event loop 与全局 Redis 池的跨 loop 复用隔离。
+
+    根因（py-spy + 探针实证）：pytest-asyncio 0.24 每个测试函数使用独立事件循环，
+    而 get_redis() 的全局连接池跨测试复用 —— 上一测试（loop 已关闭）归还的连接
+    仍满足 is_connected（reader/writer 非 None），被本测试检出后首个命令抛
+    RuntimeError: Event loop is closed。该错误被 db_setup 清理分支 / 服务层
+    except 分支静默吞掉，引发行为级污染（见 test_send_notification_online_no_db_write
+    在多测试组合下离线路径误触发）。
+
+    修复：测试前置丢弃全局引用 + 后置在当前 loop 上正常关闭连接池，
+    确保每个测试在自身 loop 上重建连接池。生产环境单 loop 生命周期不受影响。
+    """
+    import app.core.redis as _redis_mod
+
+    _redis_mod._redis_client = None
+    _redis_mod._redis_pool = None
+    yield
+    try:
+        await _redis_mod.close_redis()
+    except Exception:
+        # 防御：池中若残留旧 loop 死连接，disconnect 可能抛错 — 忽略并强制丢弃引用
+        _redis_mod._redis_client = None
+        _redis_mod._redis_pool = None
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -57,7 +96,15 @@ async def db_setup():
 
     依赖外部 PostgreSQL + Redis（R4-Infra-5）：
     若不可用，fixture 将跳过（pytest 在 fixture 层 skip 依赖此结果的测试）。
+
+    R13-Test-N1: 重建 schema 前 engine.dispose() 清空连接池 ——
+    asyncpg 连接池中的空闲连接持有旧 schema 的 prepared statement 缓存，
+    DROP/CREATE SCHEMA 后池内连接若复用会命中失效语句缓存，引发
+    "relation user does not exist" 间歇性失败；dispose 强制全部重建。
     """
+    # R13-Test-N1: 丢弃旧连接（避免 asyncpg 语句缓存与 schema 重建竞态）
+    await engine.dispose()
+
     # 创建所有表（先清理 schema 以避免 PostgreSQL 复合类型残留）
     async with engine.begin() as conn:
         await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
@@ -69,7 +116,8 @@ async def db_setup():
         redis = await get_redis()
         # 删除所有 scoring:match:* 和 ws:* 相关的 key
         # R4-Auth-4: sms:rate:* → sms:sent:*（保留两者兼容旧测试缓存）
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*"]:
+        # R12-Gam-13: LIMITER* — slowapi/limits Redis 存储 key（限流计数）
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
                 keys = await redis.keys(pattern)
                 if keys:
                     await redis.delete(*keys)
@@ -78,7 +126,8 @@ async def db_setup():
 
     yield
 
-    # 清理
+    # 清理（R13-Test-N1: 同样先 dispose 清空连接池再重建 schema）
+    await engine.dispose()
     async with engine.begin() as conn:
         await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
@@ -86,7 +135,7 @@ async def db_setup():
     # 清理 Redis
     try:
         redis = await get_redis()
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
             keys = await redis.keys(pattern)
             if keys:
                 await redis.delete(*keys)

@@ -487,6 +487,9 @@ class PaymentService:
             existing.expire_at = start + timedelta(days=period_days)
             existing.status = "active"
             existing.tier = tier  # 更新等级（可能从 free 升级为 member）
+            # R12-Payment-1: 续期分支回填 order.subscription_id，
+            # 否则退款时 revoke_subscription 无法定位订阅，全额退款后权益仍保留
+            order.subscription_id = existing.id
             subscription_id = existing.id
         else:
             sub = Subscription(
@@ -612,8 +615,18 @@ class PaymentService:
             # R6-Pay-2: refund 已提交，revoke 跨事务调用，失败时仅记录日志
             # TODO: 增加补偿机制（如投递重试队列），确保退款后权益撤销最终一致
             try:
-                if order.product_type == "membership" and order.subscription_id:
-                    await MembershipService.revoke_subscription(db, order.subscription_id)
+                if order.product_type == "membership":
+                    if order.subscription_id:
+                        await MembershipService.revoke_subscription(db, order.subscription_id)
+                    else:
+                        # R12 复验补充：续期回填（R12-Payment-1）生效前的历史订单
+                        # subscription_id 为空，退款后无法定位订阅 — 记告警日志便于人工补偿
+                        logger.error(
+                            "refund_membership_order_missing_subscription_id: "
+                            "order_id=%s user_id=%s — 历史订单（回填修复前创建），"
+                            "权益撤销被跳过，需人工核实会员状态",
+                            order.id, order.user_id,
+                        )
             except Exception as e:
                 logger.error(
                     "Failed to revoke subscription %s after refund: %s",

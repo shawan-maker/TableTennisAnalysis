@@ -88,9 +88,9 @@ class TrainingAdviceService:
                     "description": m["suggestion"],
                 })
 
-                if is_first:
-                    sug_type = "first_analysis"
-                elif m["rule_type"] == "trend_improving":
+                # R12-Training-B2: 建议 type 按规则类型判定，首次分析不再批量改写
+                # （first_analysis 仅作为追加提示，不污染规则建议的类型语义）
+                if m["rule_type"] == "trend_improving":
                     sug_type = "progress_confirm"
                 elif m["rule_type"] == "trend_persistent":
                     sug_type = "persistent_warning"
@@ -361,13 +361,19 @@ class TrainingAdviceService:
 
         - new_goal: 提升 goal_metrics 中各目标 10%（而非 plan_data.goal）
         - adjust: 增加 plan_data.sessions 中 reps 20%
-        - escalate: 增加 plan_data.sessions 中 reps 50%
+        - R12-Training-B3: escalate 按 §8.6 设计为「诊断原因」动作，
+          不改写训练内容（设计 _generate_new_plan 无此分支），
+          诊断信息经 adjustment_reason 记录于 plan_adjustment
         """
         new_version = plan.version + 1
         # R5-Train-2: new_goal 动作修改 goal_metrics，复制后变更
         new_goal = dict(goal_metrics)
         old_data = plan.plan_data or {}
-        new_data = dict(old_data)
+        # R12-Training-D4: 深拷贝后再变更 — 原先 dict(old_data) 浅拷贝后原地修改共享
+        # sessions 列表，committed_state 与 old_plan_snapshot 被同步污染（新旧相等），
+        # SQLAlchemy 相等性短路导致 plan_data 不进 UPDATE（reps 增幅不落库），
+        # 且调整历史 _diff_snapshot 显示"无变化"。
+        new_data = copy.deepcopy(old_data)
 
         if action == "new_goal":
             # R7-Train-1: 方向感知 — up 指标 *1.1 提升；down 指标 *0.9 降低（更难）
@@ -385,12 +391,8 @@ class TrainingAdviceService:
                 if isinstance(s, dict) and "reps" in s:
                     s["reps"] = int(s["reps"] * 1.2)
             new_data["sessions"] = sessions
-        elif action == "escalate":
-            sessions = new_data.get("sessions", [])
-            for s in sessions:
-                if isinstance(s, dict) and "reps" in s:
-                    s["reps"] = int(s["reps"] * 1.5)
-            new_data["sessions"] = sessions
+        # R12-Training-B3: escalate 无方案改写分支 — 走默认 return（内容不变，
+        # 仅 version +1 + adjustment_action/reason 记录诊断）
 
         return {
             "version": new_version,

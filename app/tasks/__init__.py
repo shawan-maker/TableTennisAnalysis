@@ -4,23 +4,29 @@
 from app.tasks import (
     ai_inference_health,
     audit,
+    dashboard,
     export,
     file_management,
     gamification,
     membership,
     notification,
+    progress,
     scoring,
+    training,
     user,
 )
 
 __all__ = [
     "ai_inference_health",
     "audit",
+    "dashboard",
     "export",
     "file_management",
     "gamification",
     "membership",
     "notification",
+    "progress",
     "scoring",
+    "training",
     "user",
 ]

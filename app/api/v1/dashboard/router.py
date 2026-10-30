@@ -16,8 +16,8 @@ from app.services.dashboard_service import DashboardService
 router = APIRouter(prefix="/dashboard", tags=["数据看板"])
 
 
-@limiter.limit("100/minute")
 @router.get("/overview", summary="概览卡片")
+@limiter.limit("100/minute")
 async def get_overview(
     request: Request,
     user: User = Depends(get_current_user),
@@ -27,8 +27,8 @@ async def get_overview(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/win-rate-trend", summary="战绩趋势")
+@limiter.limit("100/minute")
 async def get_win_rate_trend(
     request: Request,
     period: str = Query(default="month", pattern="^(month|quarter|year)$"),
@@ -39,8 +39,8 @@ async def get_win_rate_trend(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/technique-stats", summary="技术统计")
+@limiter.limit("100/minute")
 async def get_technique_stats(
     request: Request,
     user: User = Depends(get_current_user),
@@ -50,8 +50,8 @@ async def get_technique_stats(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/landing-heatmap", summary="累计落点热图")
+@limiter.limit("100/minute")
 async def get_landing_heatmap(
     request: Request,
     user: User = Depends(get_current_user),
@@ -61,8 +61,8 @@ async def get_landing_heatmap(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/match-records", summary="比赛记录列表")
+@limiter.limit("100/minute")
 async def get_match_records(
     request: Request,
     result: str = Query(default="all", pattern="^(win|lose|all)$"),

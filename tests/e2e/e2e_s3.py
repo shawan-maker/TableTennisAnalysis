@@ -211,15 +211,15 @@ async def main():
         share_url = resp.json()["data"]["share_url"]
         share_token = share_url.split("/share/")[-1]
 
-        # 公开访问（无认证）
-        resp = await client.get(f"/api/v1/video-analysis/share/{share_token}")
+        # 公开访问（无认证）— R12-VA-1: share 路由挂载根路径
+        resp = await client.get(f"/share/{share_token}")
         check(resp.status_code == 200, "GET /share/{token} (public) → 200")
         shared_data = resp.json()["data"]
         check("summary" in shared_data["report_text"], "shared report has summary")
         check(len(shared_data["report_text"].get("issues", [])) <= 2, "shared report issues <= 2")
 
         # 无效 token
-        resp = await client.get("/api/v1/video-analysis/share/invalid_token")
+        resp = await client.get("/share/invalid_token")
         check(resp.status_code == 404, "GET /share/invalid → 404")
 
     # 9. 配额限制

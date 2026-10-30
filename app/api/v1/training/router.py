@@ -18,8 +18,8 @@ from app.services.training_service import TrainingAdviceService
 router = APIRouter(prefix="/training", tags=["训练建议"])
 
 
-@limiter.limit("100/minute")
 @router.get("/advice/contextual", summary="综合训练建议")
+@limiter.limit("100/minute")
 async def get_contextual_advice(
     request: Request,
     user: User = Depends(get_current_user),
@@ -28,8 +28,8 @@ async def get_contextual_advice(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/advice/{report_id}", summary="基于报告的训练建议")
+@limiter.limit("100/minute")
 async def get_advice_by_report(
     request: Request,
     report_id: int,
@@ -39,8 +39,8 @@ async def get_advice_by_report(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/templates", summary="训练模板列表")
+@limiter.limit("100/minute")
 async def get_templates(
     request: Request,
     problem_id: str = Query(default=None),
@@ -52,8 +52,8 @@ async def get_templates(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/templates/{template_id}", summary="训练模板详情")
+@limiter.limit("100/minute")
 async def get_template_detail(
     request: Request,
     template_id: int,
@@ -65,8 +65,8 @@ async def get_template_detail(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/plans/{plan_id}/adjustments", summary="方案调整历史")
+@limiter.limit("100/minute")
 async def get_plan_adjustments(
     request: Request,
     plan_id: int,
@@ -76,8 +76,8 @@ async def get_plan_adjustments(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.post("/plans/{plan_id}/re-evaluate", summary="重新评估方案")
+@limiter.limit("100/minute")
 async def re_evaluate_plan(
     request: Request,
     plan_id: int,
@@ -87,8 +87,8 @@ async def re_evaluate_plan(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/plans/{plan_id}/sessions", summary="训练单列表")
+@limiter.limit("100/minute")
 async def get_training_sessions(
     request: Request,
     plan_id: int,
@@ -100,8 +100,8 @@ async def get_training_sessions(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.post("/plans/{plan_id}/sessions/{session_id}/complete", summary="完成训练单")
+@limiter.limit("100/minute")
 async def complete_training_session(
     request: Request,
     plan_id: int,

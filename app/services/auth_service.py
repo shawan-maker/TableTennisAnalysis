@@ -7,6 +7,7 @@ app/services/auth_service.py — 认证业务逻辑层
 """
 
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -16,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import AppException, ERR_BAD_REQUEST, ERR_THIRD_PARTY, ERR_UNAUTHORIZED
+from app.core.exceptions import AppException, ERR_BAD_REQUEST, ERR_RATE_LIMITED, ERR_THIRD_PARTY, ERR_UNAUTHORIZED, ERR_VALIDATION
 from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, decode_token, decode_refresh_token, generate_jti
 from app.core.database import async_session_factory
@@ -41,6 +42,11 @@ class AuthService:
     H5_TOKEN_TTL = 300                   # 5 分钟
     SESSION_KEY_TTL = 900                # 15 分钟
     SMS_CODE_TTL = 300                   # 5 分钟
+    # R13-Auth-N1: 验证码错误尝试上限（5 分钟窗口内超过 5 次 → 429，
+    # 防 6 位验证码在 TTL 窗口内被暴力枚举）
+    SMS_CODE_MAX_ATTEMPTS = 5
+    # R13-Auth-N2: 手机号格式（大陆手机号，service 层 400 校验用）
+    PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
     CURRENT_POLICY_VERSION = "v1.0"      # 隐私政策版本号
 
     # =================================================================
@@ -70,6 +76,11 @@ class AuthService:
     @staticmethod
     async def wechat_login(req: WechatLoginRequest) -> LoginResponse:
         """微信小程序登录"""
+        # R13-Auth-N2: code 为空校验移入 service（API §2.1 契约 400 + 中文消息，
+        # 原 Schema min_length=1 先行 422 导致设计 400 分支死代码）
+        if not req.code or not req.code.strip():
+            raise AppException("登录凭证不能为空", 400, code=ERR_BAD_REQUEST)
+
         # 1. 调用微信 code2session
         wx_data = await AuthService._call_wechat_code2session(req.code)
         openid = wx_data["openid"]
@@ -91,6 +102,9 @@ class AuthService:
                 await db.refresh(user)
             elif user.status == "pending_deletion":
                 raise AppException("您的账号正在注销中，请先撤销注销", 403)
+            elif user.status == "banned":
+                # R12-Auth-2: 登录入口拦截封禁用户（与 phone_login 一致）
+                raise AppException("您的账号已被封禁", 403)
 
             # 3. 存储 session_key 到 Redis
             redis = await get_redis()
@@ -129,6 +143,11 @@ class AuthService:
         """发送短信验证码（5 分钟有效）"""
         import random
 
+        # R13-Auth-N2: 手机号格式校验移入 service（API §2.3 契约 400 + 中文消息，
+        # 原 Schema pattern 先行 422 导致设计 400 分支死代码）
+        if not phone or not AuthService.PHONE_PATTERN.match(phone):
+            raise AppException("手机号格式不正确", 400, code=ERR_BAD_REQUEST)
+
         redis = await get_redis()
 
         # 防刷限制：同一手机号 60 秒内只能发一次
@@ -164,12 +183,13 @@ class AuthService:
     async def _send_aliyun_sms(phone: str, code: str) -> None:
         """调用阿里云短信 API 发送验证码"""
         # 阿里云 SMS API 调用（生产环境使用）
-        # 当前为框架代码，实际接入时替换为阿里云 SDK 调用
+        # R12-Auth-1（Phase 2 外联边界，设计文档已确认）：阿里云 SMS SDK 接入
+        # 属 Phase 2 范围 —— Phase 1 仅 SMS_MOCK=false 时打告警日志（不发送），
+        # Phase 2 接入 SDK 后取消下方注释并实现 502 错误码。
         import logging
         logging.getLogger(__name__).warning(
             "Aliyun SMS not configured. phone=%s code=%s", phone, code
         )
-        # TODO: 接入阿里云 SMS SDK
         # from aliyunsdkcore.client import AcsClient
         # from aliyunsdkcore.request import CommonRequest
         # client = AcsClient(settings.ALIYUN_SMS_ACCESS_KEY, settings.ALIYUN_SMS_SECRET, "cn-hangzhou")
@@ -191,15 +211,35 @@ class AuthService:
         """手机号验证码登录"""
         redis = await get_redis()
 
+        # R13-Auth-N2: 手机号格式校验移入 service（API §2.2 契约 400 + 中文消息）
+        if not req.phone or not AuthService.PHONE_PATTERN.match(req.phone):
+            raise AppException("手机号格式不正确", 400, code=ERR_BAD_REQUEST)
+
         # 验证码校验
         code_key = f"sms:code:{req.phone}"
+
+        # R13-Auth-N1: 验证码尝试次数限制（API §2.2 契约 429 —
+        # "验证码尝试次数过多，请稍后重试"）。5 分钟窗口内最多 5 次错误尝试，
+        # 超限后即使验证码正确也拒绝（防 6 位验证码暴力枚举）
+        attempts_key = f"sms:attempts:{req.phone}"
+        attempts = int(await redis.get(attempts_key) or 0)
+        if attempts >= AuthService.SMS_CODE_MAX_ATTEMPTS:
+            raise AppException(
+                "验证码尝试次数过多，请稍后重试", 429, code=ERR_RATE_LIMITED
+            )
+
         stored_code = await redis.get(code_key)
         # R4-Auth-6: 合并验证码错误消息为 "验证码错误或已过期"
         if not stored_code or stored_code != req.code:
+            # R13-Auth-N1: 错误尝试计数（TTL 与验证码窗口对齐，首次设置）
+            new_attempts = await redis.incr(attempts_key)
+            if new_attempts == 1:
+                await redis.expire(attempts_key, AuthService.SMS_CODE_TTL)
             raise AppException("验证码错误或已过期", 400, code=ERR_BAD_REQUEST)
 
-        # 验证通过，删除验证码（一次性使用）
+        # 验证通过，删除验证码（一次性使用）+ 清除尝试计数
         await redis.delete(code_key)
+        await redis.delete(attempts_key)
 
         # 查询或创建用户
         async with async_session_factory() as db:
@@ -398,7 +438,14 @@ class AuthService:
 
         R5-Auth-3: upsert 逻辑 — 同 user_id + consent_type + policy_version 的
         未撤回记录存在则更新 consent_at，不存在才新建。
+
+        R12-Auth-4: policy_version 合法性校验 — 仅接受当前政策版本，
+        防止无效版本写入产生 check_consent（按 CURRENT_POLICY_VERSION 匹配）
+        永远无法命中的无效同意记录（用户将陷入 requires_consent 循环）。
         """
+        if policy_version != AuthService.CURRENT_POLICY_VERSION:
+            raise AppException("政策版本不正确，请同意最新版隐私政策", 422, code=ERR_VALIDATION)
+
         async with async_session_factory() as db:
             # 查询是否存在同 user_id + consent_type + policy_version 的未撤回记录
             result = await db.execute(

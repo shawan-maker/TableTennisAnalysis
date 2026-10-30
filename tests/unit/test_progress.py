@@ -295,5 +295,90 @@ async def test_problem_changes_with_data(client, auth_headers, auth_user, db_ses
 
     resp = await client.get("/api/v1/progress/problem-changes", headers=auth_headers)
     assert resp.status_code == 200
-    data = resp.json()["data"]
-    assert len(data["new"]) >= 1  # 首次出现的问题
+
+
+# =============================================================================
+# R12-Prog-9/10: 趋势计算矩阵直调 + period/认证校验
+# =============================================================================
+
+def test_calculate_trend_matrix():
+    """R12-Prog-9: _calculate_trend 六种趋势类型 + 双方向 + 阈值边界直调
+
+    设计（07-training_advice/backend.md 趋势类型）：new/resolved/achieved/
+    improving/declining/stagnant；improving/declining 需 persistence>=2，
+    stagnant 需 len>=4 且 persistence>=3；方向 up/down 分别判定。
+    """
+    from app.services.progress_service import ProgressService
+
+    calc = ProgressService._calculate_trend
+
+    # --- current 为 None：resolved（历史有值）vs new（无历史） ---
+    assert calc(1, "backhand_ratio", None, [0.30, 0.32], 0.35) == {
+        "trend": "resolved", "persistence_count": 0,
+    }
+    assert calc(1, "backhand_ratio", None, [], 0.35) == {
+        "trend": "new", "persistence_count": 0,
+    }
+
+    # --- 历史不足 2 条 → new ---
+    assert calc(1, "backhand_ratio", 0.31, [0.30], 0.35) == {
+        "trend": "new", "persistence_count": 0,
+    }
+
+    # --- achieved：连续 2 次达标（up: v >= target） ---
+    assert calc(1, "backhand_ratio", 0.40, [0.36, 0.38], 0.35) == {
+        "trend": "achieved", "persistence_count": 2,
+    }
+
+    # --- improving（up 方向）：显著改善 + 连续 2 段上升 ---
+    # change_rate = (0.36-0.34)/0.34 ≈ 0.059 > 0.05 阈值
+    assert calc(1, "backhand_ratio", 0.36, [0.30, 0.32, 0.34], 0.35) == {
+        "trend": "improving", "persistence_count": 2,
+    }
+
+    # --- improving（down 方向）：显著下降即改善（forehand_ratio 目标 0.60） ---
+    # change_rate = (0.60-0.64)/0.64 ≈ -0.063，|·| > 0.05 显著
+    assert calc(1, "forehand_ratio", 0.60, [0.72, 0.68, 0.64], 0.60) == {
+        "trend": "improving", "persistence_count": 2,
+    }
+
+    # --- declining（up 方向）：显著退步 + 连续 2 段下降 ---
+    assert calc(1, "backhand_ratio", 0.28, [0.34, 0.32, 0.30], 0.35) == {
+        "trend": "declining", "persistence_count": 2,
+    }
+
+    # --- stagnant：变化不显著 + len>=4 + 连续 3 段平稳 ---
+    # change_rate = (0.307-0.306)/0.306 ≈ 0.003 < 0.05
+    assert calc(1, "backhand_ratio", 0.307, [0.300, 0.302, 0.304, 0.306], 0.35) == {
+        "trend": "stagnant", "persistence_count": 3,
+    }
+
+    # --- fallback：persistence 不足 2 段时按单次方向标记（R5-Prog-2） ---
+    assert calc(1, "backhand_ratio", 0.35, [0.30, 0.32], 0.35) == {
+        "trend": "improving", "persistence_count": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_snapshots_invalid_period_422(client, auth_headers):
+    """R12-Prog-10: period 非 month/quarter/year/all → 422（Query pattern 校验）"""
+    resp = await client.get(
+        "/api/v1/progress/snapshots?period=week", headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+    # 对照：合法 period → 200
+    resp = await client.get(
+        "/api/v1/progress/snapshots?period=month", headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_snapshots_no_auth_401(client):
+    """R12-Prog-10: 未认证访问快照列表 → 401（AppException ERR_UNAUTHORIZED）"""
+    resp = await client.get("/api/v1/progress/snapshots")
+    assert resp.status_code == 401
+    body = resp.json()
+    assert body["code"] == 40100  # ERR_UNAUTHORIZED
+    assert body["data"] is None

@@ -188,6 +188,7 @@
 3. session_key 存入 Redis（TTL 15min），用于后续微信 API 调用
 4. 签发 JWT（access_token 120min + refresh_token 7d）
 5. 检查 consent_log 表，判断用户是否已签署当前版本隐私政策，设置 `requires_consent`
+6. 账号状态拦截（签发 JWT 前校验）：status=banned → 403「您的账号已被封禁」；status=pending_deletion → 403「您的账号正在注销中，请先撤销注销」
 
 #### 错误情况
 
@@ -196,6 +197,8 @@
 | 400 | code 为空 | 登录凭证不能为空 |
 | 502 | 微信 API 调用失败 | 微信登录服务暂时不可用 |
 | 400 | code 无效 | 登录凭证无效 |
+| 403 | 账号状态为 banned | 您的账号已被封禁 |
+| 403 | 账号状态为 pending_deletion | 您的账号正在注销中，请先撤销注销 |
 
 ### 2.2 POST /auth/phone-login
 
@@ -225,6 +228,8 @@
 | 400 | 手机号格式错误 | 手机号格式不正确 |
 | 400 | 验证码错误或已过期 | 验证码错误或已过期 |
 | 429 | 验证码尝试次数过多 | 验证码尝试次数过多，请稍后重试 |
+| 403 | 账号状态为 banned | 您的账号已被封禁 |
+| 403 | 账号状态为 pending_deletion | 您的账号正在注销中，请先撤销注销 |
 
 ### 2.3 POST /auth/send-sms
 
@@ -259,14 +264,16 @@
 
 1. 6 位随机数字验证码，存入 Redis（key: `sms:code:{phone}`，TTL 5min）
 
-2. 调用阿里云短信服务发送
+2. 发送短信：`SMS_MOCK=true`（Phase 1 默认）时模拟通道（记录日志不实际发送，`_send_aliyun_sms` 为 TODO 桩，真实 SDK 在 Phase 2 接入）；`SMS_MOCK=false` 时调用阿里云短信服务发送
+
+3. 服务层同手机号 60 秒防刷（Redis 发送间隔标记，与 slowapi 端点限流相互独立，见 §1.5）
 
 #### 错误情况
 
 | HTTP | 条件 | 消息 |
 |------|------|------|
 | 400 | 手机号格式错误 | 手机号格式不正确 |
-| 429 | 1 分钟内已发送过 | 验证码已发送，请 1 分钟后重试 |
+| 429 | 60 秒内同手机号已发送过 | 验证码发送过于频繁，请 60 秒后重试 |
 
 ### 2.4 POST /auth/refresh
 
@@ -467,13 +474,14 @@
 1. 记录到 consent_log 表（user_id, consent_type, policy_version, consent_at, ip_address, user_agent）
 2. 同一 policy_version 重复同意时更新 consent_at 时间戳，不新增记录
 3. 同意后后续登录 `requires_consent` 返回 false
+4. policy_version 版本校验：必须等于服务端 `CURRENT_POLICY_VERSION`（当前 `v1.0`），否则拒绝写入（防止无效版本写入导致 consent-status 误判）
 
 #### 错误情况
 
 | HTTP | 条件 | 消息 |
 |------|------|------|
 | 422 | consent_type 不在枚举值内 | 同意类型不正确 |
-| 422 | policy_version 为空 | 政策版本不能为空 |
+| 422 | policy_version 非当前版本（含空值，`CURRENT_POLICY_VERSION=v1.0`） | 政策版本不正确，请同意最新版隐私政策 |
 
 ### 2.10 GET /auth/consent-status
 
@@ -849,13 +857,13 @@
 
 1. 异步处理：创建导出任务后立即返回 task_id
 
-2. Celery 异步聚合用户档案、比赛记录、分析报告摘要、训练方案、积分记录
+2. Celery 异步聚合用户档案、比赛记录、分析报告摘要、训练方案、积分记录（任务 `app.tasks.user.export_user_data`）
 
-3. 生成 JSON 文件上传 OSS 临时存储（7 天有效）
+3. Phase 1 简化实现：任务内直接构造 `download_url`（`https://oss.pingpongai.com/exports/{task_id}.zip`）并置 `completed`；真实数据打包 + OSS 上传（7 天有效）在 S6+ 接入
 
-4. 完成后 WS 推送 `export_complete` 通知
+4. 完成后 WS 推送 `export_completed` 事件通知（推送失败不影响任务状态）
 
-5. 每用户每月限 1 次导出
+5. 每用户每月限 1 次导出：Redis Key `export:count:{user_id}:{YYYYMM}` 原子 INCR（首次计数设置 TTL 至月末），超过 1 次返回 429
 
 #### 错误情况
 
@@ -890,8 +898,10 @@
 
 | HTTP | 条件 | 消息 |
 |------|------|------|
-| 404 | 任务不存在 | 导出任务不存在 |
-| 409 | 任务仍在处理中 | 导出任务处理中，请稍后查询 |
+| 404 | 任务不存在或不属于当前用户（跨用户访问按 404 处理，code 40400，不泄露存在性） | 导出任务不存在 |
+| 409 | 任务仍在处理中（status 为 pending/processing） | 导出任务处理中，请稍后查询 |
+
+> `status=completed` 时返回 200 及 `download_url`；`status=failed` 同样返回 200（前端按 status 展示失败态）。
 
 ### 3.10 POST /users/account/cancel-deletion
 
@@ -923,6 +933,40 @@
 | HTTP | 条件 | 消息 |
 |------|------|------|
 | 409 | 用户未处于注销待执行状态 | 无待执行的注销申请 |
+
+### 3.11 GET /users/quota
+
+> **P3 文档同步（源自 R6-User-2，R12 归档为文档不同步类）**：本端点在 R6 审查时已由代码实现（`app/api/v1/users/router.py`）但未记录于 API 设计文档，属"代码实现先行、文档滞后"。本节按当前实现补齐契约。
+
+**描述**：获取当前用户的免费视频分析额度状态
+
+**权限**：登录
+
+#### Response Body
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "daily_limit": 3,
+    "used_today": 1,
+    "remaining": 2,
+    "reset_at": "2026-10-11T00:00:00+08:00"
+  },
+  "timestamp": "..."
+}
+```
+
+#### 业务规则
+
+1. 读取 Redis Key `quota:analysis:{user_id}:{date}`（`date` 为 Asia/Shanghai CST 当日日期），统计当日已用免费分析次数
+2. `daily_limit`：免费用户每日免费分析次数（3 次）
+3. `reset_at`：额度重置时间，为次日 00:00（CST，Asia/Shanghai 时区）
+
+#### 错误情况
+
+> 通用错误码见 §1.7，无额外业务错误码。
 
 ---
 
@@ -1023,7 +1067,7 @@
 
 2. ffprobe 检查视频时长：5s ≤ duration ≤ 600s（PIPL 最小必要原则 + R32 测试审查修复）
 
-3. 更新 file_record（status=uploaded, oss_etag, actual_size, duration_sec）
+3. 更新 file_record（status=uploaded, oss_etag, actual_size）— R12-VA-6 同步：duration_sec 不入 file_record（DB 设计 §2.4 无此列），在响应中返回，create_task 时写入 video_task.duration_sec（ai_pipeline 读取源）
 
 #### 错误情况
 
@@ -2115,7 +2159,6 @@
   "opponent_rating": 1500,
   "my_score": 3,
   "opponent_score": 1,
-  "is_win": true,
   "notes": "反手表现不错"
 }
 ```
@@ -2126,7 +2169,8 @@
 | opponent_rating | int | N | 对手积分（500-3000） |
 | my_score | int | N | 我方得分 |
 | opponent_score | int | N | 对手得分 |
-| is_win | bool | N | 是否胜利（未传则根据比分自动计算） |
+| match_date | string(datetime) | N | 比赛日期时间（不能晚于当前时间） |
+| match_type | string | N | 比赛类型（friendly/tournament/training） |
 | notes | string | N | 比赛备注 |
 
 #### Response Body
@@ -2148,7 +2192,7 @@
 
 1. 仅更新传入的字段（PATCH 语义），未传入字段保持不变
 
-2. 若同时传入 `my_score` 和 `opponent_score` 且未传 `is_win`，自动重新计算 `is_win`
+2. 任一比分字段（`my_score` / `opponent_score`）发生变更即自动重新计算 `is_win`；`is_win` 由服务端自动计算，**禁止前端传入**（R13-P3 文档同步：对齐 R12-MatchData-B1/B2 修复后实现——Update Schema 不含 is_win，未知字段被忽略；重算条件为 OR 语义，非"同时传入两比分"）
 
 3. 若比赛记录关联了记分牌比赛（`match_id` 不为空），返回 409 禁止编辑（应通过记分牌修改）
 
@@ -5104,7 +5148,7 @@ Sec-WebSocket-Protocol: jwt.{access_token}
 | POST /admin/login | 5/min | 登录端点严格限流，防暴力破解 |
 | 其他管理端点 | 100/min | 统一管理后台限流 |
 
-> 所有管理端点 **必须** 添加 `@limiter.limit()` 限流装饰器，且 `@limiter.limit()` **必须** 位于 `@router.xxx()` 装饰器上方。
+> 所有管理端点 **必须** 添加 `@limiter.limit()` 限流装饰器，且装饰器顺序 **必须** 为 `@router.xxx()` 在上、`@limiter.limit()` 紧随其下（slowapi 要求限流装饰器贴近路由函数；若 `@limiter.limit()` 放在 `@router.xxx()` 上方，路由表注册的将是未限流的原始函数，限流不生效——R12 已按此统一全 app 95 个端点的装饰器顺序）。
 
 ---
 

@@ -20,8 +20,8 @@ from app.services.match_data_service import MatchDataService
 router = APIRouter(prefix="/match-data", tags=["比赛数据"])
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/records", summary="创建比赛记录")
+@limiter.limit(RateLimits.DEFAULT)
 async def create_record(
     body: MatchRecordCreateRequest,
     request: Request,
@@ -32,8 +32,8 @@ async def create_record(
     return success(data=data, message="比赛记录已创建")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/records", summary="比赛记录列表")
+@limiter.limit(RateLimits.DEFAULT)
 async def list_records(
     request: Request,
     result: Optional[str] = Query(default="all", pattern="^(win|lose|all)$", description="结果过滤"),
@@ -46,8 +46,8 @@ async def list_records(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/records/{record_id}", summary="比赛记录详情")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_record(
     request: Request,
     record_id: int,
@@ -58,8 +58,8 @@ async def get_record(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.patch("/records/{record_id}", summary="编辑比赛记录")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_record(
     body: MatchRecordUpdate,
     request: Request,

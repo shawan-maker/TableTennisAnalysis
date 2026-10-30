@@ -203,7 +203,9 @@ class KnowledgeBaseService:
                         "rule_type": rule.rule_type,
                         "problem_id": diag.get("problem_id", ""),
                         "problem_name": diag.get("problem_name", ""),
-                        "severity": match_result.get("severity", diag.get("severity", "medium")),
+                        # R12-KB-2: severity 取自 diagnosis JSONB（设计规定 severity 是
+                        # 诊断结论属性），不再从 condition 读取（原先恒为 medium 兜底）
+                        "severity": diag.get("severity", "medium"),
                         "suggestion": suggestion,
                         "adjustment_action": rule.adjustment_action,
                         "training_methods": rule.training_methods,
@@ -267,9 +269,11 @@ class KnowledgeBaseService:
 
         elif rule_type == "stagnant":
             metric = cond.get("metric")
-            min_stagnation = cond.get("min_stagnation", 3)
+            # R12-KB-3: 条件键统一为 min_persistence（设计 §知识库规则评估），
+            # 原先误用 min_stagnation 导致设计种子规则条件键不生效
+            min_persistence = cond.get("min_persistence", 1)
             trend_info = trends.get(metric, {})
-            if trend_info.get("persistence", 0) >= min_stagnation and trend_info.get("direction") == "stagnant":
+            if trend_info.get("persistence", 0) >= min_persistence and trend_info.get("direction") == "stagnant":
                 suggestion_params.update({"metric": metric, "persistence": trend_info.get("persistence", 0)})
                 return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
             return None

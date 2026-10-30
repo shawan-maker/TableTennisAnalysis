@@ -18,8 +18,8 @@ from app.services.membership_service import MembershipService
 router = APIRouter(prefix="/membership", tags=["会员-等级权益"])
 
 
-@limiter.limit("100/minute")
 @router.get("/tiers", summary="会员等级与权益对比")
+@limiter.limit("100/minute")
 async def get_tiers(
     request: Request,
     user: User = Depends(get_current_user),
@@ -30,8 +30,8 @@ async def get_tiers(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/current", summary="当前会员状态")
+@limiter.limit("100/minute")
 async def get_current_membership(
     request: Request,
     user: User = Depends(get_current_user),
@@ -42,8 +42,8 @@ async def get_current_membership(
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.get("/quota", summary="今日剩余免费分析次数")
+@limiter.limit("100/minute")
 async def get_quota(
     request: Request,
     user: User = Depends(get_current_user),

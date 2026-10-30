@@ -30,8 +30,8 @@ from app.services.auth_service import AuthService
 router = APIRouter(prefix="/auth", tags=["认证"])
 
 
-@limiter.limit(RateLimits.WECHAT_LOGIN)
 @router.post("/wechat-login", summary="微信小程序登录")
+@limiter.limit(RateLimits.WECHAT_LOGIN)
 async def wechat_login(body: WechatLoginRequest, request: Request):
     """微信小程序登录（code → JWT）"""
     data = await AuthService.wechat_login(body)
@@ -41,8 +41,8 @@ async def wechat_login(body: WechatLoginRequest, request: Request):
 # R4-Auth-1: send-sms 限流策略说明
 # 按 IP 限流（slowapi 默认 key_func=get_remote_address），Service 层 Redis
 # 按手机号二次检查（sms:sent:{phone} 60s 防刷），避免单一 IP 撑爆验证码发送。
-@limiter.limit(RateLimits.SEND_SMS)
 @router.post("/send-sms", summary="发送短信验证码")
+@limiter.limit(RateLimits.SEND_SMS)
 async def send_sms(body: SendSmsRequest, request: Request):
     """发送短信验证码（5 分钟有效，60 秒防刷）"""
     # R4-Auth-3: 调用 send_sms(phone) 而非 send_sms(req)
@@ -50,24 +50,24 @@ async def send_sms(body: SendSmsRequest, request: Request):
     return success(data=data, message="验证码已发送")
 
 
-@limiter.limit(RateLimits.PHONE_LOGIN)
 @router.post("/phone-login", summary="手机号验证码登录")
+@limiter.limit(RateLimits.PHONE_LOGIN)
 async def phone_login(body: PhoneLoginRequest, request: Request):
     """手机号验证码登录（验证码 → JWT）"""
     data = await AuthService.phone_login(body)
     return success(data=data.model_dump(), message="登录成功")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/refresh", summary="刷新 access_token")
+@limiter.limit(RateLimits.DEFAULT)
 async def refresh_token(body: RefreshTokenRequest, request: Request):
     """使用 refresh_token 获取新的 access_token"""
     data = await AuthService.refresh_token(body.refresh_token)
     return success(data=data.model_dump())
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/logout", summary="登出")
+@limiter.limit(RateLimits.DEFAULT)
 async def logout(
     request: Request,
     user: User = Depends(get_current_user),
@@ -82,8 +82,8 @@ async def logout(
     return success(message="登出成功")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/me", summary="获取当前登录用户信息")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_me(
     request: Request,
     user: User = Depends(get_current_user),
@@ -105,8 +105,8 @@ async def get_me(
     )
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.post("/h5-token", summary="生成 H5 降级临时 Token")
+@limiter.limit(RateLimits.DEFAULT)
 async def generate_h5_token(
     request: Request,
     user: User = Depends(get_current_user),
@@ -116,8 +116,8 @@ async def generate_h5_token(
     return success(data=data)
 
 
-@limiter.limit(RateLimits.H5_EXCHANGE)
 @router.post("/h5-exchange", summary="H5 Token 换 JWT")
+@limiter.limit(RateLimits.H5_EXCHANGE)
 async def exchange_h5_token(body: H5ExchangeRequest, request: Request):
     """H5 Token 换 JWT（一次性使用）"""
     data = await AuthService.exchange_h5_token(body.token)
@@ -126,8 +126,8 @@ async def exchange_h5_token(body: H5ExchangeRequest, request: Request):
 
 # --- PIPL-001：用户同意隐私政策 ---
 
-@limiter.limit(RateLimits.CONSENT)
 @router.post("/consent", summary="记录用户同意隐私政策")
+@limiter.limit(RateLimits.CONSENT)
 async def record_consent(
     body: ConsentRequest,
     request: Request,
@@ -146,8 +146,8 @@ async def record_consent(
     return success(data=data, message="同意已记录")
 
 
-@limiter.limit(RateLimits.DEFAULT)
 @router.get("/consent-status", summary="查询用户同意状态")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_consent_status(
     request: Request,
     # R4-Auth-2: 添加 consent_type 参数，None 时返回所有类型

@@ -7,7 +7,7 @@ app/schemas/video_analysis.py — 视频分析模块 Pydantic Schema
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from typing import Literal
 
 
@@ -18,16 +18,10 @@ from typing import Literal
 class UploadTokenRequest(BaseModel):
     """获取上传凭证请求"""
     filename: str = Field(..., min_length=1, max_length=255, description="文件名")
-    file_size: int = Field(..., ge=1048576, le=524288000, description="文件大小（字节，1MB-500MB）")
-
-    @field_validator("filename")
-    @classmethod
-    def validate_file_extension(cls, v: str) -> str:
-        """R6-Video-2: 文件类型校验 — 仅支持 MP4/MOV 格式"""
-        ext = v.rsplit(".", 1)[-1].lower() if "." in v else ""
-        if ext not in ("mp4", "mov"):
-            raise ValueError("仅支持 MP4/MOV 格式")
-        return v
+    # R12-VA-4: 移除 ge/le 与类型 field_validator — API §4.1 错误表规定
+    # 类型不支持/过大为 400、过小为 422，需由 service 层区分抛出，
+    # Schema 先行 422 拦截会使设计规定的错误码分支成为死代码
+    file_size: int = Field(..., description="文件大小（字节）")
 
 
 class UploadCompleteRequest(BaseModel):

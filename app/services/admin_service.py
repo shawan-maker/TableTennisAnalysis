@@ -174,7 +174,7 @@ class AdminService:
 
     # R4-Admin-5: ban_user 返回 {"user_id", "status", "reason"}
     @staticmethod
-    async def ban_user(user_id: int, reason: str, admin_id: int) -> dict:
+    async def ban_user(user_id: int, reason: str, admin_id: int, ip_address: str | None = None) -> dict:
         """封禁用户"""
         async with async_session_factory() as db:
             result = await db.execute(select(User).where(User.id == user_id))
@@ -187,19 +187,22 @@ class AdminService:
             # R4-Admin-6: 审计日志 changes 结构 — 字段级 old/new 对比
             old_status = user.status
             user.status = "banned"
+            await db.commit()
+            # R12-Admin-6: 审计移到 commit 后（_write_audit_log 独立 session 立即提交，
+            # 业务 commit 失败时避免幽灵审计记录）
             await AdminService._write_audit_log(
                 db, admin_id, "update", "user", user_id,
+                ip_address=ip_address,
                 changes={
                     "status": {"old": old_status, "new": "banned"},
                     "ban_reason": {"old": None, "new": reason},
                 },
             )
-            await db.commit()
             return {"user_id": user_id, "status": "banned", "reason": reason}
 
     # R4-Admin-5: unban_user 返回 {"user_id", "status"}
     @staticmethod
-    async def unban_user(user_id: int, admin_id: int) -> dict:
+    async def unban_user(user_id: int, admin_id: int, ip_address: str | None = None) -> dict:
         """解禁用户"""
         async with async_session_factory() as db:
             result = await db.execute(select(User).where(User.id == user_id))
@@ -211,11 +214,13 @@ class AdminService:
 
             old_status = user.status
             user.status = "active"
+            await db.commit()
+            # R12-Admin-6: 审计移到 commit 后（避免幽灵审计）
             await AdminService._write_audit_log(
                 db, admin_id, "update", "user", user_id,
+                ip_address=ip_address,
                 changes={"status": {"old": old_status, "new": "active"}},
             )
-            await db.commit()
             return {"user_id": user_id, "status": "active"}
 
     # ==================== 系统配置 ====================
@@ -258,7 +263,7 @@ class AdminService:
             return brief
 
     @staticmethod
-    async def create_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
+    async def create_config(key: str, value: str, description: str | None, admin_id: int, ip_address: str | None = None) -> ConfigBrief:
         """创建配置"""
         async with async_session_factory() as db:
             # R4-Admin-16: SystemConfig.key → config_key
@@ -274,6 +279,7 @@ class AdminService:
             # R9-Admin-P2-1: 审计日志移到 commit 后，传入 target_id=config.id
             await AdminService._write_audit_log(
                 db, admin_id, "create", "config", target_id=config.id,
+                ip_address=ip_address,
                 changes={
                     "config_key": {"old": None, "new": key},
                     "config_value": {"old": None, "new": value},
@@ -282,7 +288,7 @@ class AdminService:
             return ConfigBrief.model_validate(config)
 
     @staticmethod
-    async def update_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
+    async def update_config(key: str, value: str, description: str | None, admin_id: int, ip_address: str | None = None) -> ConfigBrief:
         """更新配置"""
         async with async_session_factory() as db:
             # R4-Admin-16: SystemConfig.key/value → config_key/config_value
@@ -296,12 +302,16 @@ class AdminService:
             config.config_value = value
             if description is not None:
                 config.description = description
-            await AdminService._write_audit_log(
-                db, admin_id, "update", "config", target_id=config.id,
-                changes={"config_key": key, "config_value": {"old": old_value, "new": value}},
-            )
+            config_id = config.id
             await db.commit()
             await db.refresh(config)
+            # R12-Admin-6: 审计移到 commit 后（避免幽灵审计）
+            # R12-Admin-5: changes 按 API §19 统一 {old,new} 结构（config_key 裸值移除）
+            await AdminService._write_audit_log(
+                db, admin_id, "update", "config", target_id=config_id,
+                ip_address=ip_address,
+                changes={"config_value": {"old": old_value, "new": value}},
+            )
             brief = ConfigBrief.model_validate(config)
             # R4-Admin-7+8: 失效缓存
             try:
@@ -312,7 +322,7 @@ class AdminService:
             return brief
 
     @staticmethod
-    async def delete_config(key: str, admin_id: int) -> None:
+    async def delete_config(key: str, admin_id: int, ip_address: str | None = None) -> None:
         """删除配置"""
         async with async_session_factory() as db:
             # R4-Admin-16: SystemConfig.key → config_key
@@ -322,15 +332,18 @@ class AdminService:
                 raise AppException("配置不存在", 404, code=ERR_NOT_FOUND)
 
             old_value = config.config_value
+            config_id = config.id
             await db.delete(config)
+            await db.commit()
+            # R12-Admin-6: 审计移到 commit 后（避免幽灵审计）
             await AdminService._write_audit_log(
-                db, admin_id, "delete", "config", target_id=config.id,
+                db, admin_id, "delete", "config", target_id=config_id,
+                ip_address=ip_address,
                 changes={
                     "config_key": {"old": key, "new": None},
                     "config_value": {"old": old_value, "new": None},
                 },
             )
-            await db.commit()
             # R4-Admin-7+8: 失效缓存
             try:
                 redis = await get_redis()
@@ -401,9 +414,17 @@ class AdminService:
     # ==================== 知识库管理 ====================
 
     @staticmethod
-    async def create_category(name: str, code: str, admin_id: int, content: dict | None = None) -> dict:
+    async def create_category(name: str, code: str, admin_id: int, content: dict | None = None, ip_address: str | None = None) -> dict:
         """创建知识分类"""
         async with async_session_factory() as db:
+            # R12-Admin-2: 重复 name/code 返回 409（原直接插入触发 IntegrityError 500）
+            dup = await db.scalar(
+                select(KnowledgeCategory).where(
+                    or_(KnowledgeCategory.name == name, KnowledgeCategory.code == code)
+                )
+            )
+            if dup:
+                raise AppException("分类名称或编码已存在", 409, code=ERR_CONFLICT)
             category = KnowledgeCategory(name=name, code=code, content=content or {})
             db.add(category)
             await db.commit()
@@ -411,6 +432,7 @@ class AdminService:
             # R9-Admin-P2-1: 审计日志移到 commit 后，传入 target_id=category.id
             await AdminService._write_audit_log(
                 db, admin_id, "create", "knowledge", target_id=category.id,
+                ip_address=ip_address,
                 changes={
                     "name": {"old": None, "new": name},
                     "code": {"old": None, "new": code},
@@ -424,7 +446,7 @@ class AdminService:
         category_id: int,
         name: str | None,
         content: dict | None,
-        admin_id: int,
+        admin_id: int, ip_address: str | None = None,
     ) -> dict:
         """更新知识分类（仅 name/content，code 不可改）"""
         async with async_session_factory() as db:
@@ -440,16 +462,18 @@ class AdminService:
             if content is not None:
                 changes["content"] = {"old": category.content, "new": content}
                 category.content = content
-            await AdminService._write_audit_log(
-                db, admin_id, "update", "knowledge", category_id,
-                changes=changes,
-            )
             await db.commit()
             await db.refresh(category)
+            # R12-Admin-6: 审计移到 commit 后（避免幽灵审计）
+            await AdminService._write_audit_log(
+                db, admin_id, "update", "knowledge", category_id,
+                ip_address=ip_address,
+                changes=changes,
+            )
             return {"id": category.id, "name": category.name, "code": category.code}
 
     @staticmethod
-    async def delete_category(category_id: int, admin_id: int) -> None:
+    async def delete_category(category_id: int, admin_id: int, ip_address: str | None = None) -> None:
         """删除知识分类"""
         async with async_session_factory() as db:
             result = await db.execute(select(KnowledgeCategory).where(KnowledgeCategory.id == category_id))
@@ -459,11 +483,13 @@ class AdminService:
 
             old_code = category.code
             await db.delete(category)
+            await db.commit()
+            # R12-Admin-6: 审计移到 commit 后（避免幽灵审计）
             await AdminService._write_audit_log(
                 db, admin_id, "delete", "knowledge", category_id,
+                ip_address=ip_address,
                 changes={"code": {"old": old_code, "new": None}},
             )
-            await db.commit()
 
     @staticmethod
     async def create_rule(
@@ -473,6 +499,7 @@ class AdminService:
         training_plan_template: str | None = None,
         adjustment_action: str | None = None,
         admin_id: int = 0,
+        ip_address: str | None = None,
     ) -> dict:
         """创建知识规则"""
         async with async_session_factory() as db:
@@ -498,6 +525,7 @@ class AdminService:
             # R9-Admin-P2-1: 审计日志移到 commit 后，传入 target_id=rule.id
             await AdminService._write_audit_log(
                 db, admin_id, "create", "knowledge", target_id=rule.id,
+                ip_address=ip_address,
                 changes={"rule_id": {"old": None, "new": rule_id}},
             )
             # R4-Admin-21: 返回 {"id", "rule_id"}
@@ -505,43 +533,45 @@ class AdminService:
 
     # R4-Admin-13: toggle_rule 接受 is_active 显式设置而非 toggle
     # R4-Admin-22: 返回 {"id", "is_active"}
-    # R5-Admin-3: rule_id 改为 int 类型，按 RuleDefinition.id 查询
+    # R12-Admin-4: rule_id 为 int 数据库 ID，按 RuleDefinition.id 查询（对齐 API §19.5.5 与切片设计）
     @staticmethod
-    async def toggle_rule(rule_id: str, is_active: bool, admin_id: int) -> dict:
+    async def toggle_rule(rule_id: int, is_active: bool, admin_id: int, ip_address: str | None = None) -> dict:
         """显式设置规则状态（参数名保留 toggle_rule 兼容）
 
-        rule_id 为 RuleDefinition.rule_id（字符串业务 ID），按业务字段查询。
+        rule_id 为 RuleDefinition.id（int 数据库 ID），按主键查询。
         """
+
         async with async_session_factory() as db:
-            result = await db.execute(select(RuleDefinition).where(RuleDefinition.rule_id == rule_id))
+            result = await db.execute(select(RuleDefinition).where(RuleDefinition.id == rule_id))
             rule = result.scalar_one_or_none()
             if not rule:
                 raise AppException("规则不存在", 404, code=ERR_NOT_FOUND)
 
             old_active = rule.is_active
             rule.is_active = is_active
-            await AdminService._write_audit_log(
-                db, admin_id, "update", "knowledge", target_id=rule.id,
-                changes={
-                    "rule_id": rule.rule_id,
-                    "is_active": {"old": old_active, "new": is_active},
-                },
-            )
             await db.commit()
             await db.refresh(rule)
+            # R12-Admin-6: 审计移到 commit 后（避免幽灵审计）
+            # R12-Admin-5: changes 按 API §19 统一 {is_active:{old,new}}（rule_id 裸值移除）
+            await AdminService._write_audit_log(
+                db, admin_id, "update", "knowledge", target_id=rule.id,
+                ip_address=ip_address,
+                changes={"is_active": {"old": old_active, "new": is_active}},
+            )
             # R4-Admin-22: 返回 {"id", "is_active"}
             return {"id": rule.id, "is_active": rule.is_active}
 
     # ==================== 模型版本 ====================
 
     @staticmethod
-    async def activate_model_version(version_id: str, admin_id: int) -> dict:
+    async def activate_model_version(version_id: str, admin_id: int, ip_address: str | None = None) -> dict:
         """激活模型版本"""
         # S6 阶段仅记录审计日志，实际模型管理在 S7+
         async with async_session_factory() as db:
             old_status = None
             await AdminService._write_audit_log(
                 db, admin_id, "update", "model",
+                ip_address=ip_address,
                 changes={"status": {"old": old_status, "new": "active"}},
             )
             await db.commit()

@@ -1,4 +1,4 @@
-﻿# admin 基础设施模块 — 后端垂直切片设计
+﻿min 基础设施模块 — 后端垂直切片设计
 
 > **模块名称**：`admin`
 > **所属目录**：`app/api/v1/admin/` + `app/services/admin_service.py`
@@ -135,24 +135,66 @@ class SystemConfig(Base):
 # app/schemas/admin.py
 """管理后台 Schema 定义。"""
 
-from datetime import datetime, timezone
-from typing import Optional, Any
+from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, Field
-from app.core.pagination import Paginated
 
 
-# --- 认证 Schema ---
+# --- 请求 Schema ---
 class AdminLoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1, max_length=128)
 
 
-class AdminLoginResponse(BaseModel):
-    session_token: [REDACTED]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
-    admin: AdminBrief
-    expires_in: int = 1800  # 30 分钟
+# R4-Admin-19: 字段名 key/value → config_key/config_value
+# R13-P3 文档同步: config_value 类型 Any → str | dict（与实际实现一致）
+class ConfigCreateRequest(BaseModel):
+    config_key: str = Field(..., max_length=64)
+    config_value: str | dict = Field(..., description="配置值（字符串或 JSON 对象）")
+    description: Optional[str] = None
 
 
+class ConfigUpdateRequest(BaseModel):
+    config_value: str | dict = Field(..., description="配置值（字符串或 JSON 对象）")
+    description: Optional[str] = None
+
+
+class UserBanRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+# R4-Admin-3: content 字段；R13-P3 文档同步: content 可选（default_factory=dict），
+# name/code 仅 max_length 约束（无 min_length）
+class CategoryCreateRequest(BaseModel):
+    name: str = Field(..., max_length=64)
+    code: str = Field(..., max_length=32)
+    content: dict = Field(default_factory=dict, description="分类内容")
+
+
+# R4-Admin-11: 仅允许 name 和 content 字段（不允许更新 code）
+class CategoryUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=64)
+    content: Optional[dict] = Field(default=None, description="分类内容")
+
+
+# R4-Admin-12: training_methods 类型 list；adjustment_action 长度约束
+class RuleCreateRequest(BaseModel):
+    rule_id: str = Field(..., max_length=64)
+    rule_name: str = Field(..., max_length=128)
+    rule_type: str = Field(..., max_length=32)
+    condition: dict
+    diagnosis: dict
+    training_methods: Optional[list] = None
+    training_plan_template: Optional[str] = None
+    adjustment_action: Optional[str] = Field(
+        default=None, max_length=32,
+        description="调整动作 maintain/adjust/escalate/new_goal",
+    )
+
+
+# --- 响应 Schema ---
+# R4-Admin-17: AdminBrief 先定义，AdminLoginResponse 直接类型引用
 class AdminBrief(BaseModel):
     id: int
     username: str
@@ -160,7 +202,12 @@ class AdminBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# --- 用户管理 Schema ---
+class AdminLoginResponse(BaseModel):
+    session_token: str
+    admin: AdminBrief
+    expires_in: int = 1800
+
+
 class UserManageBrief(BaseModel):
     id: int
     nickname: str
@@ -168,89 +215,39 @@ class UserManageBrief(BaseModel):
     openid: Optional[str] = None
     status: str
     created_at: datetime
-
-
-class UserBanRequest(BaseModel):
-    reason: str = Field(..., min_length=1, max_length=500)
-
-
-class UserListQuery(BaseModel):
-    status: Optional[str] = None
-    q: Optional[str] = None
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=100)
-
-
-PaginatedUsers = Paginated[UserManageBrief]
-
-
-# --- 系统配置 Schema ---
-class ConfigCreateRequest(BaseModel):
-    config_key: str = Field(..., min_length=1, max_length=64)
-    config_value: Any
-    description: Optional[str] = None
-
-
-class ConfigUpdateRequest(BaseModel):
-    config_value: Any
-    description: Optional[str] = None
-
-
-class ConfigBrief(BaseModel):
-    id: int
-    config_key: str
-    config_value: Any
-    description: Optional[str] = None
-    updated_at: datetime
     model_config = {"from_attributes": True}
 
 
-# --- 审计日志 Schema ---
+# R4-Admin-15: updated_at；R13-P3 文档同步: 补 created_at、config_value 可空
+class ConfigBrief(BaseModel):
+    id: int
+    config_key: str
+    config_value: str | dict | None = None
+    description: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
+
+
+# R4-Admin-9+10: admin_username（list_audit_logs LEFT JOIN 填充）
+# R6-Admin-5+6: admin_id/target_type 可空（用户侧支付等操作无 admin_id）
 class AuditLogBrief(BaseModel):
     id: int
-    admin_id: int
+    admin_id: Optional[int] = None
     admin_username: Optional[str] = None
     action: str
-    target_type: str
+    target_type: Optional[str] = None
     target_id: Optional[int] = None
     changes: Optional[dict] = None
     created_at: datetime
+    model_config = {"from_attributes": True}
 
 
-class AuditLogQuery(BaseModel):
-    admin_id: Optional[int] = None
-    action: Optional[str] = None
-    target_type: Optional[str] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=100)
+AdminLoginResponse.model_rebuild()
 
-
-PaginatedAuditLogs = Paginated[AuditLogBrief]
-
-
-# --- 知识库管理 Schema ---
-class CategoryCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=64)
-    code: str = Field(..., min_length=1, max_length=32)
-    content: dict
-
-
-class CategoryUpdateRequest(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=64)
-    content: Optional[dict] = None
-
-
-class RuleCreateRequest(BaseModel):
-    rule_id: str = Field(..., min_length=1, max_length=64)
-    rule_name: str = Field(..., min_length=1, max_length=128)
-    rule_type: str = Field(..., min_length=1, max_length=32)
-    condition: dict
-    diagnosis: dict
-    training_methods: Optional[list] = None
-    training_plan_template: Optional[str] = None
-    adjustment_action: Optional[str] = None
+# R13-P3 文档同步: 原设计的 UserListQuery / AuditLogQuery / Paginated[...] 包装类型未采用。
+# 实际 Router 用 Query() 散参、Service 散参签名，分页统一返回 dict
+# {total, page, page_size, items}（items 为 Pydantic Brief 列表）。
 ```
 
 ---
@@ -260,544 +257,360 @@ class RuleCreateRequest(BaseModel):
 ### 5.1 管理员认证依赖
 
 ```python
-# app/core/admin_deps.py
+# app/core/deps.py（R13-P3 文档同步: 实际实现位于 core/deps.py，未创建独立 admin_deps.py）
 """管理员认证依赖——独立于普通用户 JWT 体系。"""
 
-import bcrypt
-from datetime import datetime, timedelta, timezone
-from fastapi import Depends, Header
+from fastapi import Depends, Request
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppException
-from app.core.redis import get_redis
-from app.core.database import get_async_session
-from app.models.admin import AdminUser
-
-# Session TTL
-ADMIN_SESSION_TTL = 1800  # 30 分钟
+from app.core.database import get_db
+from app.core.exceptions import AppException, ERR_FORBIDDEN, ERR_UNAUTHORIZED
 
 
-async def get_current_admin(
-    authorization: str = Header(..., description="Admin session token"),
-) -> AdminUser:
-    """从 session token 获取管理员——不使用 JWT。
+# Session TTL（30 分钟，滑动续期见 refresh_session）
+ADMIN_SESSION_TTL = 1800
+
+
+async def get_admin_session(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+    """Admin 独立认证——基于 Redis session，不使用 JWT。
 
     流程：
-    1. 从 header 提取 session token
-    2. Redis 查询 session → admin_id
-    3. 加载 AdminUser
-    4. 校验 is_active
+    1. 解析 Authorization header（R5-Admin-4: 支持 "Admin xxx" / "Bearer xxx" 两种前缀）
+    2. Redis 查询 admin:session:{token} → session JSON {admin_id, username, role}
+    3. R12-Admin-1: 每请求校验 admin_user.is_active —— 禁用/删除的管理员
+       session 立即失效（删除 Redis key 并返回 403）
+    4. 滑动续期：refresh_session 将 TTL 刷新至 30 分钟（R12-Admin-13）
     """
-    if not authorization.startswith("Admin "):
-        raise AppException("管理员认证失败", 401)
+    from app.services.admin_service import AdminService, ADMIN_SESSION_PREFIX
 
-    token = authorization[6:]  # 去掉 "Admin " 前缀
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header:
+        raise AppException("管理员请先登录", 401, code=ERR_UNAUTHORIZED)
 
-    redis = await get_redis()
-    admin_id = await redis.get(f"admin:session:{token}")
-    if not admin_id:
-        raise AppException("管理员 session 已过期，请重新登录", 401)
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2 or parts[0] not in ("Admin", "Bearer"):
+        raise AppException("管理员请先登录", 401, code=ERR_UNAUTHORIZED)
 
-    async with get_async_session() as db:
-        admin = await db.scalar(
-            select(AdminUser).where(AdminUser.id == int(admin_id))
-        )
-        if not admin:
-            raise AppException("管理员账号不存在", 401)
-        if not admin.is_active:
-            raise AppException("管理员账号已禁用", 403)
+    token = parts[1]
+    session = await AdminService.get_session(token)
+    if not session:
+        raise AppException("管理员会话已过期，请重新登录", 401, code=ERR_UNAUTHORIZED)
 
-        # 续期 session
-        await redis.expire(f"admin:session:{token}", ADMIN_SESSION_TTL)
-        return admin
+    # R12-Admin-1: 每请求校验管理员状态 —— 禁用/删除的管理员 session 立即失效
+    admin_id = session.get("admin_id")
+    if admin_id is not None:
+        from app.models.admin import AdminUser
+
+        result = await db.execute(select(AdminUser).where(AdminUser.id == admin_id))
+        admin = result.scalar_one_or_none()
+        if admin is None or not admin.is_active:
+            from app.core.redis import get_redis
+
+            redis_client = await get_redis()
+            await redis_client.delete(f"{ADMIN_SESSION_PREFIX}{token}")
+            raise AppException("管理员账号已被禁用", 403, code=ERR_FORBIDDEN)
+
+    # 刷新 session TTL（滑动续期）
+    await AdminService.refresh_session(token)
+    return session
 
 
-async def require_super_admin(
-    admin: AdminUser = Depends(get_current_admin),
-) -> AdminUser:
-    """要求超级管理员权限。"""
-    if admin.role != "super_admin":
-        raise AppException("需要超级管理员权限", 403)
-    return admin
+async def require_super_admin(session: dict = Depends(get_admin_session)) -> dict:
+    """超级管理员权限守卫（基于 session.role）。"""
+    if session.get("role") != "super_admin":
+        raise AppException("需要超级管理员权限", 403, code=ERR_FORBIDDEN)
+    return session
+
+
+# 另有 require_content_admin / require_model_admin（super_admin 也通过），见 app/core/deps.py。
+# R13-P3 文档同步: 路由端依赖为 session: dict = Depends(get_admin_session)，
+# 业务调用取 session["admin_id"]；session 值为 JSON {admin_id, username, role}，
+# 非原设计的 str(admin.id)；认证依赖返回 session dict 而非 AdminUser ORM 对象。
 ```
 
 ### 5.2 Admin Service
 
 ```python
 # app/services/admin_service.py
-"""管理后台业务逻辑层。"""
+"""管理后台业务逻辑层。
 
+R13-P3 文档同步（以实际实现为准）：
+- session 为 JSON {admin_id, username, role}（非 str(admin.id)）
+- 登录密码验证用 passlib bcrypt（pwd_context.verify），并更新 last_login_at
+- Service 方法为散参签名（非 Query 对象），分页返回 dict {total,page,page_size,items}
+- 审计写入使用独立 session（R5-Admin-6），业务 commit 后调用（R12-Admin-6）
+- 下方样例省略（...）的方法体与 app/services/admin_service.py 完全一致
+"""
+
+import json
+import logging
 import secrets
 from datetime import datetime, timezone
-from typing import Optional
 
-import bcrypt
-from sqlalchemy import select, update
+from sqlalchemy import select, desc, func, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppException
+from app.core.database import async_session_factory
 from app.core.redis import get_redis
-from app.core.database import get_async_session
-from app.core.pagination import paginate
-from app.models.admin import AdminUser, AuditLog, SystemConfig
+from app.core.exceptions import AppException, ERR_NOT_FOUND, ERR_CONFLICT, ERR_FORBIDDEN
+from app.core.security import pwd_context
+from app.models.admin import AdminUser, SystemConfig, AuditLog
 from app.models.user import User
-from app.models.knowledge_base import (
-    KnowledgeCategory, KnowledgeEntry,
-    RuleDefinition, TrainingTemplate,
-)
+from app.models.knowledge_base import KnowledgeCategory, RuleDefinition
 from app.schemas.admin import (
-    AdminBrief, AdminLoginResponse,
-    UserManageBrief, UserListQuery, PaginatedUsers,
-    ConfigBrief, ConfigCreateRequest, ConfigUpdateRequest,
-    AuditLogBrief, AuditLogQuery, PaginatedAuditLogs,
-    CategoryCreateRequest, CategoryUpdateRequest,
-    RuleCreateRequest,
+    AdminBrief, AdminLoginResponse, UserManageBrief, ConfigBrief, AuditLogBrief,
 )
+
+logger = logging.getLogger(__name__)
+
+ADMIN_SESSION_TTL = 1800  # 30 分钟
+ADMIN_SESSION_PREFIX = "admin:session:"
+
+# R4-Admin-7+8: 配置缓存常量
+CONFIG_CACHE_PREFIX = "config:"
+CONFIG_CACHE_TTL = 3600  # 1 小时
 
 
 class AdminService:
     """管理后台业务逻辑层。"""
 
-    # Session TTL
-    SESSION_TTL = 1800  # 30 分钟
-
-    # --- 管理员认证 ---
+    # ==================== Admin 认证 ====================
 
     @staticmethod
     async def login(username: str, password: str) -> AdminLoginResponse:
-        """管理员登录——用户名+密码（bcrypt 验证），签发 session。
+        """管理员登录——passlib bcrypt 验证，签发 JSON session（30min TTL）。
 
-        不使用 JWT，session 存储在 Redis（30min 过期）。
+        R13-P3 文档同步: 密码验证用 pwd_context.verify（passlib bcrypt，
+        非 bcrypt.checkpw 直调）；session 值为 JSON {admin_id, username, role}；
+        登录成功更新 last_login_at；禁用账号返回 403。
         """
-        async with get_async_session() as db:
-            admin = await db.scalar(
+        async with async_session_factory() as db:
+            result = await db.execute(
                 select(AdminUser).where(AdminUser.username == username)
             )
-            if not admin:
+            admin = result.scalar_one_or_none()
+
+            if not admin or not pwd_context.verify(password, admin.password_hash):
                 raise AppException("用户名或密码错误", 401)
+
             if not admin.is_active:
                 raise AppException("管理员账号已禁用", 403)
 
-            # bcrypt 验证
-            if not bcrypt.checkpw(
-                password.encode("utf-8"), admin.password_hash.encode("utf-8")
-            ):
-                raise AppException("用户名或密码错误", 401)
+            # 更新最后登录时间
+            admin.last_login_at = datetime.now(timezone.utc)
+            await db.commit()
 
-            # 签发 session（随机 token，存 Redis）
-            session_token = secrets.token_urlsafe(32)
-            redis = await get_redis()
-            await redis.setex(
-                f"admin:session:{session_token}",
-                AdminService.SESSION_TTL,
-                str(admin.id),
-            )
+        # 创建 Redis session（JSON 结构）
+        token = secrets.token_urlsafe(32)
+        redis = await get_redis()
+        session_data = json.dumps({
+            "admin_id": admin.id,
+            "username": admin.username,
+            "role": admin.role,
+        })
+        await redis.set(f"{ADMIN_SESSION_PREFIX}{token}", session_data, ex=ADMIN_SESSION_TTL)
 
-            return AdminLoginResponse(
-                session_token=session_token,
-                admin=AdminBrief.model_validate(admin),
-                expires_in=AdminService.SESSION_TTL,
-            )
+        return AdminLoginResponse(
+            session_token=token,
+            admin=AdminBrief(id=admin.id, username=admin.username, role=admin.role),
+            expires_in=ADMIN_SESSION_TTL,
+        )
 
     @staticmethod
-    async def logout(session_token: str) -> None:
+    async def logout(token: str) -> None:
         """管理员登出——删除 Redis session。"""
         redis = await get_redis()
-        await redis.delete(f"admin:session:{session_token}")
+        await redis.delete(f"{ADMIN_SESSION_PREFIX}{token}")
 
-    # --- 审计日志 ---
+    @staticmethod
+    async def get_session(token: str) -> dict | None:
+        """获取 admin session（JSON 反序列化为 dict）。"""
+        redis = await get_redis()
+        data = await redis.get(f"{ADMIN_SESSION_PREFIX}{token}")
+        if data:
+            return json.loads(data)
+        return None
+
+    @staticmethod
+    async def refresh_session(token: str) -> None:
+        """滑动续期——刷新 session TTL 至 30 分钟（R12-Admin-13）。"""
+        redis = await get_redis()
+        await redis.expire(f"{ADMIN_SESSION_PREFIX}{token}", ADMIN_SESSION_TTL)
+
+    # ==================== 审计日志 ====================
 
     @staticmethod
     async def _write_audit_log(
-        admin_id: int,
+        db: AsyncSession,  # 保留参数兼容现有调用，实际使用独立 session
+        admin_id: int | None,
         action: str,
-        target_type: str,
-        target_id: Optional[int] = None,
-        changes: Optional[dict] = None,
+        target_type: str | None = None,
+        target_id: int | None = None,
+        changes: dict | None = None,
+        ip_address: str | None = None,
     ) -> None:
-        """写入审计日志——所有管理操作必须调用。
+        """写审计日志（内部方法）——独立 session 提交，异常吞噬不阻塞业务。
 
-        changes 格式: {field: {old, new}}
-        审计日志写入失败 → 记录错误日志，不阻塞主操作。
+        R5-Admin-6: 独立 async_session_factory()，审计独立提交，不随业务事务回滚丢失。
+        R4-Admin-4: 失败仅记 error 日志，不 re-raise。
         """
         try:
-            async with get_async_session() as db:
+            async with async_session_factory() as audit_db:
                 log = AuditLog(
                     admin_id=admin_id,
+                    user_id=None,
                     action=action,
                     target_type=target_type,
                     target_id=target_id,
-                    changes=changes,
+                    changes=changes or {},
+                    ip_address=ip_address,
                 )
-                db.add(log)
-                await db.commit()
+                audit_db.add(log)
+                await audit_db.commit()
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(
-                f"Audit log write failed: {e}"
+            logger.error(
+                "Failed to write audit log: admin_id=%s action=%s error=%s",
+                admin_id, action, e, exc_info=True,
             )
 
-    # --- 用户管理 ---
+    # ==================== 用户管理 ====================
 
     @staticmethod
-    async def list_users(query: UserListQuery) -> PaginatedUsers:
-        """用户列表查询。"""
-        async with get_async_session() as db:
-            stmt = select(User)
-            if query.status:
-                stmt = stmt.where(User.status == query.status)
-            if query.q:
-                stmt = stmt.where(
-                    User.nickname.ilike(f"%{query.q}%") |
-                    User.phone.ilike(f"%{query.q}%")
-                )
-            stmt = stmt.order_by(User.created_at.desc())
-
-            total, items = await paginate(db, stmt, query.page, query.page_size)
-            return PaginatedUsers(
-                total=total, page=query.page, page_size=query.page_size,
-                items=[UserManageBrief.model_validate(u) for u in items],
-            )
-
-    @staticmethod
-    async def ban_user(
-        admin_id: int,
-        user_id: int,
-        reason: str,
+    async def list_users(
+        status: str | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
     ) -> dict:
-        """封禁用户——更新 user.status='banned'。"""
-        async with get_async_session() as db:
-            user = await db.scalar(select(User).where(User.id == user_id))
-            if not user:
-                raise AppException("用户不存在", 404)
-            if user.status == "banned":
-                raise AppException("用户已被封禁", 409)
+        """用户列表查询（散参签名；返回 dict {total,page,page_size,items}，
+        items 为 UserManageBrief 列表，page_size 上限 100）。"""
+        ...
 
-            old_status = user.status
-            user.status = "banned"
-            await db.commit()
-
-            # 审计日志
-            await AdminService._write_audit_log(
-                admin_id=admin_id,
-                action="update",
-                target_type="user",
-                target_id=user_id,
-                changes={"status": {"old": old_status, "new": "banned"},
-                         "ban_reason": {"old": None, "new": reason}},
-            )
-
-            return {"user_id": user_id, "status": "banned", "reason": reason}
+    # R13-P3 文档同步: 实际签名 ban_user(user_id, reason, admin_id)（user_id 在前）
+    @staticmethod
+    async def ban_user(user_id: int, reason: str, admin_id: int) -> dict:
+        """封禁用户——重复封禁 409；审计在业务 commit 后写入（R12-Admin-6），
+        changes 记 {status, ban_reason} 字段级 old/new（R4-Admin-6）。"""
+        ...
 
     @staticmethod
-    async def unban_user(admin_id: int, user_id: int) -> dict:
-        """解禁用户——更新 user.status='active'。"""
-        async with get_async_session() as db:
-            user = await db.scalar(select(User).where(User.id == user_id))
-            if not user:
-                raise AppException("用户不存在", 404)
-            if user.status != "banned":
-                raise AppException("用户未被封禁", 409)
+    async def unban_user(user_id: int, admin_id: int) -> dict:
+        """解禁用户——未被封禁 409；返回 {"user_id", "status"}。"""
+        ...
 
-            old_status = user.status
-            user.status = "active"
-            await db.commit()
-
-            await AdminService._write_audit_log(
-                admin_id=admin_id,
-                action="update",
-                target_type="user",
-                target_id=user_id,
-                changes={"status": {"old": old_status, "new": "active"}},
-            )
-
-            return {"user_id": user_id, "status": "active"}
-
-    # --- 系统配置管理 ---
+    # ==================== 系统配置 ====================
 
     @staticmethod
     async def list_configs() -> list[ConfigBrief]:
-        """查询所有系统配置。"""
-        async with get_async_session() as db:
-            result = await db.execute(
-                select(SystemConfig).order_by(SystemConfig.config_key)
-            )
-            return [ConfigBrief.model_validate(c) for c in result.scalars()]
+        ...
 
+    # R4-Admin-7+8: Redis 缓存优先；update/delete 失效缓存
     @staticmethod
     async def get_config(key: str) -> ConfigBrief:
-        """查询单个配置（Redis 缓存优先）。"""
-        redis = await get_redis()
-        cached = await redis.get(f"config:{key}")
-        if cached:
-            import json
-            return ConfigBrief(
-                id=0, config_key=key,
-                config_value=json.loads(cached),
-                description=None, updated_at=datetime.now(timezone.utc),
-            )
-        async with get_async_session() as db:
-            config = await db.scalar(
-                select(SystemConfig).where(SystemConfig.config_key == key)
-            )
-            if not config:
-                raise AppException(f"配置 {key} 不存在", 404)
-            # 回填缓存
-            import json
-            await redis.setex(
-                f"config:{key}", 3600,
-                json.dumps(config.config_value, ensure_ascii=False),
-            )
-            return ConfigBrief.model_validate(config)
+        """获取单个配置——Redis 缓存优先（TTL 3600s），未命中回查 DB 并回填
+        完整 ConfigBrief（model_dump_json）。缓存读写失败降级（try/except + warning）。"""
+        ...
 
     @staticmethod
-    async def create_config(
-        admin_id: int,
-        req: ConfigCreateRequest,
-    ) -> ConfigBrief:
-        """创建系统配置。"""
-        async with get_async_session() as db:
-            existing = await db.scalar(
-                select(SystemConfig).where(SystemConfig.config_key == req.config_key)
-            )
-            if existing:
-                raise AppException(f"配置 {req.config_key} 已存在", 409)
-
-            config = SystemConfig(
-                config_key=req.config_key,
-                config_value=req.config_value,
-                description=req.description,
-            )
-            db.add(config)
-            await db.commit()
-            await db.refresh(config)
-
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="create",
-                target_type="config", target_id=config.id,
-                changes={"config_key": {"old": None, "new": req.config_key},
-                         "config_value": {"old": None, "new": req.config_value}},
-            )
-            return ConfigBrief.model_validate(config)
+    async def create_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
+        """创建配置——重复 key 409；审计移到 commit 后并传 target_id=config.id
+        （R9-Admin-P2-1）。"""
+        ...
 
     @staticmethod
-    async def update_config(
-        admin_id: int,
-        key: str,
-        req: ConfigUpdateRequest,
-    ) -> ConfigBrief:
-        """更新系统配置——修改后 Redis DEL config:{key} 实现热更新。"""
-        async with get_async_session() as db:
-            config = await db.scalar(
-                select(SystemConfig).where(SystemConfig.config_key == key)
-            )
-            if not config:
-                raise AppException(f"配置 {key} 不存在", 404)
-
-            old_value = config.config_value
-            config.config_value = req.config_value
-            if req.description is not None:
-                config.description = req.description
-            config.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-            await db.refresh(config)
-
-            # 热更新：清除 Redis 缓存
-            redis = await get_redis()
-            await redis.delete(f"config:{key}")
-
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="update",
-                target_type="config", target_id=config.id,
-                changes={"config_value": {"old": old_value, "new": req.config_value}},
-            )
-            return ConfigBrief.model_validate(config)
+    async def update_config(key: str, value: str, description: str | None, admin_id: int) -> ConfigBrief:
+        """更新配置——commit 后审计 changes {config_value: {old,new}}（R12-Admin-5），
+        DEL config:{key} 失效缓存（容错降级）。"""
+        ...
 
     @staticmethod
-    async def delete_config(admin_id: int, key: str) -> None:
-        """删除系统配置。"""
-        async with get_async_session() as db:
-            config = await db.scalar(
-                select(SystemConfig).where(SystemConfig.config_key == key)
-            )
-            if not config:
-                raise AppException(f"配置 {key} 不存在", 404)
+    async def delete_config(key: str, admin_id: int) -> None:
+        """删除配置——commit 后审计 + DEL 缓存。"""
+        ...
 
-            old_value = config.config_value
-            await db.delete(config)
-            await db.commit()
+    # ==================== 审计日志查询 ====================
 
-            # 清除缓存
-            redis = await get_redis()
-            await redis.delete(f"config:{key}")
+    # R4-Admin-9+10: admin_id/start_date/end_date 筛选 + LEFT JOIN admin_user
+    @staticmethod
+    async def list_audit_logs(
+        action: str | None = None,
+        target_type: str | None = None,
+        admin_id: int | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
+        """审计日志查询——LEFT JOIN AdminUser 获取 admin_username（一次查询，
+        非分页后二次查询）；日期参数由 Router 解析为 datetime（start 00:00 /
+        end 23:59:59 UTC）后传入；返回 dict {total,page,page_size,items}。"""
+        ...
 
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="delete",
-                target_type="config", target_id=config.id,
-                changes={"config_key": {"old": key, "new": None},
-                         "config_value": {"old": old_value, "new": None}},
-            )
-
-    # --- 审计日志查询 ---
+    # ==================== 知识库管理 ====================
 
     @staticmethod
-    async def list_audit_logs(query: AuditLogQuery) -> PaginatedAuditLogs:
-        """审计日志查询——按管理员/操作类型/时间筛选。"""
-        async with get_async_session() as db:
-            stmt = select(AuditLog)
-            if query.admin_id:
-                stmt = stmt.where(AuditLog.admin_id == query.admin_id)
-            if query.action:
-                stmt = stmt.where(AuditLog.action == query.action)
-            if query.target_type:
-                stmt = stmt.where(AuditLog.target_type == query.target_type)
-            if query.start_date:
-                stmt = stmt.where(AuditLog.created_at >= query.start_date)
-            if query.end_date:
-                stmt = stmt.where(AuditLog.created_at <= query.end_date)
-            stmt = stmt.order_by(AuditLog.created_at.desc())
+    async def create_category(name: str, code: str, admin_id: int, content: dict | None = None) -> dict:
+        """创建知识分类。
 
-            total, items = await paginate(db, stmt, query.page, query.page_size)
-
-            # 关联查询管理员用户名
-            admin_ids = {log.admin_id for log in items}
-            admin_names = {}
-            if admin_ids:
-                admins = await db.scalars(
-                    select(AdminUser).where(AdminUser.id.in_(admin_ids))
+        R12-Admin-2: name 或 code 任一重复均返回 409（原仅查 code、且直接插入
+        触发 IntegrityError 500）；审计 changes 记 name+code，commit 后写入并传
+        target_id=category.id（R9-Admin-P2-1）。
+        """
+        async with async_session_factory() as db:
+            dup = await db.scalar(
+                select(KnowledgeCategory).where(
+                    or_(KnowledgeCategory.name == name, KnowledgeCategory.code == code)
                 )
-                admin_names = {a.id: a.username for a in admins}
-
-            return PaginatedAuditLogs(
-                total=total, page=query.page, page_size=query.page_size,
-                items=[
-                    AuditLogBrief(
-                        id=log.id, admin_id=log.admin_id,
-                        admin_username=admin_names.get(log.admin_id),
-                        action=log.action, target_type=log.target_type,
-                        target_id=log.target_id, changes=log.changes,
-                        created_at=log.created_at,
-                    )
-                    for log in items
-                ],
             )
-
-    # --- 知识库 CRUD ---
+            if dup:
+                raise AppException("分类名称或编码已存在", 409)
+            category = KnowledgeCategory(name=name, code=code, content=content or {})
+            db.add(category)
+            await db.commit()
+            await db.refresh(category)
+            await AdminService._write_audit_log(
+                db, admin_id, "create", "knowledge", target_id=category.id,
+                changes={"name": {"old": None, "new": name}, "code": {"old": None, "new": code}},
+            )
+            return {"id": category.id, "name": category.name, "code": category.code}
 
     @staticmethod
-    async def create_category(
-        admin_id: int, req: CategoryCreateRequest,
+    async def update_category(category_id: int, name: str | None, content: dict | None, admin_id: int) -> dict:
+        """更新知识分类——仅 name/content 可改（R4-Admin-11，code 不可改），
+        commit + refresh 后审计。"""
+        ...
+
+    @staticmethod
+    async def delete_category(category_id: int, admin_id: int) -> None:
+        """删除知识分类——commit 后审计 {code: {old, new}}。"""
+        ...
+
+    @staticmethod
+    async def create_rule(
+        rule_id: str, rule_name: str, rule_type: str,
+        condition: dict, diagnosis: dict,
+        training_methods: list | None = None,
+        training_plan_template: str | None = None,
+        adjustment_action: str | None = None,
+        admin_id: int = 0,
     ) -> dict:
-        """创建知识库分类。"""
-        async with get_async_session() as db:
-            existing = await db.scalar(
-                select(KnowledgeCategory).where(KnowledgeCategory.code == req.code)
-            )
-            if existing:
-                raise AppException(f"分类编码 {req.code} 已存在", 409)
+        """创建知识规则——重复 rule_id 409；返回 {"id", "rule_id"}（R4-Admin-21）。"""
+        ...
 
-            cat = KnowledgeCategory(name=req.name, code=req.code, content=req.content)
-            db.add(cat)
-            await db.commit()
-            await db.refresh(cat)
+    # R4-Admin-13: 显式 is_active 参数；R12-Admin-4: rule_id 为 int 数据库 ID（主键）
+    @staticmethod
+    async def toggle_rule(rule_id: int, is_active: bool, admin_id: int) -> dict:
+        """显式设置规则状态——按 RuleDefinition.id 主键查询；审计 changes 为
+        {is_active: {old,new}}（R12-Admin-5）；返回 {"id", "is_active"}。"""
+        ...
 
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="create",
-                target_type="knowledge", target_id=cat.id,
-                changes={"code": {"old": None, "new": req.code}},
-            )
-            return {"id": cat.id, "name": cat.name, "code": cat.code}
+    # ==================== 模型版本 ====================
 
     @staticmethod
-    async def update_category(
-        admin_id: int, category_id: int, req: CategoryUpdateRequest,
-    ) -> dict:
-        """更新知识库分类。"""
-        async with get_async_session() as db:
-            cat = await db.get(KnowledgeCategory, category_id)
-            if not cat:
-                raise AppException("分类不存在", 404)
-
-            changes = {}
-            if req.name is not None:
-                changes["name"] = {"old": cat.name, "new": req.name}
-                cat.name = req.name
-            if req.content is not None:
-                changes["content"] = {"old": cat.content, "new": req.content}
-                cat.content = req.content
-            await db.commit()
-
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="update",
-                target_type="knowledge", target_id=category_id,
-                changes=changes,
-            )
-            return {"id": cat.id, "name": cat.name, "code": cat.code}
-
-    @staticmethod
-    async def delete_category(admin_id: int, category_id: int) -> None:
-        """删除知识库分类（级联删除条目）。"""
-        async with get_async_session() as db:
-            cat = await db.get(KnowledgeCategory, category_id)
-            if not cat:
-                raise AppException("分类不存在", 404)
-
-            code = cat.code
-            await db.delete(cat)
-            await db.commit()
-
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="delete",
-                target_type="knowledge", target_id=category_id,
-                changes={"code": {"old": code, "new": None}},
-            )
-
-    @staticmethod
-    async def create_rule(admin_id: int, req: RuleCreateRequest) -> dict:
-        """创建规则定义。"""
-        async with get_async_session() as db:
-            existing = await db.scalar(
-                select(RuleDefinition).where(RuleDefinition.rule_id == req.rule_id)
-            )
-            if existing:
-                raise AppException(f"规则 {req.rule_id} 已存在", 409)
-
-            rule = RuleDefinition(
-                rule_id=req.rule_id, rule_name=req.rule_name,
-                rule_type=req.rule_type, condition=req.condition,
-                diagnosis=req.diagnosis,
-                training_methods=req.training_methods,
-                training_plan_template=req.training_plan_template,
-                adjustment_action=req.adjustment_action,
-            )
-            db.add(rule)
-            await db.commit()
-            await db.refresh(rule)
-
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="create",
-                target_type="knowledge", target_id=rule.id,
-                changes={"rule_id": {"old": None, "new": req.rule_id}},
-            )
-            return {"id": rule.id, "rule_id": rule.rule_id}
-
-    @staticmethod
-    async def toggle_rule(admin_id: int, rule_id: int, is_active: bool) -> dict:
-        """启用/禁用规则。"""
-        async with get_async_session() as db:
-            rule = await db.get(RuleDefinition, rule_id)
-            if not rule:
-                raise AppException("规则不存在", 404)
-
-            old_active = rule.is_active
-            rule.is_active = is_active
-            await db.commit()
-
-            await AdminService._write_audit_log(
-                admin_id=admin_id, action="update",
-                target_type="knowledge", target_id=rule_id,
-                changes={"is_active": {"old": old_active, "new": is_active}},
-            )
-            return {"id": rule.id, "is_active": is_active}
+    async def activate_model_version(version_id: str, admin_id: int) -> dict:
+        """激活模型版本——S6 阶段仅记录审计日志（端点已注释，Phase 2 占位）。"""
+        ...
 ```
 
 ---
@@ -805,40 +618,65 @@ class AdminService:
 ## 5.3 审计日志清理 Celery Task
 
 ```python
-# app/tasks/audit_beat.py
-"""审计日志定时清理任务。"""
+# app/tasks/audit.py
+# R13-P3 文档同步: 实际文件为 app/tasks/audit.py（非 audit_beat.py），
+# 任务名 app.tasks.audit.cleanup_old_logs（非 audit.cleanup_old_logs），
+# 使用 @shared_task + async_session_factory，返回清理统计 dict。
+"""Celery tasks — 审计日志
 
+R12-Admin-3/BeatTasks-2: 补齐实现（原 TODO 空壳 + 保留期口径错误）。
+依据：数据库详细设计 §审计日志保留策略 — PIPL 合规保留期 3 年（1095 天），
+超期记录由 Celery Beat 定期清理（原 TODO 写 180 天口径错误，已按设计修正为 3 年）。
+"""
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import delete
-from app.core.celery import celery_app
-from app.core.database import get_async_session
-from app.models.admin import AuditLog
+
+from celery import shared_task
+
+logger = logging.getLogger(__name__)
+
+# PIPL 合规保留期：3 年
+AUDIT_LOG_RETENTION_DAYS = 365 * 3
 
 
-@celery_app.task(name="audit.cleanup_old_logs")
-def cleanup_old_logs_task():
-    """审计日志自动清理——每日 03:00 执行。
+@shared_task(name="app.tasks.audit.cleanup_old_logs")
+def cleanup_old_logs():
+    """清理超期审计日志（每日 03:00）
 
-    规则：
-    1. 清理 3 年前的审计日志记录（DELETE FROM audit_log WHERE created_at < now() - 3 years）
-    2. 保留 PIPL 合规所需的最近 3 年审计日志
-    3. 幂等设计：基于 WHERE 条件删除，重复执行无副作用
-
-    Beat 注册：见 beat_schedule.py 中 "audit-log-cleanup" 条目。
+    保留策略：PIPL 审计日志保留不少于 3 年（1095 天），超期记录删除。
+    幂等：基于 WHERE created_at < cutoff 条件，重复执行无副作用。
     """
-    import asyncio
-    asyncio.run(_cleanup_old_logs_async())
+    logger.info("Running audit.cleanup_old_logs")
+
+    async def _run():
+        from sqlalchemy import delete
+
+        from app.core.database import async_session_factory
+        from app.models.admin import AuditLog
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=AUDIT_LOG_RETENTION_DAYS)
+        async with async_session_factory() as db:
+            result = await db.execute(
+                delete(AuditLog).where(AuditLog.created_at < cutoff)
+            )
+            await db.commit()
+            return result.rowcount or 0
+
+    deleted = asyncio.run(_run())
+    logger.info(
+        "audit_logs_cleaned",
+        extra={"deleted": deleted, "retention_days": AUDIT_LOG_RETENTION_DAYS},
+    )
+    return {"status": "ok", "deleted": deleted, "retention_days": AUDIT_LOG_RETENTION_DAYS}
 
 
-async def _cleanup_old_logs_async():
-    """审计日志清理异步实现。"""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=365 * 3)
-
-    async with get_async_session() as db:
-        await db.execute(
-            delete(AuditLog).where(AuditLog.created_at < cutoff)
-        )
-        await db.commit()
+# Beat 注册（app/core/beat_schedule.py）：
+#   "audit-log-cleanup": {
+#       "task": "app.tasks.audit.cleanup_old_logs",
+#       "schedule": crontab(minute=0, hour=3),  # 每天 03:00
+#       "options": {"queue": "infra"},
+#   }
 ```
 
 ---
@@ -849,18 +687,15 @@ async def _cleanup_old_logs_async():
 # app/api/v1/admin/router.py
 """管理后台 API 路由。"""
 
-from fastapi import APIRouter, Depends, Query
-from typing import Optional
+from fastapi import APIRouter, Depends, Query, Request
 
-from app.core.admin_deps import get_current_admin, require_super_admin
-from app.core.limiter import limiter
+from app.core.deps import get_admin_session, require_super_admin, require_model_admin
+from app.core.limiter import RateLimits, limiter
 from app.core.response import success
-from app.models.admin import AdminUser
 from app.schemas.admin import (
     AdminLoginRequest, AdminLoginResponse,
-    UserListQuery, UserBanRequest,
     ConfigCreateRequest, ConfigUpdateRequest,
-    AuditLogQuery,
+    UserBanRequest,
     CategoryCreateRequest, CategoryUpdateRequest,
     RuleCreateRequest,
 )
@@ -868,201 +703,268 @@ from app.services.admin_service import AdminService
 
 router = APIRouter(prefix="/admin", tags=["管理后台"])
 
+# R13-P3 文档同步（Admin-8）: 装饰器顺序统一为 @router.xxx() 在上、
+# @limiter.limit() 紧随其下（slowapi 要求，反幻觉约束已明确）；
+# 限流值使用 RateLimits.DEFAULT（= "100/minute"），登录端点为 "5/minute"；
+# 所有端点带 request: Request 参数（slowapi 依赖注入）；
+# 认证依赖为 get_admin_session / require_super_admin（返回 session dict），
+# 业务调用取 session["admin_id"]。
 
-# --- 认证 ---
-@limiter.limit("5/minute")
+
+# ==================== Admin 登录/登出 ====================
+
 @router.post("/login", summary="管理员登录")
-async def admin_login(body: AdminLoginRequest):
-    """管理员登录——用户名+密码，签发 session（不使用 JWT）。"""
+@limiter.limit("5/minute")
+async def admin_login(body: AdminLoginRequest, request: Request):
+    """管理员登录（独立认证体系，不使用 JWT）"""
     data = await AdminService.login(body.username, body.password)
-    return success(data=data, message="登录成功")
-
-
-@limiter.limit("100/minute")
-@router.post("/logout", summary="管理员登出")
-async def admin_logout(
-    authorization: str = Depends(lambda: None),
-    admin: AdminUser = Depends(get_current_admin),
-):
-    """管理员登出——删除 Redis session。"""
-    token = authorization[6:] if authorization.startswith("Admin ") else ""
-    await AdminService.logout(token)
-    return success(message="登出成功")
-
-
-# --- 用户管理 ---
-@limiter.limit("100/minute")
-@router.get("/users", summary="用户列表")
-async def list_users(
-    status: Optional[str] = Query(default=None),
-    q: Optional[str] = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    admin: AdminUser = Depends(get_current_admin),
-):
-    query = UserListQuery(status=status, q=q, page=page, page_size=page_size)
-    data = await AdminService.list_users(query)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
+@router.post("/logout", summary="管理员登出")
+@limiter.limit(RateLimits.DEFAULT)
+async def admin_logout(
+    request: Request,
+    session: dict = Depends(get_admin_session),
+):
+    """管理员登出——支持 "Admin xxx" / "Bearer xxx" 两种前缀（R5-Admin-4）"""
+    auth = request.headers.get("authorization", "")
+    parts = auth.split(" ", 1)
+    token = parts[1] if len(parts) == 2 and parts[0] in ("Admin", "Bearer") else auth
+    await AdminService.logout(token)
+    return success(message="已登出")
+
+
+# ==================== 用户管理 ====================
+
+@router.get("/users", summary="用户列表查询")
+@limiter.limit(RateLimits.DEFAULT)
+async def list_users(
+    request: Request,
+    status: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    session: dict = Depends(get_admin_session),
+):
+    """用户列表查询（散参传 Service，非 Query 对象）"""
+    data = await AdminService.list_users(status, q, page, page_size)
+    return success(data=data)
+
+
 @router.post("/users/{user_id}/ban", summary="封禁用户")
+@limiter.limit(RateLimits.DEFAULT)
 async def ban_user(
     user_id: int,
     body: UserBanRequest,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.ban_user(admin.id, user_id, body.reason)
+    """封禁用户（仅超级管理员）"""
+    data = await AdminService.ban_user(user_id, body.reason, session["admin_id"])
     return success(data=data, message="用户已封禁")
 
 
-@limiter.limit("100/minute")
 @router.post("/users/{user_id}/unban", summary="解禁用户")
+@limiter.limit(RateLimits.DEFAULT)
 async def unban_user(
     user_id: int,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.unban_user(admin.id, user_id)
+    """解禁用户（仅超级管理员）"""
+    data = await AdminService.unban_user(user_id, session["admin_id"])
     return success(data=data, message="用户已解禁")
 
 
-# --- 系统配置管理 ---
-@limiter.limit("100/minute")
+# ==================== 系统配置 ====================
+
 @router.get("/configs", summary="配置列表")
+@limiter.limit(RateLimits.DEFAULT)
 async def list_configs(
-    admin: AdminUser = Depends(get_current_admin),
+    request: Request,
+    session: dict = Depends(get_admin_session),
 ):
     data = await AdminService.list_configs()
     return success(data=data)
 
 
-@limiter.limit("100/minute")
-@router.get("/configs/{key}", summary="查询配置")
+@router.get("/configs/{key}", summary="获取单个配置")
+@limiter.limit(RateLimits.DEFAULT)
 async def get_config(
     key: str,
-    admin: AdminUser = Depends(get_current_admin),
+    request: Request,
+    session: dict = Depends(get_admin_session),
 ):
     data = await AdminService.get_config(key)
     return success(data=data)
 
 
-@limiter.limit("100/minute")
 @router.post("/configs", summary="创建配置")
+@limiter.limit(RateLimits.DEFAULT)
 async def create_config(
     body: ConfigCreateRequest,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.create_config(admin.id, body)
+    """创建配置（仅超级管理员）——字段 config_key/config_value（R4-Admin-19）"""
+    data = await AdminService.create_config(
+        body.config_key, body.config_value, body.description, session["admin_id"],
+    )
     return success(data=data, message="配置已创建")
 
 
-@limiter.limit("100/minute")
 @router.patch("/configs/{key}", summary="更新配置")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_config(
     key: str,
     body: ConfigUpdateRequest,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.update_config(admin.id, key, body)
-    return success(data=data, message="配置已更新，缓存已刷新")
+    """更新配置（仅超级管理员）——DEL config:{key} 缓存失效"""
+    data = await AdminService.update_config(
+        key, body.config_value, body.description, session["admin_id"],
+    )
+    return success(data=data, message="配置已更新")
 
 
-@limiter.limit("100/minute")
 @router.delete("/configs/{key}", summary="删除配置")
+@limiter.limit(RateLimits.DEFAULT)
 async def delete_config(
     key: str,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    await AdminService.delete_config(admin.id, key)
+    """删除配置（仅超级管理员）"""
+    await AdminService.delete_config(key, session["admin_id"])
     return success(message="配置已删除")
 
 
-# --- 审计日志 ---
-@limiter.limit("100/minute")
+# ==================== 审计日志 ====================
+
+# R13-P3 文档同步: start_date/end_date 由 Router 解析为 UTC datetime
+# （start 00:00:00 / end 23:59:59），非法格式降级为 None（不报错）
 @router.get("/audit-logs", summary="审计日志查询")
+@limiter.limit(RateLimits.DEFAULT)
 async def list_audit_logs(
-    admin_id: Optional[int] = Query(default=None),
-    action: Optional[str] = Query(default=None),
-    target_type: Optional[str] = Query(default=None),
-    start_date: Optional[str] = Query(default=None),
-    end_date: Optional[str] = Query(default=None),
+    request: Request,
+    action: str | None = Query(default=None),
+    target_type: str | None = Query(default=None),
+    admin_id: int | None = Query(default=None, description="按管理员 ID 筛选"),
+    start_date: str | None = Query(default=None, description="起始日期 YYYY-MM-DD"),
+    end_date: str | None = Query(default=None, description="结束日期 YYYY-MM-DD"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    admin: AdminUser = Depends(get_current_admin),
+    session: dict = Depends(get_admin_session),
 ):
-    query = AuditLogQuery(
-        admin_id=admin_id, action=action, target_type=target_type,
-        start_date=start_date, end_date=end_date,
-        page=page, page_size=page_size,
+    """审计日志查询（支持管理员/时间段筛选）"""
+    from datetime import datetime, timezone
+
+    start_dt = (
+        datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+        if start_date else None
     )
-    data = await AdminService.list_audit_logs(query)
+    end_dt = (
+        datetime.fromisoformat(end_date).replace(
+            tzinfo=timezone.utc, hour=23, minute=59, second=59
+        )
+        if end_date else None
+    )
+    data = await AdminService.list_audit_logs(
+        action, target_type, admin_id, start_dt, end_dt, page, page_size,
+    )
     return success(data=data)
 
 
-# --- 知识库管理 ---
-@limiter.limit("100/minute")
-@router.post("/knowledge/categories", summary="创建分类")
+# ==================== 知识库管理 ====================
+
+@router.post("/knowledge/categories", summary="创建知识分类")
+@limiter.limit(RateLimits.DEFAULT)
 async def create_category(
     body: CategoryCreateRequest,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.create_category(admin.id, body)
+    """创建知识分类（超级管理员）——name/code 重复 409（R12-Admin-2）"""
+    data = await AdminService.create_category(
+        body.name, body.code, session["admin_id"], body.content,
+    )
     return success(data=data, message="分类已创建")
 
 
-@limiter.limit("100/minute")
-@router.patch("/knowledge/categories/{category_id}", summary="更新分类")
+# R4-Admin-11: 仅允许更新 name 和 content（不允许更新 code）
+@router.patch("/knowledge/categories/{category_id}", summary="更新知识分类")
+@limiter.limit(RateLimits.DEFAULT)
 async def update_category(
     category_id: int,
     body: CategoryUpdateRequest,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.update_category(admin.id, category_id, body)
+    """更新知识分类（超级管理员，仅 name/content 可改）"""
+    data = await AdminService.update_category(
+        category_id, body.name, body.content, session["admin_id"],
+    )
     return success(data=data, message="分类已更新")
 
 
-@limiter.limit("100/minute")
-@router.delete("/knowledge/categories/{category_id}", summary="删除分类")
+@router.delete("/knowledge/categories/{category_id}", summary="删除知识分类")
+@limiter.limit(RateLimits.DEFAULT)
 async def delete_category(
     category_id: int,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    await AdminService.delete_category(admin.id, category_id)
+    """删除知识分类（超级管理员）"""
+    await AdminService.delete_category(category_id, session["admin_id"])
     return success(message="分类已删除")
 
 
-@limiter.limit("100/minute")
-@router.post("/knowledge/rules", summary="创建规则")
+@router.post("/knowledge/rules", summary="创建知识规则")
+@limiter.limit(RateLimits.DEFAULT)
 async def create_rule(
     body: RuleCreateRequest,
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.create_rule(admin.id, body)
+    """创建知识规则（超级管理员）——重复 rule_id 409"""
+    data = await AdminService.create_rule(
+        body.rule_id, body.rule_name, body.rule_type,
+        body.condition, body.diagnosis,
+        body.training_methods, body.training_plan_template,
+        body.adjustment_action,
+        session["admin_id"],
+    )
     return success(data=data, message="规则已创建")
 
 
-@limiter.limit("100/minute")
-@router.patch("/knowledge/rules/{rule_id}/toggle", summary="启用/禁用规则")
+# R12-Admin-4: rule_id 为 int 数据库 ID（对齐 API §19.5.5 参数表）；
+# is_active 显式参数（R4-Admin-13）
+@router.patch("/knowledge/rules/{rule_id}/toggle", summary="设置知识规则状态")
+@limiter.limit(RateLimits.DEFAULT)
 async def toggle_rule(
     rule_id: int,
-    is_active: bool = Query(...),
-    admin: AdminUser = Depends(require_super_admin),
+    request: Request,
+    is_active: bool = Query(..., description="目标状态 true=启用/false=禁用"),
+    session: dict = Depends(require_super_admin),
 ):
-    data = await AdminService.toggle_rule(admin.id, rule_id, is_active)
+    """设置知识规则状态（超级管理员，显式 is_active 参数）"""
+    data = await AdminService.toggle_rule(rule_id, is_active, session["admin_id"])
     return success(data=data, message="规则状态已更新")
 
 
-# ===== Phase 2+ 占位端点（暂不实现，预留接口） =====
+# ==================== 模型版本管理 ====================
 
-# @limiter.limit("100/minute")
+# R4-Admin-23: activate_model_version 注释掉（Phase 2 占位，S7+ 实现）
 # @router.post("/model-versions/{version_id}/activate", summary="激活模型版本")
+# @limiter.limit(RateLimits.DEFAULT)
 # async def activate_model_version(
-#     version_id: int,
-#     admin: AdminUser = Depends(require_super_admin),
+#     version_id: str,
+#     request: Request,
+#     session: dict = Depends(require_model_admin),
 # ):
-#     """激活指定模型版本，用于 AI 模型版本管理（Phase 2+）。
-#     切换推理服务使用的模型版本，支持灰度发布和 A/B 测试。"""
-#     data = await AdminService.activate_model_version(admin.id, version_id)
+#     data = await AdminService.activate_model_version(version_id, session["admin_id"])
 #     return success(data=data, message="模型版本已激活")
 ```
 
@@ -1078,22 +980,22 @@ api_router.include_router(admin_router)
 
 ```python
 # tests/unit/test_admin.py
-"""admin 模块测试。覆盖：管理员认证、用户管理、系统配置热更新、审计日志、知识库 CRUD。"""
+# R13-P3 文档同步: 样例与实际测试一致——pwd_context 创建管理员、
+# client fixture 走 HTTP 端点、Service 散参签名（user_id 在前）。
+"""admin 模块测试。覆盖：管理员认证、用户管理、系统配置热更新、审计日志、知识库 CRUD、权限控制。"""
 import pytest
-import bcrypt
-from unittest.mock import AsyncMock, patch
-from app.services.admin_service import AdminService
-from app.core.exceptions import AppException
+import pytest_asyncio
+from app.core.security import pwd_context
+from app.services.admin_service import AdminService, ADMIN_SESSION_PREFIX
+from app.models.admin import AdminUser
 
 
-@pytest.fixture
-async def admin_user(db_session):
-    """创建测试管理员。"""
-    from app.models.admin import AdminUser
-    password_hash = bcrypt.hashpw("test123".encode(), bcrypt.gensalt()).decode()
+@pytest_asyncio.fixture(scope="function")
+async def admin_in_db(db_session):
+    """创建测试管理员（passlib bcrypt 哈希）。"""
     admin = AdminUser(
         username="test_admin",
-        password_hash=password_hash,
+        password_hash=pwd_context.hash("Admin@123"),
         role="super_admin",
         is_active=True,
     )
@@ -1103,137 +1005,108 @@ async def admin_user(db_session):
     return admin
 
 
+@pytest_asyncio.fixture(scope="function")
+async def admin_token(admin_in_db):
+    """获取 admin session token。"""
+    data = await AdminService.login("test_admin", "Admin@123")
+    return data.session_token
+
+
+@pytest_asyncio.fixture(scope="function")
+async def admin_headers(admin_token):
+    """admin 认证 headers。"""
+    return {"Authorization": f"Bearer {admin_token}"}
+
+
 # === 1. 管理员认证 ===
 @pytest.mark.asyncio
-async def test_login_success(db_session, admin_user, mock_redis):
-    """管理员登录成功，返回 session token。"""
-    mock_redis.setex = AsyncMock()
-    result = await AdminService.login("test_admin", "test123")
-    assert "session_token" in result.model_dump()
-    assert result.admin.username == "test_admin"
+class TestAdminAuth:
+    async def test_login_success(self, client, admin_in_db):
+        """登录成功：token + role + expires_in=1800。"""
+        data = await AdminService.login("test_admin", "Admin@123")
+        assert data.session_token
+        assert data.admin.role == "super_admin"
+        assert data.expires_in == 1800
+
+    async def test_login_wrong_password(self, client, admin_in_db):
+        """密码错误 401。"""
+        from app.core.exceptions import AppException
+        with pytest.raises(AppException) as exc_info:
+            await AdminService.login("test_admin", "wrong_password")
+        assert exc_info.value.status_code == 401
+
+    async def test_login_disabled_admin(self, db_session, admin_in_db):
+        """已禁用管理员登录 403。"""
+        from app.core.exceptions import AppException
+        admin_in_db.is_active = False
+        await db_session.commit()
+        with pytest.raises(AppException) as exc_info:
+            await AdminService.login("test_admin", "Admin@123")
+        assert exc_info.value.status_code == 403
+
+    async def test_logout(self, admin_headers, admin_token):
+        """登出后 session 删除（redis exists == 0）。"""
+        from app.core.redis import get_redis
+        await AdminService.logout(admin_token)
+        redis = await get_redis()
+        assert await redis.exists(f"{ADMIN_SESSION_PREFIX}{admin_token}") == 0
+
+
+# === 2. 用户管理（Service 签名 user_id 在前）===
+@pytest.mark.asyncio
+async def test_ban_user(client, admin_headers, test_user):
+    """封禁用户。"""
+    resp = await client.post(
+        f"/api/v1/admin/users/{test_user.id}/ban",
+        json={"reason": "违规操作"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_login_wrong_password(db_session, admin_user):
-    """密码错误返回 401。"""
-    with pytest.raises(AppException) as exc:
-        await AdminService.login("test_admin", "wrong_password")
-    assert exc.value.code == 401
-
-
-@pytest.mark.asyncio
-async def test_login_disabled_admin(db_session, admin_user):
-    """已禁用管理员返回 403。"""
-    admin_user.is_active = False
-    await db_session.commit()
-    with pytest.raises(AppException) as exc:
-        await AdminService.login("test_admin", "test123")
-    assert exc.value.code == 403
-
-
-# === 2. 用户管理 ===
-@pytest.mark.asyncio
-async def test_ban_user(db_session, admin_user):
-    """封禁用户正确更新 status。"""
-    from app.models.user import User
-    user = User(nickname="testuser", status="active")
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-
-    result = await AdminService.ban_user(admin_user.id, user.id, "违规操作")
-    assert result["status"] == "banned"
-
-    await db_session.refresh(user)
-    assert user.status == "banned"
-
-
-@pytest.mark.asyncio
-async def test_ban_already_banned(db_session, admin_user):
-    """重复封禁返回 409。"""
-    from app.models.user import User
-    user = User(nickname="testuser", status="banned")
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-
-    with pytest.raises(AppException) as exc:
-        await AdminService.ban_user(admin_user.id, user.id, "违规")
-    assert exc.value.code == 409
+async def test_ban_already_banned(client, admin_headers, test_user):
+    """重复封禁 409。"""
+    # 先 ban 一次再 ban 第二次 → resp.status_code == 409
+    ...
 
 
 # === 3. 系统配置热更新 ===
-@pytest.mark.asyncio
-async def test_update_config_clears_cache(db_session, admin_user, mock_redis):
-    """配置更新后 Redis 缓存被清除。"""
-    from app.models.admin import SystemConfig
-    config = SystemConfig(config_key="test_key", config_value={"limit": 3})
-    db_session.add(config)
-    await db_session.commit()
-    await db_session.refresh(config)
-
-    mock_redis.delete = AsyncMock()
-    await AdminService.update_config(
-        admin_user.id, "test_key",
-        type("R", (), {"config_value": {"limit": 5}})(),
-    )
-    mock_redis.delete.assert_called_with("config:test_key")
+# 实际测试通过 HTTP 端点创建/更新/删除配置（configs CRUD 5 个测试），
+# 断言 config_value 更新生效与 404/409 行为
 
 
 # === 4. 审计日志 ===
-@pytest.mark.asyncio
-async def test_audit_log_written(db_session, admin_user):
-    """封禁用户操作写入审计日志。"""
-    from app.models.admin import AuditLog
-    from app.models.user import User
-    from sqlalchemy import select
-
-    user = User(nickname="testuser", status="active")
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-
-    await AdminService.ban_user(admin_user.id, user.id, "测试封禁")
-
-    # 验证审计日志
-    logs = await db_session.scalars(
-        select(AuditLog).where(AuditLog.target_type == "user")
-    )
-    log_list = list(logs)
-    assert len(log_list) > 0
-    assert log_list[-1].action == "update"
-    assert log_list[-1].changes["status"]["new"] == "banned"
+# R12-Admin-12: 审计筛选参数测试位于 tests/unit/test_supplements_p2.py
+# TestAdminAuditLogFilters（action/target_type/admin_id/时间段/分页 + admin_username JOIN）
+# R12-Admin-13: session 滑动续期测试位于同文件 TestAdminSessionRenewal
+# （压缩 TTL → 认证请求 → TTL 回 1800；登出后再访问 401）
 
 
 # === 5. 知识库 CRUD ===
+# R12-Admin-2: 重复 name/code 创建分类 409 测试位于 tests/unit/test_supplements_p1.py
+# TestAdminCreateCategoryConflict（重复 name / 重复 code / name+code 均重复 → 409，
+# 不同 name+code → 200）
+
+
+# === 6. 权限控制 ===
 @pytest.mark.asyncio
-async def test_create_category(db_session, admin_user):
-    """创建知识库分类。"""
-    from app.schemas.admin import CategoryCreateRequest
-    req = CategoryCreateRequest(
-        name="测试分类", code="test_cat", content={"desc": "测试"}
-    )
-    result = await AdminService.create_category(admin_user.id, req)
-    assert result["code"] == "test_cat"
+class TestAdminPermission:
+    async def test_admin_endpoints_without_token(self, client):
+        """无 token 访问 admin 端点 401。"""
+        resp = await client.get("/api/v1/admin/users")
+        assert resp.status_code == 401
 
-
-@pytest.mark.asyncio
-async def test_duplicate_category_code(db_session, admin_user):
-    """重复分类编码返回 409。"""
-    from app.models.knowledge_base import KnowledgeCategory
-    from app.schemas.admin import CategoryCreateRequest
-
-    cat = KnowledgeCategory(name="已有分类", code="dup_code", content={})
-    db_session.add(cat)
-    await db_session.commit()
-
-    req = CategoryCreateRequest(
-        name="新分类", code="dup_code", content={}
-    )
-    with pytest.raises(AppException) as exc:
-        await AdminService.create_category(admin_user.id, req)
-    assert exc.value.code == 409
+    async def test_content_admin_cannot_ban(self, client, content_admin_token, test_user):
+        """内容管理员不能封禁用户（仅超级管理员）→ 403。"""
+        ...
 ```
+
+**R12 修复回归测试位置**（R13-P3 文档同步汇总）：
+- Admin-1（每请求 is_active 校验）：`app/core/deps.py` get_admin_session + supplements_p2 会话失效路径
+- Admin-2（create_category 409）：`tests/unit/test_supplements_p1.py` TestAdminCreateCategoryConflict
+- Admin-3（审计 3 年保留）：`app/tasks/audit.py` 实现 + `app/core/beat_schedule.py` 注册
+- Admin-12/13（审计筛选/续期）：`tests/unit/test_supplements_p2.py` L1370-1518
 
 ---
 
@@ -1271,7 +1144,7 @@ async def test_duplicate_category_code(db_session, admin_user):
 - super_admin 权限操作 **必须** 使用 `require_super_admin` 守卫，**禁止** 跳过权限校验
 - 所有 API 端点 **必须** 添加 `@limiter.limit()` 限流装饰器，**禁止** 裸露无限流路由
 - 管理员登录端点 **必须** 使用 `@limiter.limit("5/minute")` 严格限流，**禁止** 使用默认 100/minute
-- `@limiter.limit()` 装饰器 **必须** 位于 `@router.xxx()` 装饰器上方，**禁止** 颠倒装饰器顺序
+- 装饰器顺序 **必须** 为 `@router.xxx()` 在上、`@limiter.limit()` 紧随其下（slowapi 要求限流装饰器贴近路由函数；放在 `@router.xxx()` 上方会注册未限流的原始函数、限流不生效，R12 已统一全 app 95 端点装饰器顺序），**禁止** 颠倒装饰器顺序
 - 路由文件 **必须** 导入 `from app.core.limiter import limiter`，**禁止** 遗漏导入
 
 > **覆盖度修复说明（A-8 / X-16）**：

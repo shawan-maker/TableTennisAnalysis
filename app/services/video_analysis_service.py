@@ -19,6 +19,7 @@ from app.core.exceptions import (
     ERR_BAD_REQUEST,
     ERR_FILE_NOT_FOUND,
     ERR_FILE_NOT_UPLOADED,
+    ERR_NOT_FOUND,
     ERR_QUOTA_EXHAUSTED,
     ERR_REPORT_NOT_FOUND,
     ERR_SHARE_TOKEN_INVALID,
@@ -61,12 +62,15 @@ class VideoAnalysisService:
     async def get_upload_token(user_id: int, req: UploadTokenRequest) -> dict:
         """获取 OSS 直传凭证"""
         # 1. 验证文件类型
+        # R12-VA-4: API §4.1 错误表 — 类型不支持/文件过大均为 400，文件过小为 422
         if not FileService.validate_file_type(req.filename):
-            raise AppException("仅支持 MP4/MOV 格式", 422, code=ERR_BAD_REQUEST)
+            raise AppException("仅支持 MP4/MOV 格式", 400, code=ERR_BAD_REQUEST)
 
-        # 2. 验证文件大小
-        if not FileService.validate_file_size(req.file_size):
-            raise AppException("文件大小需在 1MB-500MB 之间", 422, code=ERR_BAD_REQUEST)
+        # 2. 验证文件大小 — 过大 400 / 过小 422（消息对齐 API §4.1）
+        if req.file_size > settings.MAX_FILE_SIZE:
+            raise AppException("视频文件不能超过 500MB", 400, code=ERR_BAD_REQUEST)
+        if req.file_size < settings.MIN_FILE_SIZE:
+            raise AppException("视频文件不能小于 1MB", 422, code=ERR_VALIDATION)
 
         # 3. 生成 OSS Key
         oss_key = FileService.generate_oss_key(user_id, req.filename)
@@ -119,7 +123,8 @@ class VideoAnalysisService:
             # HEAD Object 校验
             head = FileService.head_object(record.oss_key)
             if not head:
-                raise AppException("文件未上传完成", 400, code=ERR_FILE_NOT_UPLOADED)
+                # R12-VA-5: API §4.2 错误表 — OSS 文件不存在为 404（原 400 偏差）
+                raise AppException("未检测到上传的文件，请重新上传", 404, code=ERR_NOT_FOUND)
 
             # 文件大小校验 — 实际大小必须与声明一致
             actual_size = head.get("content_length", 0)
@@ -145,6 +150,8 @@ class VideoAnalysisService:
                 )
 
             # 更新 file_record
+            # R12-VA-6: duration_sec 不入 file_record（DB 设计 §2.4/切片模型均无此列），
+            # 在响应中返回，create_task 时写入 video_task.duration_sec（ai_pipeline 读取源）
             record.status = "uploaded"
             record.oss_etag = head["etag"]
             record.actual_size = head["content_length"]
@@ -205,13 +212,28 @@ class VideoAnalysisService:
                 "error": str(e), "task_id": task.id
             })
             # 标记任务失败
+            # R12 复验-VA-2 旁路收口：改走 transition_task_status 状态矩阵校验
+            # （queued→failed 已补充为合法转换），不再直接 update 绕过校验
             async with async_session_factory() as db:
-                await db.execute(
-                    update(VideoTask)
-                    .where(VideoTask.id == task.id)
-                    .values(status="failed", error_message=f"流水线启动失败: {e}")
-                )
+                from app.ai_pipeline.progress import transition_task_status
+                allowed = await transition_task_status(db, task.id, "failed")
+                if allowed:
+                    failed_task = await db.get(VideoTask, task.id)
+                    if failed_task:
+                        failed_task.error_message = f"流水线启动失败: {e}"
+                        await db.flush()
                 await db.commit()
+
+            # R12-AIPipeline-2: 启动失败同样退还免费额度（额度已在请求时预扣，
+            # 任务未进入 Celery 重试流程，需在此直接退还）
+            try:
+                from app.ai_pipeline.tasks import _refund_free_quota
+                await _refund_free_quota(user_id)
+            except Exception as quota_err:
+                logger.error(
+                    "startup_refund_quota_failed",
+                    extra={"user_id": user_id, "error": str(quota_err)},
+                )
 
         return {
             "task_id": task.id,
