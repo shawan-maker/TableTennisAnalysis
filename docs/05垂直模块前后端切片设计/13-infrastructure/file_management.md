@@ -23,7 +23,7 @@
 - **STS Token 签发**：PutObject 权限，15min 过期，OSS Key: `videos/raw/{user_id}/{yyyymmdd}/{uuid}.mp4`
 - **上传完成校验**：HEAD Object 确认 + Content-Length 匹配
 - **孤儿文件清理**：Celery Beat 每小时扫描 status=uploading 且超 1h → abandoned
-- **文件软删除**：status=deleted，24h 后 OSS 物理删除
+- **文件软删除**：status=deleted，24h 后 OSS 物理删除（R15-User-N2 实现：`app/tasks/file_management.py` cleanup_deleted_files Beat 批扫→ OSS 删除成功置 status=purged 终态，失败下轮重试）
 
 ---
 
@@ -374,6 +374,7 @@ class FileService:
             )
 ```
 
+```python
     @staticmethod
     async def archive_for_training(report_id: int, task_id: int) -> str:
         """数据飞轮归档 — 将视频+AI分析结果复制到 OSS annotations/ 目录。
@@ -529,6 +530,8 @@ beat_schedule = {
     },
 }
 ```
+> **R15-P3文档同步（R15-User-N2）**：上方 `physical_delete_task`（单文件 countdown 延迟删除）与 beat 样例为设计草稿形态保留，实际实现为 Beat 批扫任务 `app.tasks.file_management.cleanup_deleted_files`（每小时 :30，queue=infra，注册见 `app/core/beat_schedule.py` 的 `file-management-deleted-cleanup` 条目）：扫描 `status='deleted'` 且 `updated_at` 超 24h 的记录 → 删 OSS 对象（`FileService.delete_object`，FileNotFoundError 已吸收 = 404 幂等）→ 成功置 `status='purged'`（终态，幂等不再匹配 WHERE）；失败保持 deleted 下轮重试（对象泄漏自愈）。FileRecord 状态枚举扩展 `purged`（模型注释、DB 设计 §5、测试计划 ENUM-U-03 已同步）。
+
 
 ---
 

@@ -114,7 +114,7 @@ async def db_setup():
         # 删除所有 scoring:match:* 和 ws:* 相关的 key
         # R4-Auth-4: sms:rate:* → sms:sent:*（保留两者兼容旧测试缓存）
         # R12-Gam-13: LIMITER* — slowapi/limits Redis 存储 key（限流计数）
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "quota:src:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "ai_inference:*", "alert:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "quota:src:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "ai_inference:*", "alert:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "cascade:done:*", "notif:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
                 keys = await redis.keys(pattern)
                 if keys:
                     await redis.delete(*keys)
@@ -132,7 +132,7 @@ async def db_setup():
     # 清理 Redis
     try:
         redis = await get_redis()
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "quota:src:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "ai_inference:*", "alert:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "quota:src:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "ai_inference:*", "alert:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "cascade:done:*", "notif:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
             keys = await redis.keys(pattern)
             if keys:
                 await redis.delete(*keys)

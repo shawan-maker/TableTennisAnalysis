@@ -639,6 +639,46 @@ class PaymentService:
                     order.subscription_id, e,
                 )
 
+            # R15-Pay-N1: analysis_pack 退款回收付费分析包额度 —
+            # 支付回调 _trigger_business_logic INCR quota:bonus（写入对称面），
+            # 退款须回收：全额退款→全部数量；部分退款→按退款金额比例取整
+            # （bonus_qty * refund_amount / order.amount 向下取整）。
+            # R14-Pay-N1 打通 bonus 消费链后，不回收即资损（退款后已购额度
+            # 继续可用）。回收下限 0：已消耗部分不追回（预付池语义）；
+            # 键 90d TTL 已过期 → 余额 0 → 无操作。
+            if order.product_type == "analysis_pack":
+                try:
+                    redis = await get_redis()
+                    extra = order.extra_data or {}
+                    bonus_qty = int(extra.get("quantity", 1))
+                    if reversal_type == "full":
+                        recover_qty = bonus_qty
+                    else:
+                        recover_qty = (
+                            bonus_qty * refund_amount_cents // order.amount_cents
+                        )
+                    if recover_qty > 0:
+                        key = f"quota:bonus:{order.user_id}"
+                        current = int(await redis.get(key) or 0)
+                        actual = min(recover_qty, max(current, 0))
+                        if actual > 0:
+                            await redis.decrby(key, actual)
+                            logger.info(
+                                "refund_analysis_pack_quota_recovered",
+                                extra={
+                                    "order_id": order.id,
+                                    "user_id": order.user_id,
+                                    "requested": recover_qty,
+                                    "recovered": actual,
+                                },
+                            )
+                except Exception as bonus_err:
+                    logger.error(
+                        "refund_analysis_pack_quota_recover_failed: "
+                        "order=%s user=%s err=%s",
+                        order.id, order.user_id, bonus_err,
+                    )
+
             return RefundResponse(
                 order_id=order.id,
                 refund_status="pending",

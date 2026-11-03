@@ -759,3 +759,41 @@ class TestNotifWechatStub:
             )
         assert cnt == 1
         await _clean_notif_keys(uid)
+
+
+# =============================================================================
+# R15-Test-N1（补 R14 报告声称但实际缺失的守卫）：
+# R14-B4-1 错误码差异化 — round14 报告 §三/§四声称本文件锁定「40415 差异化」，
+# R15 审计（A1 复验）发现 40415 断言实际不存在（全文件零命中）。
+# 本节补齐真实守卫：progress 指标不存在 → 40415（ERR_METRIC_NOT_FOUND），
+# 与 training 域 40420（训练方案不存在）全局命名空间无双义。
+# =============================================================================
+
+@pytest.mark.asyncio
+class TestB4_1_MetricNotFound40415:
+
+    async def test_invalid_metric_40415(self, client, auth_headers):
+        """R14-B4-1: 不存在的指标名 → 404 + code=40415 + 消息「指标不存在」"""
+        resp = await client.get(
+            "/api/v1/progress/technique-trends/not_a_real_metric_xyz",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+        body = resp.json()
+        assert body["code"] == 40415, (
+            f"progress 指标不存在应为 40415（ERR_METRIC_NOT_FOUND），"
+            f"实际 {body.get('code')} — 若为 40420 则与 training 同码双义回归"
+        )
+        assert body["message"] == "指标不存在"
+
+    async def test_valid_metric_without_data_not_404(self, client, auth_headers):
+        """R6-Prog-2: 合法指标无趋势数据 → 200（null 字段），非 404"""
+        resp = await client.get(
+            "/api/v1/progress/technique-trends/backhand_ratio",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["metric"] == "backhand_ratio"
+        # 无 TechniqueTrend 行 → 数值字段为 null（R6-Prog-2 语义）
+        assert data["current_value"] is None

@@ -181,3 +181,63 @@ class FileService:
 
         logger.info("orphan_cleanup_done", extra={"cleaned_count": cleaned_count})
         return {"cleaned_count": cleaned_count}
+
+    @staticmethod
+    async def cleanup_deleted_files() -> dict:
+        """软删除文件 OSS 物理清理 — R15-User-N2 补齐（原断链）。
+
+        依据：file_management.md §4「文件软删除：status=deleted，24h 后 OSS
+        物理删除」+ §5 软删除规范「必须通过 Celery 延迟任务 24h 后物理删除，
+        禁止立即删除」+ API 详细设计 §3.6（注销级联「24h 后 OSS 物理删除」）。
+        原实现缺口：process_account_deletions 注释声称「OSS 物理删除由清理
+        任务承担」，但任务与 Beat 注册均不存在 → 软删对象永久留存。
+
+        流程：
+        1. 查询 file_record WHERE status='deleted' AND updated_at < NOW()-24h
+           （软删时间 = updated_at，ORM onupdate 在置 deleted 时刷新）
+        2. 删除 OSS 对象（Mock 模式删本地文件，FileNotFoundError 已被
+           delete_object 吸收 = 404 幂等语义）
+        3. OSS 删除成功 → status='purged'（终态）；失败 → 保持 deleted，
+           下轮重试（软删数据保留可追溯，对象泄漏可自愈）
+
+        幂等：purged 不再匹配 WHERE；重复执行无副作用。
+        """
+        from sqlalchemy import select
+
+        from app.core.database import async_session_factory
+        from app.models.video_analysis import FileRecord
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        purged_count = 0
+        failed_count = 0
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(FileRecord).where(
+                    FileRecord.status == "deleted",
+                    FileRecord.updated_at < cutoff,
+                )
+            )
+            records = result.scalars().all()
+
+            for record in records:
+                try:
+                    FileService.delete_object(record.oss_key)
+                except Exception as e:
+                    # OSS 删除失败 → 保持 deleted，下轮重试（对象泄漏可自愈）
+                    failed_count += 1
+                    logger.warning(
+                        "deleted_file_oss_delete_failed",
+                        extra={"oss_key": record.oss_key, "error": str(e)},
+                    )
+                    continue
+                record.status = "purged"
+                purged_count += 1
+
+            await db.commit()
+
+        logger.info(
+            "deleted_file_cleanup_done",
+            extra={"purged_count": purged_count, "failed_count": failed_count},
+        )
+        return {"purged_count": purged_count, "failed_count": failed_count}

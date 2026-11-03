@@ -212,7 +212,7 @@ async def _refund_free_quota(user_id: int, task_id: int | None = None) -> None:
 
 
 async def _mark_task_failed(task_id: int, error: str, user_id: int | None = None):
-    """标记任务失败 + 退还免费额度（幂等）
+    """标记任务失败 + 退还免费额度 + 最终失败通知（幂等）
 
     R12-AIPipeline-2: 失败退还额度（设计反幻觉约束 —
     "失败后必须退还免费额度（Redis DECR），禁止不退"）。
@@ -220,6 +220,13 @@ async def _mark_task_failed(task_id: int, error: str, user_id: int | None = None
     eager 重试链中本函数可能被内层重跑与外层各调用一次，
     第二次 transition 已 failed→failed 被矩阵拒绝，不会重复退额度。
     user_id 由调用方传入；未传时从任务记录查询。
+
+    R15-State-N1: ①on_step_failed 不再先行终态转换后，本函数成为
+    processing→failed 的单点收口之一（重试耗尽路径），退款分支恢复可达；
+    ②error 不覆盖 on_step_failed 已写入的步骤级错误（保留更有诊断价值的
+    步骤错误，与 va 启动失败分支守卫一致）；③失败通知（WS/离线 DB）
+    自 on_step_failed 迁移至此 — 随最终失败触发，退款后执行使
+    "额度已退还"文案与实际一致。
     """
     async with async_session_factory() as db:
         # R12-VA-2: processing → failed 需状态机校验（终态任务不再翻转）
@@ -228,7 +235,8 @@ async def _mark_task_failed(task_id: int, error: str, user_id: int | None = None
         if allowed:
             task = await db.get(VideoTask, task_id)
             if task:
-                task.error_message = error
+                if not task.error_message:
+                    task.error_message = error
                 if user_id is None:
                     user_id = task.user_id
                 await db.flush()
@@ -244,6 +252,17 @@ async def _mark_task_failed(task_id: int, error: str, user_id: int | None = None
             logger.error(
                 "free_quota_refund_failed",
                 extra={"task_id": task_id, "user_id": user_id, "error": str(quota_err)},
+            )
+
+    # R15-State-N1: 最终失败通知（在线 WS / 离线 DB 落库）
+    if allowed:
+        try:
+            from app.ai_pipeline.progress import ProgressTracker
+            await ProgressTracker.notify_task_failed(task_id)
+        except Exception as notify_err:
+            logger.warning(
+                "analysis_failed_notify_failed",
+                extra={"task_id": task_id, "error": str(notify_err)},
             )
 
 

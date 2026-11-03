@@ -111,6 +111,7 @@ class MembershipService:
     async def get_quota(db: AsyncSession, user_id: int) -> QuotaResponse:
         """查询今日剩余免费分析次数"""
         membership = await MembershipService.get_current_membership(db, user_id)
+        bonus_remaining = await MembershipService._get_bonus_remaining(user_id)
 
         # R12-Membership-1: expired/closed 订阅不享受会员无限额度，按免费 3 次/日
         # 与 check_membership 的 R6-Mbr-1 规则对齐：仅 active/expiring_soon/grace_period 有效
@@ -120,6 +121,7 @@ class MembershipService:
             return QuotaResponse(
                 tier=membership.tier,
                 daily_limit=-1, used_today=0, remaining=-1, reset_at="",
+                bonus_remaining=bonus_remaining,
             )
 
         today = MembershipService._get_today_cst()
@@ -132,6 +134,7 @@ class MembershipService:
             daily_limit=MembershipService.FREE_DAILY_LIMIT,
             used_today=used_today, remaining=remaining,
             reset_at=reset_at.isoformat(),
+            bonus_remaining=bonus_remaining,
         )
 
     # ===================== 供其他模块调用 =====================
@@ -154,16 +157,36 @@ class MembershipService:
             today = MembershipService._get_today_cst()
             used_today = await MembershipService._get_used_count(user_id, today)
             remaining = max(0, MembershipService.FREE_DAILY_LIMIT - used_today)
+            bonus_remaining = await MembershipService._get_bonus_remaining(user_id)
+            # R15-VA-N1: 免费日额度耗尽但付费包有余额时，用户仍可创建任务
+            # （_check_free_quota 回退消耗 quota:bonus），has_quota 须如实反映
             return MembershipCheckResult(
-                tier="free", is_member=False, has_quota=remaining > 0,
+                tier="free", is_member=False,
+                has_quota=remaining > 0 or bonus_remaining > 0,
                 daily_limit=MembershipService.FREE_DAILY_LIMIT,
                 used_today=used_today, remaining=remaining,
+                bonus_remaining=bonus_remaining,
             )
 
         return MembershipCheckResult(
             tier=subscription.tier, is_member=True, has_quota=True,
             daily_limit=-1, used_today=0, remaining=-1,
+            bonus_remaining=await MembershipService._get_bonus_remaining(user_id),
         )
+
+    @staticmethod
+    async def _get_bonus_remaining(user_id: int) -> int:
+        """R15-VA-N1: 读取付费分析包剩余额度（quota:bonus:{uid}）。
+
+        键不存在（未购买/90d TTL 过期）→ 0；Redis 异常降级为 0（展示层字段，
+        不阻塞主流程）；防御性 clamp 负值（并发 DECR 回补的瞬态负数）。
+        """
+        try:
+            redis = await get_redis()
+            return max(0, int(await redis.get(f"quota:bonus:{user_id}") or 0))
+        except Exception as e:
+            logger.warning("get_bonus_remaining_failed: user=%s err=%s", user_id, e)
+            return 0
 
     @staticmethod
     async def consume_analysis_quota(user_id: int) -> bool:

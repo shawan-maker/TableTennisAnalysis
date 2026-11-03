@@ -415,6 +415,7 @@ class BadgeListResponse(BaseModel):
 > 9. Service 返回纯 dict（非 Schema 实例）；`grant_badge_points` 包裹 try/except 且 ref_id 传 None；
 > 10. `_insert_checkin_for_test` 未实现（测试直接预置 Redis streak 键）。
 > 11. **R13-P3 文档同步（R13-Gam-N1 已修复）**：`add_points` 写入段（积分明细 + 汇总表 + 自动打卡）用 `db.begin_nested()`（SAVEPOINT）包裹 —— 调用方（scoring `finish_match` / match_data `_trigger_gamification` / report_generator 级联等）在各自事务中触发积分时，子操作 IntegrityError 仅回滚 SAVEPOINT 而不污染调用方外层事务（避免 session invalid 连带业务主流程失败）；`check_badges` 移出 SAVEPOINT 单独 try/except（徽章解锁失败不阻塞积分入账）。
+> 12. **R15-P3 文档同步（样例回写）**：上方 `add_points` 样例已按实际实现回写——原样例为 R13-Gam-N1 修复前旧形态（方法内局部 `import logging`、`GamificationService.POINTS_RULES` 类属性引用、except 内 `await db.rollback()` 会回滚调用方主事务、`check_badges` 混入同一 try 块）；现与 `app/services/gamification_service.py` L183-219 逐行对齐（模块级 `logger`/`POINTS_RULES`、SAVEPOINT 包裹写入段、`check_badges` 独立 try/except、structlog `extra=` 字典传参）。
 
 ```python
 # app/services/gamification_service.py
@@ -587,46 +588,49 @@ class GamificationService:
 
     @staticmethod
     async def add_points(
-        db: AsyncSession, user_id: int, event_type: str,
-        ref_id: Optional[int] = None,
+        db: AsyncSession, user_id: int, event_type: str, ref_id: Optional[int] = None
     ) -> int:
+        """公开 API - 供其他模块调用，try/except 不阻塞。
+
+        调用方：video_analysis 分析完成 → event_type="analysis"；scoring
+        比赛结束 → "match"；match_data 录入完成 → "record"。返回本次积分。
+
+        R13-Gam-N1: DB 写入段用 SAVEPOINT（begin_nested）隔离 — 原实现
+        except 仅记日志 + return 0，若 _add_points/_auto_checkin 的 flush 抛
+        IntegrityError（如并发首次创建 UserPoints 行触发 unique 冲突），
+        session 进入 invalid 状态，调用方（video_analysis/scoring/match_data
+        完成链路）后续 commit 将抛 PendingRollbackError → 业务接口 500。
+        SAVEPOINT 回滚仅撤销本段写入，调用方事务不受污染（"积分失败不
+        阻塞业务"设计意图），与 check_badges 的 R6-Gami-1 模式一致。
         """
-        供其他模块调用：积分获取入口（统一 API 签名）。
-        - video_analysis 分析完成 → event_type="analysis"
-        - scoring 比赛结束 → event_type="match"
-        - match_data 录入完成 → event_type="record"
-        返回本次获取的积分数。
-        """
-        # BL-4/F5-2: 当前为同步调用（Phase 2+ 规划事件驱动）。
-        # 调用方应将 add_points 包装在 try-except 中，失败时记录日志但不阻塞业务。
-        import logging
-        logger = logging.getLogger(__name__)
-        try:
-            points = GamificationService.POINTS_RULES.get(event_type, 0)
-            if points <= 0:
-                return 0
-
-            # 更新汇总表（total_points += points, monthly_points += points）
-            await GamificationService._add_points(
-                db, user_id, event_type, points, ref_id
-            )
-
-            # 自动打卡 — R13-P3 文档同步：仅 analysis/match/record 三类事件触发
-            # （training_session/share/feedback 等不触发自动打卡）
-            if event_type in ("analysis", "match", "record"):
-                await GamificationService._auto_checkin(db, user_id, event_type)
-
-            await db.flush()  # R13-P3 文档同步：commit 由调用方控制；实际 except 分支仅记 warning 返回 0（不 rollback）
-
-            # 触发徽章检测
-            await BadgeService.check_badges(db, user_id)
-
-            return points
-        except Exception as e:
-            logger.error("gamification_add_points_failed", user_id=user_id, reason=event_type, error=str(e))
-            # 不 re-raise，积分失败不阻塞业务
-            await db.rollback()
+        points = POINTS_RULES.get(event_type, 0)
+        if points <= 0:
             return 0
+        try:
+            async with db.begin_nested():
+                await GamificationService._add_points(
+                    db, user_id, event_type, points, ref_id
+                )
+
+                # 自动打卡（R13-Gam-N1：仅 analysis/match/record 事件触发，
+                # training_session/share/feedback 等不触发）
+                if event_type in ("analysis", "match", "record"):
+                    await GamificationService._auto_checkin(db, user_id, event_type)
+
+                await db.flush()  # commit 由调用方收口
+        except Exception as e:
+            # 不 re-raise，积分失败不阻塞业务；SAVEPOINT 已回滚本段写入，
+            # 不 rollback 调用方主事务
+            logger.warning("add_points_failed", extra={"user_id": user_id, "event": event_type, "error": str(e)})
+            return 0
+
+        # 触发徽章检测（独立 try/except，徽章失败不影响积分返回）
+        try:
+            await BadgeService.check_badges(db, user_id)
+        except Exception as e:
+            logger.warning("badge_check_failed", extra={"error": str(e)})
+
+        return points
 
     @staticmethod
     async def grant_badge_points(

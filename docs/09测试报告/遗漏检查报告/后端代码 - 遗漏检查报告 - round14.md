@@ -30,7 +30,7 @@
 | 07-training_advice/backend.md | 89 | 1:1 行内替换 | 1416 → 1428 |
 | 08-progress_analysis/backend.md | 73 | 1:1 行内替换（样例区） | 1839 → 1847 |
 | 09-gamification/backend.md | 149 | 1:1 + 5 处粘连行拆分 | 1298 → 1305 |
-| 11-payment/backend.md | 158（前半 80 + 后半 78） | 两代理分区 1:1（互不越界断言） | 1657 → 1660（含头部注记 +3） |
+| 11-payment/backend.md | 158（前半 80 + 后半 78） | 两代理分区 1:1（互不越界断言） | 1657 → 1666（含头部注记 +3 + R14-Pay-N2 退款窗口修复注释块同步 +6；原账目 1660 漏计该修复同步，R15 修正） |
 | 13-infrastructure/conftest.py.md | 61 | 子代理重建 | 455 → 461 |
 | 13-infrastructure/ai_pipeline.md | 177（前半 89 + 后半 88） | 前半 A1 1:1；后半 R14-07 先例拆粘连行重建 | 1134 → 1176（1168 + 注记 2 + §5.2/§5.5/§8 三处 R14 契约注记） |
 
@@ -81,11 +81,11 @@
 | R14-Pay-N1 | P1 | `quota:bonus` 有写入方（支付回调 INCR+90d TTL）**无消费方**——模块详设 §2.11 BR-2"分析包→增加额外额度"全链路空转，用户购买分析包后可用次数实际未增加 | 消费链补齐：`_check_free_quota` 返回 `free/bonus` 来源（免费耗尽→原子 DECR bonus，负数回补防并发超扣）；`consume_analysis_quota` 同型；`create_task` 写 `quota:src:{task_id}` 标记（24h TTL） | test_r14_d + test_r14_b |
 | R14-Pay-N1-d1 | P2 | 退款幂等方案 getdel 即删，"已退还"与"无标记历史任务"不可区分 → bonus 任务二次退款误走 free 回退扣减日额度 | 墓碑标记 `refunded`（保留 TTL）先行改写，二次调用直接返回 | test_r14_d（墓碑幂等/分池回退） |
 | R14-Pay-N2 | P2 | 24h-7d 窗口 `full_reversal` 分支直接放行全额退款，绕过 API §12 "≤50%" 限额 | 该窗口全额退款改拒绝（400），仅允许部分退款；`full_reversal` 值废弃（Model 注释同步） | test_r14_d + 探针（probe_r14_pay_refund_window.py） |
-| R14-B4-1 | P2 | progress"技术指标不存在"误用 40420 与 training"训练方案不存在"同码双义（API §1.8 命名空间要求业务 code 唯一，前端按 code 差异化提示必错） | 新码 40415 `ERR_METRIC_NOT_FOUND`；training 域 40420/40421/40422 语义不变；API §1.8 补注册 4 码 | test_r14_g |
-| R14-Gam-N1 | P2 | `add_points` 契约仅 flush（09-gam 切片 §5 注记 2），4 个调用方（match_data/scoring/va feedback/va share）缺 commit 收口 → 积分与自动打卡随 session 结束回滚丢失 | 4 处补 `await db.commit()` | test_r14_b/c（跨模块积分链断言） |
+| R14-B4-1 | P2 | progress"技术指标不存在"误用 40420 与 training"训练方案不存在"同码双义（API §1.8 命名空间要求业务 code 唯一，前端按 code 差异化提示必错） | 新码 40415 `ERR_METRIC_NOT_FOUND`；training 域 40420/40421/40422 语义不变；API §1.8 补注册 4 码 | test_r14_g（R15 修正注：R14 时点该文件 40415 断言实际缺失——round15 审计 A1 复验全文件零命中；R15-Test-N1 补 TestB4_1_MetricNotFound40415 2 例后锁定成立） |
+| R14-Gam-N1 | P2 | `add_points` 契约仅 flush（09-gam 切片 §5 注记 2），4 个调用方（match_data/scoring/va feedback/va share）缺 commit 收口 → 积分与自动打卡随 session 结束回滚丢失 | 4 处补 `await db.commit()` | test_r14_b/c（跨模块积分链断言）（R15 修正注：R14 时点仅 match_data record/scoring match 两侧有 UserPoints 断言，va feedback/share 两侧缺失；R15-Test-N1 补 test_gam_n1_feedback/share_points_persisted 2 例后 4 调用方全覆盖） |
 | R14-User-1 | P1 | `process_account_deletions` 仅置 `status="deleted"`：PII（phone/openid/nickname）永久留存，且 phone/openid 继续占据部分唯一索引 → **已注销手机号/微信号无法重新注册**；API §3.6 规则 3 / 02-user 切片 §9 BR-4 七步级联未实现 | BR-4 级联补齐：匿名化（释放唯一索引）→ 视频标记删除 → 报告匿名化保留（user_id 保留供训练）→ 非终态订阅取消 → status=deleted → Redis 清理（big_data:user/notif:unread，失败不回滚）→ 审计日志 | test_r14_a |
 | R14-User-2 | P2 | `cancel_deletion` 缺 API §3.10 业务规则 3 要求的撤销审计日志 | 补 AuditLog（user 侧操作，admin_id 为空） | test_r14_a |
-| R14-VA-1 | P3 | submit_feedback 调用不存在的 `FileService.archive_for_training`（AttributeError 吞噬后仅 warning）——数据飞轮归档空转 | 移除死调用；`feedback_record.status=archived/manual_review` 落库即飞轮归档语义（与切片 Model 注释一致）；Phase 2 接入点注释留档 | test_r14_b |
+| R14-VA-1 | P3 | submit_feedback 调用不存在的 `FileService.archive_for_training`（AttributeError 吞噬后仅 warning）——数据飞轮归档空转 | 移除死调用；`feedback_record.status=archived/manual_review` 落库即飞轮归档语义（与切片 Model 注释一致）；Phase 2 接入点注释留档 | test_video_analysis.py L394/406（feedback data_flywheel_action 三态断言）（R15 修正注：原标注 test_r14_b 不实——该文件 L492-498 仅覆盖跨用户反馈 404，未覆盖 VA-1 语义） |
 | R14-KB-1 | P2 | `init_knowledge_base` `pop("category_code")` 原地删除模块级常量 PROBLEMS → 同进程第二次调用在幂等跳过逻辑之前抛 KeyError | 改读取 + 字典推导构造（常量不可变） | test_r14_e（同实例二次调用幂等） |
 
 ## 四、测试缺口补齐（7 代理 99 例）
@@ -93,14 +93,14 @@
 | 代理 | 文件 | 例数 | 覆盖重点 |
 |------|------|------|---------|
 | A | test_r14_a_auth_user.py | 16 | 注销七步级联 / 撤销审计 / 飞轮反馈积分 commit 收口 |
-| B | test_r14_b_va_scoring.py | 12 | quota 分池（free/bonus 边界）/ 退款窗口 422/400 / feedback 状态落库 |
+| B | test_r14_b_va_scoring.py | 12+2 | quota 分池（free/bonus 边界）/ 退款窗口 422/400 / feedback 状态落库（R15-Test-N1 补 feedback/share 积分持久化 2 例） |
 | C | test_r14_c_match_training.py | 11 | match +5 积分 commit / 记录积分 / 训练方案 40420/40422 差异化 |
 | D | test_r14_d_pay_mbr_notif.py | 14 | 退款墓碑幂等 / bonus 回退 / 回调重放 / 通知落库 |
 | E | test_r14_e_admin_kb.py | 19 | create 审计 target_id / KB 脚本幂等重入 / admin 筛选 |
 | F | test_r14_f_aip_beat.py | 15 | 完成通知可达性（R14-AIP-N1 回归守卫）/ 熔断 half_open / was_unavailable 模板回退 / beat 三分支 |
-| G | test_r14_g_progress_notif.py | 12 | 40415 差异化 / 快照幂等重入 / period 滚动窗口边界 / 通知三态 |
+| G | test_r14_g_progress_notif.py | 12+2 | 快照幂等重入 / period 滚动窗口边界 / 通知三态（R15-Test-N1 补 B4-1 40415 守卫 2 例） |
 
-全部 99 例单文件运行全绿（G 代理含 2 次全量复跑确认无 flaky）；既有 499 基线用例在死代码清理后针对性冒烟（4 文件 138 例）全绿。
+全部 99 例单文件运行全绿（G 代理含 2 次全量复跑确认无 flaky）；既有 499 基线用例在死代码清理后针对性冒烟（4 文件 138 例）全绿。（R15 修正注：§三/§四 3 处锁定证据陈述失实——B4-1 的 40415 断言、Gam-N1 的 va 侧积分断言在 R14 时点均不存在，VA-1 实际由 test_video_analysis.py 守卫；R15-Test-N1 补 4 例后本报告锁定链完整，两文件现 14 例各。）
 
 ### 4.1 G 代理观察项（非缺陷，留档）
 

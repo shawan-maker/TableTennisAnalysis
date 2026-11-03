@@ -20,6 +20,14 @@ def configure_beat(celery_app: Celery) -> None:
             # R13-P3: 描述与 file_management.md §6.2 契约对齐（uploading 超 1h → abandoned）
             "description": "清理上传超时孤儿文件（status=uploading 超 1h → 删 OSS 对象 → abandoned）",
         },
+        # R15-User-N2: 补齐软删文件 OSS 物理删除断链（原注释声称由清理任务
+        # 承担但任务未注册）— file_management.md §4「24h 后 OSS 物理删除」契约
+        "file-management-deleted-cleanup": {
+            "task": "app.tasks.file_management.cleanup_deleted_files",
+            "schedule": crontab(minute=30),  # 每小时偏移 30 分（避开孤儿清理 :00）
+            "options": {"queue": "infra"},
+            "description": "软删文件 OSS 物理清理（status=deleted 超 24h → 删 OSS 对象 → purged）",
+        },
         # ---------- 记分牌 ----------
         "scoring-cleanup-abandoned": {
             "task": "app.tasks.scoring.cleanup_abandoned_matches",

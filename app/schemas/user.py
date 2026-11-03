@@ -113,6 +113,10 @@ class QuotaResponse(BaseModel):
     used_today: int = 0
     remaining: int = 3
     reset_at: Optional[str] = None  # 下次重置时间
+    # R15-VA-N1: 付费分析包剩余额度（quota:bonus:{uid}，90d TTL，无日重置）。
+    # R14-Pay-N1 打通 bonus 消费链后，展示层未适配 — 用户购买分析包后
+    # 查询额度仍显示 remaining=0，无法感知已购额度可用。0 表示无付费额度。
+    bonus_remaining: int = 0
 
 
 class BigDataResponse(BaseModel):

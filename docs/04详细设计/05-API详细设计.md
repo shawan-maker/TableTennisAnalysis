@@ -946,6 +946,8 @@
 
 **描述**：获取当前用户的免费视频分析额度状态
 
+> **R15-P3文档同步（R15-VA-N1）**：响应新增 `bonus_remaining`（付费分析包剩余额度）——R14-Pay-N1 打通 `quota:bonus` 消费链后展示层未适配，R15 补齐。
+
 **权限**：登录
 
 #### Response Body
@@ -958,7 +960,8 @@
     "daily_limit": 3,
     "used_today": 1,
     "remaining": 2,
-    "reset_at": "2026-10-11T00:00:00+08:00"
+    "reset_at": "2026-10-11T00:00:00+08:00",
+    "bonus_remaining": 5
   },
   "timestamp": "..."
 }
@@ -969,6 +972,7 @@
 1. 读取 Redis Key `quota:analysis:{user_id}:{date}`（`date` 为 Asia/Shanghai CST 当日日期），统计当日已用免费分析次数
 2. `daily_limit`：免费用户每日免费分析次数（3 次）
 3. `reset_at`：额度重置时间，为次日 00:00（CST，Asia/Shanghai 时区）
+4. `bonus_remaining`：付费分析包剩余额度（Redis `quota:bonus:{user_id}`，R15-VA-N1 补充 — 免费日额度耗尽后自动消耗该池；键不存在/90d TTL 过期为 0）
 
 #### 错误情况
 
@@ -3002,11 +3006,14 @@
     "daily_limit": 3,
     "used_today": 1,
     "remaining": 2,
-    "reset_at": "2026-10-11T00:00:00+08:00"
+    "reset_at": "2026-10-11T00:00:00+08:00",
+    "bonus_remaining": 5
   },
   "timestamp": "..."
 }
 ```
+
+> **R15-P3文档同步（R15-VA-N1）**：响应新增 `bonus_remaining` — 付费分析包剩余额度（Redis `quota:bonus:{user_id}`）；免费用户为可用池（免费日额度耗尽后自动消耗），会员态为信息性展示（会员期内不消耗，到期后可用）。
 
 #### 错误情况
 

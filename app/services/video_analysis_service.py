@@ -228,12 +228,16 @@ class VideoAnalysisService:
             # 标记任务失败
             # R12 复验-VA-2 旁路收口：改走 transition_task_status 状态矩阵校验
             # （queued→failed 已补充为合法转换），不再直接 update 绕过校验
+            # R15-State-N1: eager 模式下 Retry 异常亦经此分支 — 任务此时为
+            # processing（步骤已执行，on_step_failed 不再先行终态转换），
+            # processing→failed 合法；不覆盖 on_step_failed 已写入的步骤级
+            # 错误（保留诊断价值更高的 step 错误信息）
             async with async_session_factory() as db:
                 from app.ai_pipeline.progress import transition_task_status
                 allowed = await transition_task_status(db, task.id, "failed")
                 if allowed:
                     failed_task = await db.get(VideoTask, task.id)
-                    if failed_task:
+                    if failed_task and not failed_task.error_message:
                         failed_task.error_message = f"流水线启动失败: {e}"
                         await db.flush()
                 await db.commit()
@@ -248,6 +252,17 @@ class VideoAnalysisService:
                 logger.error(
                     "startup_refund_quota_failed",
                     extra={"user_id": user_id, "error": str(quota_err)},
+                )
+
+            # R15-State-N1: 失败通知随终态触发（自 on_step_failed 迁移）——
+            # 本分支承担启动失败与 eager 重试链失败的通知职责
+            try:
+                from app.ai_pipeline.progress import ProgressTracker
+                await ProgressTracker.notify_task_failed(task.id)
+            except Exception as notify_err:
+                logger.warning(
+                    "startup_analysis_failed_notify_failed",
+                    extra={"task_id": task.id, "error": str(notify_err)},
                 )
 
         return {

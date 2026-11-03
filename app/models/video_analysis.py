@@ -40,7 +40,8 @@ class FileRecord(Base):
     original_filename = Column(String(255), nullable=True)
     file_size = Column(BigInteger, nullable=False)  # 1MB-500MB
     file_type = Column(String(20), nullable=False)  # mp4/mov
-    status = Column(String(20), nullable=False, default="uploading")  # uploading/uploaded/abandoned/deleted
+    # R15-User-N2: purged 终态 — 软删 24h 后 OSS 对象已物理删除（cleanup_deleted_files）
+    status = Column(String(20), nullable=False, default="uploading")  # uploading/uploaded/abandoned/deleted/purged
     oss_etag = Column(String(128), nullable=True)
     actual_size = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))

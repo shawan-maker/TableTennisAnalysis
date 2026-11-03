@@ -393,6 +393,9 @@ class QuotaResponse(BaseModel):
     used_today: int = 0
     remaining: int = 3
     reset_at: Optional[str] = None  # 下次重置时间（CST 次日 00:00，ISO 格式，R6-User-1）
+    # R15-VA-N1: 付费分析包剩余额度（quota:bonus:{user_id}，90d TTL，无日重置）；
+    # 免费日额度耗尽后 _check_free_quota 回退消耗该池，展示层如实反映
+    bonus_remaining: int = 0
 
 
 # --- 分页包装 ---
@@ -408,7 +411,7 @@ class PaginatedRatingHistory(BaseModel):
 ## 5. Service 实现
 
 > **P3 文档同步（R12 复验批次 1）**：以下样例与实际实现（`app/services/user_service.py`）的差异，以实现为准：
-> 1. `get_quota` 方法（样例未收录）：读取 Redis Key `quota:analysis:{user_id}:{date}`（CST 当日，R5-User-1），`daily_limit=3`，`reset_at` 为 CST 次日 00:00 的 ISO 字符串（R6-User-1）；类常量含 `DAILY_FREE_LIMIT = 3`
+> 1. `get_quota` 方法（样例未收录）：读取 Redis Key `quota:analysis:{user_id}:{date}`（CST 当日，R5-User-1），`daily_limit=3`，`reset_at` 为 CST 次日 00:00 的 ISO 字符串（R6-User-1）；类常量含 `DAILY_FREE_LIMIT = 3`；R15-VA-N1：实现新增 `bonus_remaining` 字段（读取 `quota:bonus:{user_id}`，`max(0, int(get or 0))`，Redis 异常降级 0）
 > 2. `_compute_indirect_wins`：实现查询条件含 `MatchRecord.opponent_user_id.isnot(None)`（无该字段数据时 BFS 无法遍历，返回空列表 — 实现注释已声明）；`CELEBRITY_IDS` 为函数内常量而非模块级
 > 3. `get_profile`/`update_profile`：实现将 `profile_completeness` 计算结果回写 `user.profile_completeness` 字段（update_profile 双 commit 落库）；`update_profile` 内含 R4-User-3 注释（kqs_rating/kqs_username/nickname/avatar_url 不经此端点更新）
 > 4. 样例 `get_big_data` 的 `func.cast(...)` 实现为 `cast(...)`（`from sqlalchemy import cast, Integer`），语义等价

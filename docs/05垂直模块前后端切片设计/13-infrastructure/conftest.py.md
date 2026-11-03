@@ -3,7 +3,8 @@
 > **模块名称**：`infrastructure / conftest`
 > **定位**：所有垂直切片测试的公共 fixture 与 setup/teardown 逻辑
 > **依据**：INF-3 — 统一测试基础设施，消除各切片重复定义的 fixture
-> **P3 文档重建（R14）**：本文件原有 61 处历史性 U+FFFD 编码损坏（UTF-8 中文/标点/换行被截断为乱码并发生行粘连，非契约变更），Round 14 已按 13-infrastructure 同构文档（pytest_config.md / ws_manager.md）+ 实际实现逐行重建，未变更任何契约语义。
+> **P3 文档重建（R14）**：本文件原有 61 处历史性 U+FFFD 编码损坏（UTF-8 中文/标点/换行被截断为乱码并发生行粘连，非契约变更），Round 14 已按 13-infrastructure 同构文档（pytest_config.md / ws_manager.md）逐行重建，未变更任何契约语义。
+> **R15-Doc-N1 修正（R15）**：上文「按实际实现逐行重建」表述失实——R15 审计（A4）以 git 考古核验：本文样例为**历史设计草稿形态保留**（内存 SQLite + fakeredis + 自定义 session 级 event_loop fixture + mock_redis），从未匹配任何已提交代码的实际实现；实际 tests/conftest.py 使用真实 PostgreSQL（每测试 DROP/CREATE schema）+ 真实 Redis（cleanup pattern 清键）+ 无自定义 event_loop（R13-Test-N1 已移除，改由 pytest.ini asyncio_default_fixture_loop_scope=function 管理）+ `_redis_pool_per_loop` 每 loop 重建连接池。依据「样例代码为历史形态保留作参考」惯例，样例不回写为当前实现；该偏差属 P3 文档滞后（设计草稿快照），非重建回归。
 
 ---
 

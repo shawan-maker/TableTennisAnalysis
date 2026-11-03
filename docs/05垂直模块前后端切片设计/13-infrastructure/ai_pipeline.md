@@ -1084,7 +1084,7 @@ async def create_task(
 
 > **R13-P3 文档同步**：实际测试为 `tests/unit/test_ai_pipeline.py`（R12-AIPipeline-12 整文件补齐，18 个测试）：流水线完整执行（10 步全 completed + 报告生成 + advice 级联投递 spy）、任务状态机矩阵（queued→failed / failed→failed 幂等拒绝 / 任务不存在 False / 矩阵常量校验）、退额度语义（DECR 回 0 / 禁止负计数 / 幂等不双退 / 终态不退）、重试耗尽（MaxRetriesExceededError 兜底 + 标记失败 + 退额度）、is_llm_generated 实际方式（LLM 成功 True / 失败降级 False / 配置关闭 False / 写库校验）。本节样例中 `AIPipelineService.refund_free_quota` / `ProgressTracker._get_task_user` 符号已不存在，样例保留作历史参考。
 >
-> **R14-P3 文档同步**：R14 新增 `tests/unit/test_r14_f_aip_beat.py`（14 例）——完成通知分支可达性（R14-AIP-N1 回归守卫：离线落库 / 在线 WS / 终态二次调用幂等）、熔断器 half_open 状态机（超时转 half_open → 探测成败分派 closed/open，既有覆盖仅 closed→open）、`was_unavailable` 健康标记消费（报告生成模板回退 fail-open / available 放行）、`ai_inference_health` beat 任务体三分支 + `ai-inference-health-check` 注册断言；退额度墓碑/分池语义（R14-Pay-N1/-N1-d1）由 `test_r14_d_pay_mbr_notif.py` 覆盖。
+> **R14-P3 文档同步**：R14 新增 `tests/unit/test_r14_f_aip_beat.py`（15 例，R15 核验修正——原注记 14 为计数偏差：完成通知 3 + 熔断器状态机 4 + 健康标记消费/降级 4 + 任务体分支 3 + beat 注册 1）——完成通知分支可达性（R14-AIP-N1 回归守卫：离线落库 / 在线 WS / 终态二次调用幂等）、熔断器 half_open 状态机（超时转 half_open → 探测成败分派 closed/open，既有覆盖仅 closed→open）、`was_unavailable` 健康标记消费（报告生成模板回退 fail-open / available 放行）、`ai_inference_health` beat 任务体三分支 + `ai-inference-health-check` 注册断言；退额度墓碑/分池语义（R14-Pay-N1/-N1-d1）由 `test_r14_d_pay_mbr_notif.py` 覆盖。
 
 ```python
 # tests/unit/test_ai_pipeline.py

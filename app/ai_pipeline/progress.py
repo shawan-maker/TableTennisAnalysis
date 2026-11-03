@@ -159,7 +159,21 @@ class ProgressTracker:
 
     @staticmethod
     async def on_step_failed(task_id: int, step: int, error: str) -> None:
-        """步骤失败"""
+        """步骤失败（仅步骤级记录，不动任务终态）
+
+        R15-State-N1: 不再先行 transition 任务 → failed。原实现把"可重试的
+        步骤失败"提前固化为任务终态，Celery 重试链（max_retries=1）重跑后：
+        ①重试成功 → on_task_complete 的 failed→completed 被
+        TASK_TRANSITIONS 拒绝 → 任务永久 failed + 完成通知不可达
+        （R14-AIP-N1 同症状，根因同构）；②重试再失败 → _mark_task_failed
+        的 failed→failed 被拒 → allowed=False → 退额度分支不可达。
+        终态转换单点收口：_mark_task_failed（最终失败）+ on_task_complete
+        （成功）+ va 启动失败分支（queued→failed）。矩阵出边
+        failed→queued（设计"可重试"预留）不受影响，任务重试期间保持
+        processing 语义。
+        任务级失败通知迁移至 notify_task_failed（随终态触发），不再在
+        可重试失败时提前推送"额度已退还"的不实内容。
+        """
         now = datetime.now(timezone.utc)
         async with async_session_factory() as db:
             await db.execute(
@@ -167,40 +181,50 @@ class ProgressTracker:
                 .where(PipelineStep.task_id == task_id, PipelineStep.step_number == step)
                 .values(status="failed", error_message=error, completed_at=now)
             )
-            # R12-VA-2: processing → failed 需状态机校验（终态任务不再翻转）
-            allowed = await transition_task_status(db, task_id, "failed")
-            if allowed:
-                task = await db.get(VideoTask, task_id)
-                if task:
-                    task.error_message = error
-                    await db.flush()
-            await db.commit()
-
-            if not allowed:
-                return
-
-            # WS 推送 + 离线兜底（R13-AIP-2 同型修复：失败通知离线用户落 DB）
+            # 任务保持 processing（重试窗口内）；error_message 记录最近一次
+            # 步骤错误供诊断/终态分支保留，重试成功由 on_task_complete 清除
             task = await db.get(VideoTask, task_id)
             if task:
-                if await NotificationService.is_user_online(task.user_id):
-                    await NotificationService.push_ws_message(
-                        task.user_id,
+                task.error_message = error
+                await db.flush()
+            await db.commit()
+
+    @staticmethod
+    async def notify_task_failed(task_id: int) -> None:
+        """任务最终失败通知（在线 WS / 离线 DB 落库）— 仅由终态写入方调用
+
+        调用方：_mark_task_failed（Celery 重试耗尽）与 va create_task
+        启动失败分支（queued→failed）。R13-AIP-2 同型：离线用户落 DB +
+        未读计数 + 微信订阅消息，下次打开小程序经通知列表触达。
+        R15-State-N1: 自 on_step_failed 迁移至此 — 通知随最终失败触发。
+        """
+        async with async_session_factory() as db:
+            task = await db.get(VideoTask, task_id)
+            if not task:
+                return
+            user_id = task.user_id
+            step = task.current_step or None
+            error = task.error_message or "unknown"
+
+            if await NotificationService.is_user_online(user_id):
+                await NotificationService.push_ws_message(
+                    user_id,
+                    "analysis_failed",
+                    {"task_id": task_id, "step": step, "error": error},
+                )
+            else:
+                try:
+                    await NotificationService.send_notification(
+                        user_id,
                         "analysis_failed",
-                        {"task_id": task_id, "step": step, "error": error},
+                        "视频分析失败",
+                        "很抱歉，您的视频分析未成功完成，分析额度已退还",
+                        extra_data={"task_id": task_id, "step": step},
                     )
-                else:
-                    try:
-                        await NotificationService.send_notification(
-                            task.user_id,
-                            "analysis_failed",
-                            "视频分析失败",
-                            "很抱歉，您的视频分析未成功完成，分析额度已退还",
-                            extra_data={"task_id": task_id, "step": step},
-                        )
-                    except Exception as e:
-                        logger.warning("analysis_failed_offline_notify_failed", extra={
-                            "task_id": task_id, "user_id": task.user_id, "error": str(e),
-                        })
+                except Exception as e:
+                    logger.warning("analysis_failed_offline_notify_failed", extra={
+                        "task_id": task_id, "user_id": user_id, "error": str(e),
+                    })
 
     @staticmethod
     async def on_task_complete(task_id: int, report_id: int) -> None:
@@ -213,6 +237,9 @@ class ProgressTracker:
                 if task:
                     task.progress = 1.0
                     task.current_step = 10
+                    # R15-State-N1: 清除重试窗口内 on_step_failed 写入的
+                    # 步骤错误（成功终态不应残留失败诊断信息）
+                    task.error_message = None
                     await db.flush()
             await db.commit()
 

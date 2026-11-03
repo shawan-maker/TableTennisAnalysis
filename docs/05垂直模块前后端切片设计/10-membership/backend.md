@@ -341,6 +341,8 @@ class QuotaResponse(BaseModel):
     used_today: int
     remaining: int
     reset_at: str
+    # R15-VA-N1: 付费分析包剩余额度（quota:bonus:{user_id}）；会员态信息性展示
+    bonus_remaining: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -354,6 +356,8 @@ class MembershipCheckResult(BaseModel):
     daily_limit: int = 3
     used_today: int = 0
     remaining: int = 3
+    # R15-VA-N1: has_quota 免费分支须含付费包（免费耗尽但 bonus>0 → True）
+    bonus_remaining: int = 0
 ```
 
 ---
@@ -470,6 +474,8 @@ class MembershipService:
     async def get_quota(db: AsyncSession, user_id: int) -> QuotaResponse:
         """查询今日剩余免费分析次数。""
         membership = await MembershipService.get_current_membership(db, user_id)
+        # R15-VA-N1: 付费分析包剩余额度（会员态信息性展示——会员期内不消耗）
+        bonus_remaining = await MembershipService._get_bonus_remaining(user_id)
 
         # R12-Membership-1: expired/closed 订阅不享受会员无限额度，按免费 3 次/日
         # 与 check_membership 的 R6-Mbr-1 规则对齐：仅 active/expiring_soon/grace_period 有效
@@ -482,6 +488,7 @@ class MembershipService:
                 used_today=0,
                 remaining=-1,  # -1 表示无限
                 reset_at="",
+                bonus_remaining=bonus_remaining,
             )
 
         # 免费用户：读 Redis 计数器
@@ -497,6 +504,7 @@ class MembershipService:
             used_today=used_today,
             remaining=remaining,
             reset_at=reset_at.isoformat(),
+            bonus_remaining=bonus_remaining,
         )
 
     # ===================== 供其他模块调用 =====================
@@ -518,13 +526,16 @@ class MembershipService:
             today = datetime.now(timezone(timedelta(hours=8))).date()
             used_today = await MembershipService._get_used_count(user_id, today)
             remaining = max(0, MembershipService.FREE_DAILY_LIMIT - used_today)
+            # R15-VA-N1: 免费日额度耗尽但付费包有余额时仍可创建任务
+            bonus_remaining = await MembershipService._get_bonus_remaining(user_id)
             return MembershipCheckResult(
                 tier="free",
                 is_member=False,
-                has_quota=remaining > 0,
+                has_quota=remaining > 0 or bonus_remaining > 0,
                 daily_limit=MembershipService.FREE_DAILY_LIMIT,
                 used_today=used_today,
                 remaining=remaining,
+                bonus_remaining=bonus_remaining,
             )
 
         # 会员用户
@@ -535,6 +546,7 @@ class MembershipService:
             daily_limit=-1,
             used_today=0,
             remaining=-1,
+            bonus_remaining=await MembershipService._get_bonus_remaining(user_id),
         )
 
     @staticmethod

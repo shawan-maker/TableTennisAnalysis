@@ -221,11 +221,21 @@ class UserService:
         tomorrow = (now_cst + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         reset_at = tomorrow.isoformat()
 
+        # R15-VA-N1: 付费分析包剩余额度（quota:bonus:{uid}，支付回调 INCR）。
+        # 免费日额度耗尽后 _check_free_quota 回退消耗该池（R14-Pay-N1），
+        # 展示层须如实反映，否则购包用户看到 remaining=0 误判无法使用。
+        # 键可能不存在（未购买/90d TTL 过期）→ 0；防御性 clamp 负值。
+        try:
+            bonus_remaining = max(0, int(await redis.get(f"quota:bonus:{user.id}") or 0))
+        except Exception:
+            bonus_remaining = 0
+
         return QuotaResponse(
             daily_limit=UserService.DAILY_FREE_LIMIT,
             used_today=used_today,
             remaining=remaining,
             reset_at=reset_at,
+            bonus_remaining=bonus_remaining,
         )
 
     # =================================================================

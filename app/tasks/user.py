@@ -73,6 +73,15 @@ def process_account_deletions():
                 user.avatar_url = None
                 user.phone = None
                 user.openid = None
+                # R15-User-N1: 补齐画像字段匿名化 — kqs_username/playing_style/
+                # self_assessed_level 为可识别/偏好 PII，equipment_config 含
+                # 器材偏好（底板/胶皮等），kqs_rating 为外部平台关联数据。
+                # 原实现仅清 4 基础字段，画像字段永久留存 → PIPL 删除权不完整。
+                user.kqs_rating = None
+                user.kqs_username = None
+                user.playing_style = None
+                user.equipment_config = None
+                user.self_assessed_level = None
                 # 6. 状态置 deleted + 清空注销标记字段
                 user.status = "deleted"
                 user.scheduled_deletion_at = None

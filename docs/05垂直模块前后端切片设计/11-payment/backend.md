@@ -1131,8 +1131,11 @@ class PaymentService:
     @staticmethod
     async def _trigger_business_logic(db: AsyncSession, order: Order, ip_address: str | None = None):
         """支付成功后根据订单类型触发对应业务逻辑。"""
-        # F4-1 修复：order 更新 + payment_record + subscription 创建在同一事务，        # WS 推送在事务提交后执行，失败时仅记录日志
-        # 补偿机制：Celery Beat 定时扫描 status=paid 但无 subscription 的 order，重试业务逻辑
+        # F4-1 修复：order 更新 + payment_record + subscription 创建在同一事务，
+        # WS 推送在事务提交后执行，失败时仅记录日志
+        # 补偿机制（设计意图，未实现 — R15-P3 核验）：Celery Beat 定时扫描 status=paid
+        # 但无 subscription 的 order，重试业务逻辑；app/core/beat_schedule.py 注册表
+        # 无此任务（历史遗留文档-代码矛盾，非重建引入），实际一致性依赖 F4-1 同事务保证
         if order.product_type == "membership":
             # 创建/续期 subscription
             # 获取订单的 extra_data（tier/period）

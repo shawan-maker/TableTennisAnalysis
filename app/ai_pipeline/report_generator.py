@@ -262,7 +262,26 @@ class ReportGenerator:
         - 游戏化积分
         - 看板缓存失效（R12-Dash-1: 分析完成后清除 dashboard 缓存）
         - 通知推送（WS 消息已在 ProgressTracker 中处理）
+
+        R15-State-N1 伴生：SETNX 幂等防重 — Celery 重试链中"Step 10 失败
+        → 重试成功"场景下 generate 幂等更新报告后本函数会二次执行
+        （积分双发 +10 / 训练建议 / 快照 / 缓存失效全链重复）。以
+        cascade:done:{report_id} 标记（7d TTL）保证一次触发；
+        Redis 不可用时放行（fail-open — 重复级联可容忍，阻塞不可）。
         """
+        # 幂等防重（R15-State-N1）
+        try:
+            from app.core.redis import get_redis
+            redis = await get_redis()
+            first = await redis.set(f"cascade:done:{report_id}", "1", nx=True, ex=7 * 86400)
+            if not first:
+                logger.info(
+                    "cascade_already_triggered",
+                    extra={"task_id": task_id, "report_id": report_id},
+                )
+                return
+        except Exception as e:
+            logger.warning("cascade_idempotency_check_failed", extra={"error": str(e)})
         # 游戏化积分
         try:
             from app.services.gamification_service import GamificationService

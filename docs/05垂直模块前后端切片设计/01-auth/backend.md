@@ -176,6 +176,7 @@ class ConsentLog(Base):
         Index("idx_consent_user_at", "user_id", "consent_at"),
     )
 
+```
 ---
 
 ## 4. Schema 实现

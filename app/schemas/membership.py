@@ -50,6 +50,9 @@ class QuotaResponse(BaseModel):
     used_today: int
     remaining: int
     reset_at: str
+    # R15-VA-N1: 付费分析包剩余额度（quota:bonus:{uid}）。会员态为信息性展示
+    # （会员期内 consume_analysis_quota 直接放行不消耗该池，会员到期后可用）。
+    bonus_remaining: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -63,3 +66,6 @@ class MembershipCheckResult(BaseModel):
     daily_limit: int = 3
     used_today: int = 0
     remaining: int = 3
+    # R15-VA-N1: has_quota 免费分支须包含付费包额度（免费日额度耗尽但
+    # quota:bonus > 0 时用户仍可创建任务 — _check_free_quota 回退消耗）。
+    bonus_remaining: int = 0

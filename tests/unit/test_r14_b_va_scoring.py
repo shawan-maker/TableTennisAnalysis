@@ -575,3 +575,90 @@ async def test_sc1_match_cross_user_isolation(client, auth_headers, db_session):
     resp = await client.get("/api/v1/scoring/matches", headers=headers_b)
     assert resp.status_code == 200
     assert resp.json()["data"]["total"] == 0
+
+
+# =============================================================================
+# R15-Test-N1（补 R14 报告声称但实际缺失的守卫）：
+# R14-Gam-N1 feedback/share 侧积分持久化 — round14 报告 §三声称
+# 「test_r14_b/c（跨模块积分链断言）」锁定 4 调用方 commit 收口，但
+# test_r14_c 仅覆盖 match_data record/scoring match 调用方（L452-526）；
+# va feedback / va share 两个调用方（video_analysis_service.py L523/L670）
+# 无 UserPoints 断言（A1 复验：既有 feedback/share 测试仅断言响应字段，
+# test_video_analysis.py L369-416 / L536+ 零积分断言）。本节补齐。
+# =============================================================================
+
+async def _points_total(user_id: int) -> int:
+    """独立会话读取用户总积分（无行 → 0）"""
+    from app.models.gamification import UserPoints
+
+    async with async_session_factory() as v:
+        up = (
+            await v.execute(
+                select(UserPoints).where(UserPoints.user_id == user_id)
+            )
+        ).scalar_one_or_none()
+        return up.total_points if up else 0
+
+
+async def _create_report(client, auth_headers) -> int:
+    """经真实 eager 流水线产出报告 → report_id"""
+    file_id, oss_key = await _upload_file(client, auth_headers)
+    resp = await _create_task(client, auth_headers, file_id, oss_key)
+    assert resp.status_code == 200
+    task_id = resp.json()["data"]["task_id"]
+    resp = await client.get(
+        f"/api/v1/video-analysis/tasks/{task_id}", headers=auth_headers
+    )
+    report_id = resp.json()["data"]["report_id"]
+    assert report_id is not None
+    return report_id
+
+
+@pytest.mark.asyncio
+async def test_gam_n1_feedback_points_persisted(client, auth_headers, auth_user):
+    """R15-Test-N1: 反馈提交 → feedback +1 UserPoints 持久化（va 调用方 commit 收口）
+
+    期望基线：eager 流水线完成 award analysis +10 + auto_checkin +2 = 12
+    （无 BadgeDefinition 种子 → check_badges 无解锁加成）；
+    提交反馈后 +1（POINTS_RULES["feedback"]=1，不触发自动打卡）。
+    """
+    report_id = await _create_report(client, auth_headers)
+    uid = auth_user["user_id"]
+
+    baseline = await _points_total(uid)
+    assert baseline == 12, (
+        f"流水线完成后基线应 12（analysis+10/checkin+2），实际 {baseline}"
+    )
+
+    resp = await client.post(
+        f"/api/v1/video-analysis/reports/{report_id}/feedback",
+        json={"is_correct": True, "comment": "R15积分守卫"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["data_flywheel_action"] == "archived"
+
+    # 跨 API 边界独立会话：积分经调用方 commit 收口真正持久化
+    assert await _points_total(uid) == 13, "反馈提交应 +1（feedback 事件积分持久化）"
+
+
+@pytest.mark.asyncio
+async def test_gam_n1_share_points_persisted(client, auth_headers, auth_user):
+    """R15-Test-N1: 分享创建 → share +2 UserPoints 持久化（va 调用方 commit 收口）
+
+    期望基线 12 同上；创建分享后 +2（POINTS_RULES["share"]=2）。
+    """
+    report_id = await _create_report(client, auth_headers)
+    uid = auth_user["user_id"]
+
+    baseline = await _points_total(uid)
+    assert baseline == 12
+
+    resp = await client.post(
+        f"/api/v1/video-analysis/reports/{report_id}/share",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert "share_url" in resp.json()["data"]
+
+    assert await _points_total(uid) == 14, "分享创建应 +2（share 事件积分持久化）"
