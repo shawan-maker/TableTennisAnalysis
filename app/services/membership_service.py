@@ -167,15 +167,16 @@ class MembershipService:
 
     @staticmethod
     async def consume_analysis_quota(user_id: int) -> bool:
-        """消耗一次分析额度（Redis 原子操作）。会员直接返回 True。"""
+        """消耗一次分析额度（Redis 原子操作）。会员直接返回 True。
+
+        R14-Pay-N1: 免费日额度耗尽后回退消耗付费分析包额度
+        （quota:bonus:{uid}，支付回调 INCR + 90d TTL）。
+        """
         async with async_session_factory() as db:
             membership = await MembershipService.check_membership(db, user_id)
 
         if membership.is_member:
             return True
-
-        if not membership.has_quota:
-            return False
 
         today = MembershipService._get_today_cst()
         redis = await get_redis()
@@ -190,10 +191,21 @@ class MembershipService:
             ttl = MembershipService._seconds_until_reset(today)
             await redis.expire(key, ttl)
 
-        if new_count > MembershipService.FREE_DAILY_LIMIT:
+        if new_count <= MembershipService.FREE_DAILY_LIMIT:
+            return True
+
+        # R14-Pay-N1: 免费日额度耗尽 → 消耗付费分析包额度
+        # （原子 DECR + 负数回补防并发超扣）
+        bonus_key = f"quota:bonus:{user_id}"
+        bonus_count = await redis.decr(bonus_key)
+        if bonus_count < 0:
+            # 额度已耗尽或并发竞争 → 回补并回滚日额度计数
+            await redis.incr(bonus_key)
             await redis.decr(key)
             return False
 
+        # 本次分析计入付费包：回滚日额度计数（不计入免费额度）
+        await redis.decr(key)
         return True
 
     # ===================== 到期检测（Celery Beat 调用）=====================

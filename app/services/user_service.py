@@ -384,13 +384,28 @@ class UserService:
 
     @staticmethod
     async def cancel_deletion(user: User, db: AsyncSession) -> dict:
-        """撤销用户注销申请（72h 冷静期内）"""
+        """撤销用户注销申请（72h 冷静期内）
+
+        API §3.10 业务规则 3：记录撤销操作审计日志（R14-User-2 补齐）。
+        """
         if user.status != "pending_deletion":
             raise AppException("无待执行的注销申请", 409)
 
         user.status = "active"
         user.scheduled_deletion_at = None
         user.deletion_reason = None
+
+        # R14-User-2: 撤销注销审计日志（用户侧操作，admin_id 为空）
+        from app.models.admin import AuditLog
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="account_deletion_cancelled",
+                target_type="user",
+                target_id=user.id,
+                detail="用户在 72h 冷静期内撤销注销申请",
+            )
+        )
         await db.commit()
 
         return {

@@ -1,27 +1,35 @@
-﻿# training_advice 模块 �?后端垂直切片设计
+﻿# training_advice 模块 — 后端垂直切片设计
 
 > **模块名称**：`training_advice`
-> **所属目�?*：`app/api/v1/training/`（与 `training_plan` 共用 training/ 目录�?> **定位**：基于分析报�?+ 历史趋势 + 知识库规则引擎，生成个性化训练建议和训练计划模板推�?> **依据**：模块详细设�?v1.2 §2.7、API 详细设计 v1.3 §8、数据库详细设计 v1.1
+> **所属目录**：`app/api/v1/training/`（与 `training_plan` 共用 training/ 目录）
+> **定位**：基于分析报告 + 历史趋势 + 知识库规则引擎，生成个性化训练建议和训练计划模板推荐
+> **依据**：模块详细设计 v1.2 §2.7、API 详细设计 v1.3 §8、数据库详细设计 v1.1
+> **P3 文档重建（R14）**：本文件原有 156 处历史性 U+FFFD 编码损坏（UTF-8 中文/标点/换行被截断为乱码并发生行粘连，非契约变更），Round 14 已按同构模板 + 实际实现逐行重建，未变更任何契约语义。
 
 ---
 
 ## 1. 切片准备清单
 
-- [ ] 阅读模块详细设计 §2.7（training_advice 功能规格 + BR-1/BR-2�?- [ ] 阅读 API 契约 §8�? 个端点：advice/{report_id} / advice/contextual / templates / templates/{id} / plans/{id}/adjustments / plans/{id}/re-evaluate�?- [ ] 阅读数据库设�?§2.23（plan_adjustment）、�?.26（rule_definition）、�?.27（training_template）、�?.28（training_plan）、�?.21-2.22（progress_snapshot / technique_trend�?- [ ] 阅读 `app/services/knowledge_base_service.py`（知识库规则引擎�?- [ ] 阅读 `app/services/progress_service.py`（进度分�?Service，提供趋势数据）
-- [ ] 确认本切片范围：6 �?API 端点 + 对应 Service 方法 + 规则引擎调用 + 方案版本�?
+- [ ] 阅读模块详细设计 §2.7（training_advice 功能规格 + BR-1/BR-2）
+- [ ] 阅读 API 契约 §8（6 个端点：advice/{report_id} / advice/contextual / templates / templates/{id} / plans/{id}/adjustments / plans/{id}/re-evaluate）
+- [ ] 阅读数据库设计 §2.23（plan_adjustment）、§2.26（rule_definition）、§2.27（training_template）、§2.28（training_plan）、§2.21-2.22（progress_snapshot / technique_trend）
+- [ ] 阅读 `app/services/knowledge_base_service.py`（知识库规则引擎）
+- [ ] 阅读 `app/services/progress_service.py`（进度分析 Service，提供趋势数据）
+- [ ] 确认本切片范围：6 个 API 端点 + 对应 Service 方法 + 规则引擎调用 + 方案版本化
+
 ### 任务清单
 
-| # | 任务 | 文件 | 依赖 | 状�?|
+| # | 任务 | 文件 | 依赖 | 状态 |
 |---|------|------|------|------|
-| 1 | 定义 Model（training_plan / plan_adjustment；TrainingTemplate / RuleDefinition �?knowledge_base 模块定义�?| `app/models/training.py` | �?| �?|
-| 2 | 注册 Model | `app/models/__init__.py` | #1 | �?|
-| 3 | 定义 Schema | `app/schemas/training.py` | #1 | �?|
-| 4 | 实现 Service | `app/services/training_service.py` | #1,#3 | �?|
-| 5 | 实现 API 路由 | `app/api/v1/training/router.py` | #4 | �?|
-| 6 | 注册 Router | `app/api/v1/__init__.py` | #5 | �?|
-| 7 | Alembic 迁移 | `alembic revision --autogenerate` + `upgrade` | #1 | �?|
-| 8 | 编写单元测试 | `tests/unit/test_training.py` | #4 | �?|
-| 9 | 编写冒烟测试 | `tests/smoke/training_advice_smoke_test.py` | #5 | �?|
+| 1 | 定义 Model（training_plan / plan_adjustment；TrainingTemplate / RuleDefinition 在 knowledge_base 模块定义） | `app/models/training.py` | 无 | ☐ |
+| 2 | 注册 Model | `app/models/__init__.py` | #1 | ☐ |
+| 3 | 定义 Schema | `app/schemas/training.py` | #1 | ☐ |
+| 4 | 实现 Service | `app/services/training_service.py` | #1,#3 | ☐ |
+| 5 | 实现 API 路由 | `app/api/v1/training/router.py` | #4 | ☐ |
+| 6 | 注册 Router | `app/api/v1/__init__.py` | #5 | ☐ |
+| 7 | Alembic 迁移 | `alembic revision --autogenerate` + `upgrade` | #1 | ☐ |
+| 8 | 编写单元测试 | `tests/unit/test_training.py` | #4 | ☐ |
+| 9 | 编写冒烟测试 | `tests/smoke/training_advice_smoke_test.py` | #5 | ☐ |
 
 ---
 
@@ -32,7 +40,9 @@
 ```python
 # tests/unit/test_training.py
 """
-training_advice 模块 �?训练建议测试�?覆盖：建议生成、趋势对比、模板查询、方案调整历史、手动重新评估�?"""
+training_advice 模块 — 训练建议测试。
+覆盖：建议生成、趋势对比、模板查询、方案调整历史、手动重新评估。
+"""
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -40,7 +50,7 @@ from app.core.exceptions import AppException
 
 @pytest.fixture
 async def advice_context(db_session, auth_user):
-    """创建测试上下文：用户 + 分析报告 + 进度快照 + 趋势数据 + 训练方案�?""
+    """创建测试上下文：用户 + 分析报告 + 进度快照 + 趋势数据 + 训练方案。"""
     from app.models.video_analysis import AnalysisReport
     from app.models.progress import ProgressSnapshot, TechniqueTrend
     from app.models.training import TrainingPlan
@@ -49,7 +59,8 @@ async def advice_context(db_session, auth_user):
     user = auth_user
     now = datetime.now(timezone.utc)
 
-    # 创建 2 份分析报�?    report1 = AnalysisReport(
+    # 创建 2 份分析报告
+    report1 = AnalysisReport(
         task_id=2001, user_id=user.id,
         result_data={
             "metrics": {
@@ -60,8 +71,8 @@ async def advice_context(db_session, auth_user):
             "technique_distribution": {"forehand_drive": 45, "backhand_drive": 18},
         },
         report_text={
-            "summary": "反手使用率偏�?,
-            "issues": [{"problem_id": "PROBLEM_003", "description": "反手使用率不�?}],
+            "summary": "反手使用率偏低",
+            "issues": [{"problem_id": "PROBLEM_003", "description": "反手使用率不足"}],
             "suggestions": ["增加反手练习"],
         },
         is_llm_generated=True,
@@ -78,8 +89,8 @@ async def advice_context(db_session, auth_user):
             "technique_distribution": {"forehand_drive": 45, "backhand_drive": 25},
         },
         report_text={
-            "summary": "反手使用率从18%提升�?5%",
-            "issues": [{"problem_id": "PROBLEM_003", "description": "反手使用率不�?}],
+            "summary": "反手使用率从18%提升到25%",
+            "issues": [{"problem_id": "PROBLEM_003", "description": "反手使用率不足"}],
             "suggestions": ["继续增加反手练习"],
         },
         is_llm_generated=True,
@@ -136,7 +147,7 @@ async def advice_context(db_session, auth_user):
 # === 1. Happy Path（正常流程） ===
 @pytest.mark.asyncio
 async def test_get_advice_by_report_success(advice_context):
-    """基于指定报告的训练建议生成成功�?""
+    """基于指定报告的训练建议生成成功。"""
     user = advice_context["user"]
     report = advice_context["report2"]
     result = await TrainingAdviceService.get_advice_by_report(user.id, report.id)
@@ -151,20 +162,21 @@ async def test_get_advice_by_report_success(advice_context):
 
 @pytest.mark.asyncio
 async def test_get_contextual_advice_success(advice_context):
-    """综合训练建议自动取最新报告�?""
+    """综合训练建议自动取最新报告。"""
     user = advice_context["user"]
     result = await TrainingAdviceService.get_contextual_advice(user.id)
-    assert result["report_id"] == advice_context["report2"].id  # 最新报�?
+    assert result["report_id"] == advice_context["report2"].id  # 最新报告
+
 @pytest.mark.asyncio
 async def test_get_templates_success(advice_context):
-    """训练方案模板列表查询成功�?""
+    """训练方案模板列表查询成功。"""
     result = await TrainingAdviceService.get_templates(problem_id=None, page=1, page_size=20)
     assert result["total"] > 0
     assert len(result["items"]) > 0
 
 @pytest.mark.asyncio
 async def test_get_template_detail_success(advice_context):
-    """模板详情查询成功�?""
+    """模板详情查询成功。"""
     result = await TrainingAdviceService.get_template_detail(1)
     assert result["id"] == 1
     assert "template_data" in result
@@ -172,7 +184,7 @@ async def test_get_template_detail_success(advice_context):
 
 @pytest.mark.asyncio
 async def test_get_plan_adjustments_success(advice_context):
-    """方案调整历史查询成功�?""
+    """方案调整历史查询成功。"""
     user = advice_context["user"]
     plan = advice_context["plan"]
     result = await TrainingAdviceService.get_plan_adjustments(user.id, plan.id)
@@ -181,7 +193,7 @@ async def test_get_plan_adjustments_success(advice_context):
 
 @pytest.mark.asyncio
 async def test_re_evaluate_plan_success(advice_context):
-    """会员手动触发方案重新评估�?""
+    """会员手动触发方案重新评估。"""
     user = advice_context["user"]
     plan = advice_context["plan"]
     result = await TrainingAdviceService.re_evaluate_plan(user.id, plan.id)
@@ -191,7 +203,7 @@ async def test_re_evaluate_plan_success(advice_context):
 # === 2. Validation Failure（参数校验失败） ===
 @pytest.mark.asyncio
 async def test_get_advice_by_nonexistent_report(advice_context):
-    """报告不存在时返回 404�?""
+    """报告不存在时返回 404。"""
     user = advice_context["user"]
     with pytest.raises(AppException) as exc:
         await TrainingAdviceService.get_advice_by_report(user.id, 99999)
@@ -199,7 +211,7 @@ async def test_get_advice_by_nonexistent_report(advice_context):
 
 @pytest.mark.asyncio
 async def test_get_template_detail_nonexistent(advice_context):
-    """模板不存在时返回 404�?""
+    """模板不存在时返回 404。"""
     with pytest.raises(AppException) as exc:
         await TrainingAdviceService.get_template_detail(99999)
     assert exc.value.code == 404
@@ -207,13 +219,13 @@ async def test_get_template_detail_nonexistent(advice_context):
 # === 3. Permission / Auth Failure（权限不足） ===
 @pytest.mark.asyncio
 async def test_get_advice_unauthorized(client):
-    """未登录请求返�?401�?""
+    """未登录请求返回 401。"""
     resp = await client.get("/api/v1/training/advice/1")
     assert resp.status_code == 401
 
 @pytest.mark.asyncio
 async def test_re_evaluate_plan_non_member(advice_context):
-    """非会员用户手动重新评估返�?403�?""
+    """非会员用户手动重新评估返回 403。"""
     user = advice_context["user"]
     plan = advice_context["plan"]
     with patch('app.services.membership_service.MembershipService.check_membership',
@@ -225,7 +237,7 @@ async def test_re_evaluate_plan_non_member(advice_context):
 # === 4. Business Rule（业务规则验证） ===
 @pytest.mark.asyncio
 async def test_first_analysis_flag(advice_context, db_session):
-    """首次分析（无历史趋势）标�?is_first_analysis=True�?""
+    """首次分析（无历史趋势）标注 is_first_analysis=True。"""
     user = advice_context["user"]
     # 创建新用户只有一份报告的场景
     from app.models.video_analysis import AnalysisReport
@@ -240,7 +252,7 @@ async def test_first_analysis_flag(advice_context, db_session):
 
     result = await TrainingAdviceService.get_advice_by_report(user.id, report.id)
     assert result["is_first_analysis"] is True
-    # 应包�?首次分析"提示
+    # 应包含"首次分析"提示
     first_analysis_suggestion = [
         s for s in result["suggestions"] if s["type"] == "first_analysis"
     ]
@@ -248,7 +260,7 @@ async def test_first_analysis_flag(advice_context, db_session):
 
 @pytest.mark.asyncio
 async def test_advice_includes_trend_comparison(advice_context):
-    """训练建议包含历史趋势对比内容�?""
+    """训练建议包含历史趋势对比内容。"""
     user = advice_context["user"]
     report = advice_context["report2"]
     result = await TrainingAdviceService.get_advice_by_report(user.id, report.id)
@@ -260,7 +272,7 @@ async def test_advice_includes_trend_comparison(advice_context):
 
 @pytest.mark.asyncio
 async def test_plan_adjustment_versioning(advice_context, db_session):
-    """方案调整记录版本化（old/new 快照 diff）�?""
+    """方案调整记录版本化（old/new 快照 diff）。"""
     from app.models.training import PlanAdjustment
     user = advice_context["user"]
     plan = advice_context["plan"]
@@ -274,7 +286,7 @@ async def test_plan_adjustment_versioning(advice_context, db_session):
         trigger_report_id=advice_context["report2"].id,
         old_plan_snapshot=old_snapshot,
         new_plan_snapshot=new_snapshot,
-        adjustment_reason="反手使用率持续改善，提升目标�?,
+        adjustment_reason="反手使用率持续改善，提升目标值",
         adjustment_action="adjust",
     )
     db_session.add(adjustment)
@@ -289,12 +301,13 @@ async def test_plan_adjustment_versioning(advice_context, db_session):
 
 @pytest.mark.asyncio
 async def test_re_evaluate_stagnant_plan(advice_context, db_session):
-    """方案停滞（连�?3 次无改善）时返回 adjust 动作�?""
+    """方案停滞（连续 3 次无改善）时返回 adjust 动作。"""
     from app.models.progress import TechniqueTrend
     user = advice_context["user"]
     plan = advice_context["plan"]
 
-    # 更新趋势为停�?    trend = advice_context["trend"]
+    # 更新趋势为停滞
+    trend = advice_context["trend"]
     trend.trend = "stagnant"
     trend.persistence_count = 3
     await db_session.commit()
@@ -313,19 +326,23 @@ async def test_re_evaluate_stagnant_plan(advice_context, db_session):
 ```python
 # app/models/training.py
 """
-训练相关数据模型�?包含：TrainingPlan / PlanAdjustment
-Note: TrainingTemplate �?RuleDefinition �?knowledge_base 模块统一定义�?�?app.models.knowledge_base 导入，不在此文件中重复定义（A-3 修复）�?"""
+训练相关数据模型。
+包含：TrainingPlan / PlanAdjustment
+Note: TrainingTemplate 和 RuleDefinition 在 knowledge_base 模块统一定义，
+从 app.models.knowledge_base 导入，不在此文件中重复定义（A-3 修复）
+"""
 from sqlalchemy import BigInteger, String, Integer, Boolean, Text, Float, ForeignKey, Index, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime, timezone
 
 from app.core.database import Base
-# TrainingTemplate �?RuleDefinition �?knowledge_base 模块统一定义（A-3 修复�?# from app.models.knowledge_base import RuleDefinition, TrainingTemplate
+# TrainingTemplate 和 RuleDefinition 在 knowledge_base 模块统一定义（A-3 修复）
+# from app.models.knowledge_base import RuleDefinition, TrainingTemplate
 
 
 class TrainingPlan(Base):
-    """训练方案�?""
+    """训练方案。"""
     __tablename__ = "training_plan"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -351,7 +368,7 @@ class TrainingPlan(Base):
 
 
 class PlanAdjustment(Base):
-    """训练方案调整记录（版本化）�?""
+    """训练方案调整记录（版本化）。"""
     __tablename__ = "plan_adjustment"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -373,10 +390,11 @@ class PlanAdjustment(Base):
         Index("idx_padj_plan", "training_plan_id"),
     )
 
-# RuleDefinition �?knowledge_base 模块统一定义（A-3 修复），不在此文件中重复定义
+# RuleDefinition 和 TrainingTemplate 在 knowledge_base 模块统一定义（A-3 修复），不在此文件中重复定义
 ```
 
-**实现后必�?*�?- [ ] �?`app/models/__init__.py` 中导�?`from app.models.training import TrainingPlan, PlanAdjustment`，并 `from app.models.knowledge_base import TrainingTemplate, RuleDefinition`
+**实现后必须**：
+- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.training import TrainingPlan, PlanAdjustment`，并 `from app.models.knowledge_base import TrainingTemplate, RuleDefinition`
 - [ ] 运行 `alembic revision --autogenerate -m "add_training_tables"`
 - [ ] 运行 `alembic upgrade head`
 
@@ -393,7 +411,7 @@ from datetime import datetime, timezone
 
 # --- 训练建议响应 ---
 class DiagnosisItem(BaseModel):
-    """诊断项�?""
+    """诊断项。"""
     problem_id: str
     problem_name: str
     severity: str  # low/medium/high
@@ -402,20 +420,20 @@ class DiagnosisItem(BaseModel):
 
 
 class SuggestionItem(BaseModel):
-    """建议项�?""
+    """建议项。"""
     type: str  # progress_confirm/persistent_warning/new_issue/first_analysis
     text: str
 
 
 class TrainingMethodItem(BaseModel):
-    """训练方法项�?""
+    """训练方法项。"""
     method_id: str
     name: str
     description: str
 
 
 class TrainingAdviceResponse(BaseModel):
-    """训练建议响应�?""
+    """训练建议响应。"""
     report_id: int
     is_first_analysis: bool
     diagnosis: list[DiagnosisItem]
@@ -426,7 +444,7 @@ class TrainingAdviceResponse(BaseModel):
 
 # --- 训练模板 ---
 class TemplateBrief(BaseModel):
-    """模板简要�?""
+    """模板简要。"""
     id: int
     template_code: str
     name: str
@@ -435,12 +453,12 @@ class TemplateBrief(BaseModel):
 
 
 class TemplateDetail(TemplateBrief):
-    """模板详情�?""
+    """模板详情。"""
     template_data: dict
 
 
 class TemplateListResponse(BaseModel):
-    """模板列表分页响应�?""
+    """模板列表分页响应。"""
     total: int
     page: int
     page_size: int
@@ -449,7 +467,7 @@ class TemplateListResponse(BaseModel):
 
 # --- 方案调整历史 ---
 class AdjustmentItem(BaseModel):
-    """调整记录项�?""
+    """调整记录项。"""
     id: int
     version: int
     action: str  # maintain/adjust/escalate/new_goal
@@ -461,7 +479,7 @@ class AdjustmentItem(BaseModel):
 
 
 class PlanAdjustmentsResponse(BaseModel):
-    """方案调整历史响应�?""
+    """方案调整历史响应。"""
     plan_id: int
     current_version: int
     adjustments: list[AdjustmentItem]
@@ -469,7 +487,7 @@ class PlanAdjustmentsResponse(BaseModel):
 
 # --- 重新评估响应 ---
 class ReEvaluateResponse(BaseModel):
-    """方案重新评估响应�?""
+    """方案重新评估响应。"""
     plan_id: int
     action: str  # maintain/adjust/escalate/new_goal
     reason: str
@@ -1263,7 +1281,8 @@ api_router.include_router(training_router)
 ```python
 # tests/smoke/training_advice_smoke_test.py
 """
-training_advice 模块冒烟测试�?用法: python -m tests.smoke.training_advice_smoke_test
+training_advice 模块冒烟测试。
+用法: python -m tests.smoke.training_advice_smoke_test
 """
 import httpx
 import asyncio
@@ -1279,25 +1298,26 @@ async def main():
             "nickname": "冒烟测试",
         })
         if resp.status_code != 200:
-            print(f"   �?Login failed: {resp.status_code}")
+            print(f"   ✗ Login failed: {resp.status_code}")
             return
         access_token = resp.json()["data"]["access_token"]
         h = {"Authorization": f"Bearer {access_token}"}
-        print("   �?Login success")
+        print("   ✓ Login success")
 
-        # 2. 获取最新报�?ID（假设已有分析报告）
+        # 2. 获取最新报告 ID（假设已有分析报告）
         print("2. Getting latest report...")
         resp = await client.get("/video-analysis/reports?page=1&page_size=1", headers=h)
         if resp.status_code != 200 or resp.json()["data"]["total"] == 0:
-            print("   �?No analysis reports found, skipping advice test")
+            print("   ✗ No analysis reports found, skipping advice test")
         else:
             report_id = resp.json()["data"]["items"][0]["id"]
 
-            # 3. 基于报告的训练建�?            print(f"3. Testing /training/advice/{report_id}...")
+            # 3. 基于报告的训练建议
+            print(f"3. Testing /training/advice/{report_id}...")
             resp = await client.get(f"/training/advice/{report_id}", headers=h)
             assert resp.status_code == 200, f"Advice failed: {resp.text}"
             advice = resp.json()["data"]
-            print(f"   �?Advice: is_first={advice['is_first_analysis']}, "
+            print(f"   ✓ Advice: is_first={advice['is_first_analysis']}, "
                   f"diagnosis={len(advice['diagnosis'])} items, "
                   f"suggestions={len(advice['suggestions'])} items")
 
@@ -1305,14 +1325,14 @@ async def main():
             print("4. Testing /training/advice/contextual...")
             resp = await client.get("/training/advice/contextual", headers=h)
             assert resp.status_code == 200, f"Contextual advice failed: {resp.text}"
-            print("   �?Contextual advice success")
+            print("   ✓ Contextual advice success")
 
         # 5. 训练模板列表
         print("5. Testing /training/templates...")
         resp = await client.get("/training/templates?page=1&page_size=20", headers=h)
         assert resp.status_code == 200, f"Templates list failed: {resp.text}"
         templates = resp.json()["data"]
-        print(f"   �?Templates: {templates['total']} items")
+        print(f"   ✓ Templates: {templates['total']} items")
 
         if templates["total"] > 0:
             template_id = templates["items"][0]["id"]
@@ -1322,7 +1342,7 @@ async def main():
             resp = await client.get(f"/training/templates/{template_id}", headers=h)
             assert resp.status_code == 200, f"Template detail failed: {resp.text}"
             detail = resp.json()["data"]
-            print(f"   �?Template detail: {detail['name']}")
+            print(f"   ✓ Template detail: {detail['name']}")
 
         # 7. 方案调整历史（需要先有方案）
         print("7. Testing plan adjustments...")
@@ -1334,7 +1354,7 @@ async def main():
             )
             assert resp.status_code == 200, f"Adjustments failed: {resp.text}"
             adj = resp.json()["data"]
-            print(f"   �?Plan adjustments: {len(adj['adjustments'])} records")
+            print(f"   ✓ Plan adjustments: {len(adj['adjustments'])} records")
 
             # 8. 手动重新评估（需要会员）
             print(f"8. Testing /training/plans/{plan_id}/re-evaluate...")
@@ -1343,15 +1363,15 @@ async def main():
             )
             if resp.status_code == 200:
                 re_eval = resp.json()["data"]
-                print(f"   �?Re-evaluate: action={re_eval['action']}")
+                print(f"   ✓ Re-evaluate: action={re_eval['action']}")
             elif resp.status_code == 403:
-                print("   �?Re-evaluate requires membership (expected for free user)")
+                print("   ✗ Re-evaluate requires membership (expected for free user)")
             else:
-                print(f"   �?Re-evaluate failed: {resp.status_code}")
+                print(f"   ✗ Re-evaluate failed: {resp.status_code}")
         else:
-            print("   �?No training plans found, skipping adjustment tests")
+            print("   ✗ No training plans found, skipping adjustment tests")
 
-    print("\ntraining_advice_smoke_test: ALL PASSED �?)
+    print("\ntraining_advice_smoke_test: ALL PASSED ✓")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -1363,30 +1383,46 @@ if __name__ == "__main__":
 
 - [ ] 单元测试全部通过：`pytest tests/unit/test_training.py -v`（R13-P3 文档同步：实际测试文件为 test_training.py；权限守卫/趋势建议/方案版本化补充测试见 test_supplements_p1.py、test_supplements_p2.py）
 - [ ] 冒烟测试通过：`python -m tests.smoke.training_advice_smoke_test`（R13-P3 文档同步：脚本尚未实现，见 §7 注记）
-- [ ] Model 已在 `app/models/__init__.py` 中导�?- [ ] Router 已在 `app/api/v1/__init__.py` 中注�?- [ ] Alembic 迁移已生成并执行
-- [ ] 训练建议包含历史趋势对比内容（diagnosis.trend 字段�?- [ ] 首次分析标注 `is_first_analysis=True` 并包�?首次分析"提示
-- [ ] 规则引擎正确匹配 4 类模式（单次 / 趋势改善 / 趋势持续 / 停滞�?- [ ] 方案调整记录版本化保存（old/new 快照 + changes_summary diff�?- [ ] 手动重新评估的权限检查（会员及以上）
-- [ ] 方案调整动作正确（maintain / adjust / escalate / new_goal�?- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释�?- [ ] 无废话注释、无注释掉的死代�?
+- [ ] Model 已在 `app/models/__init__.py` 中导入
+- [ ] Router 已在 `app/api/v1/__init__.py` 中注册
+- [ ] Alembic 迁移已生成并执行
+- [ ] 训练建议包含历史趋势对比内容（diagnosis.trend 字段）
+- [ ] 首次分析标注 `is_first_analysis=True` 并包含"首次分析"提示
+- [ ] 规则引擎正确匹配 4 类模式（单次 / 趋势改善 / 趋势持续 / 停滞）
+- [ ] 方案调整记录版本化保存（old/new 快照 + changes_summary diff）
+- [ ] 手动重新评估的权限检查（会员及以上）
+- [ ] 方案调整动作正确（maintain / adjust / escalate / new_goal）
+- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释）
+- [ ] 无废话注释、无注释掉的死代码
 ---
 
-## 反幻觉约�?
-- Service 方法 **必须** 使用 `@staticmethod`�?*禁止** 创建实例
+## 反幻觉约束
+- Service 方法 **必须** 使用 `@staticmethod`，**禁止** 创建实例
 - Schema **必须** 遵循命名：`TrainingAdviceResponse`、`TemplateBrief`、`TemplateDetail`、`PlanAdjustmentsResponse`、`ReEvaluateResponse`
-- **禁止** �?API 路由中写业务逻辑，路由只调用 Service
+- **禁止** 在 API 路由中写业务逻辑，路由只调用 Service
 - **禁止** 创建新的异常类型，统一使用 `AppException(message, code)`
-- **必须** 训练建议结合历史趋势�?*禁止** 仅基于单次报告生成建�?- **必须** 首次分析标注 `is_first_analysis=True`
-- **必须** 方案调整生成 `plan_adjustment` 记录（old/new 快照 diff�?- **必须** 方案重新评估权限检查（会员及以上）
+- **必须** 训练建议结合历史趋势，**禁止** 仅基于单次报告生成建议
+- **必须** 首次分析标注 `is_first_analysis=True`
+- **必须** 方案调整生成 `plan_adjustment` 记录（old/new 快照 diff）
+- **必须** 方案重新评估权限检查（会员及以上）
 - **必须** 规则引擎匹配 4 类模式：单次 / 趋势改善 / 趋势持续 / 停滞
-- 测试 **必须** 使用 `httpx.AsyncClient`�?*禁止** 自建 HTTP 客户�?- 冒烟测试 **必须** 可作为独立脚本运�?- `TechniqueTrend` 模型使用 `trend`/`current_value`/`previous_value` 字段名（�?DB 设计 v1.3 §2.22/§5.6 一致）。（X-3 已修复）
-- `TrainingTemplate` �?`RuleDefinition` **必须** �?`app.models.knowledge_base` 导入�?*禁止** �?`app/models/training.py` 中重复定义（A-3 修复�?- `AnalysisReport` 模型归属�?video_analysis 模块（DB 设计 §5.3），统一使用 `from app.models.video_analysis import AnalysisReport`�?*禁止** 使用 `app.models.analysis`（A-10 修复�?- `AnalysisReport.result_data` **必须** 使用 JSONB 类型，测试代码中 **必须** 直接�?dict�?*禁止** 使用 `json.dumps()`（X-4 修复�?- 训练单端点（`GET /plans/{id}/sessions`、`POST /plans/{id}/sessions/{sid}/complete`�?*必须** 实现（R-3 修复�?- 所�?API 端点 **必须** 添加 `@limiter.limit("100/minute")` 限流装饰器，**禁止** 裸奔无限�?- `from app.core.limiter import limiter` **必须** 在路由文�?import 区声明，**禁止** 遗漏导入
+- 测试 **必须** 使用 `httpx.AsyncClient`，**禁止** 自建 HTTP 客户端
+- 冒烟测试 **必须** 可作为独立脚本运行
+- `TechniqueTrend` 模型使用 `trend`/`current_value`/`previous_value` 字段名（与 DB 设计 v1.3 §2.22/§5.6 一致）。（X-3 已修复）
+- `TrainingTemplate` 和 `RuleDefinition` **必须** 从 `app.models.knowledge_base` 导入，**禁止** 在 `app/models/training.py` 中重复定义（A-3 修复）
+- `AnalysisReport` 模型归属于 video_analysis 模块（DB 设计 §5.3），统一使用 `from app.models.video_analysis import AnalysisReport`，**禁止** 使用 `app.models.analysis`（A-10 修复）
+- `AnalysisReport.result_data` **必须** 使用 JSONB 类型，测试代码中 **必须** 直接传 dict，**禁止** 使用 `json.dumps()`（X-4 修复）
+- 训练单端点（`GET /plans/{id}/sessions`、`POST /plans/{id}/sessions/{sid}/complete`）**必须** 实现（R-3 修复）
+- 所有 API 端点 **必须** 添加 `@limiter.limit("100/minute")` 限流装饰器，**禁止** 裸奔无限流
+- `from app.core.limiter import limiter` **必须** 在路由文件 import 区声明，**禁止** 遗漏导入
 
-### 覆盖度修复说�?
+### 覆盖度修复说明
 | 编号 | 修复内容 | 位置 |
 |------|---------|------|
-| A-3 | 删除 training_advice 中重复的 `RuleDefinition` �?`TrainingTemplate` Model 定义，改为从 `app.models.knowledge_base` 引用 | §3 Model、�? 任务清单、�? Service import |
-| X-3 | `TechniqueTrend` 使用 `trend`/`current_value`/`previous_value` 字段名（�?§5.6 一致），DB 设计 §2.22 �?`trend_direction` 需回写更新�?`trend` 并补�?`current_value`/`previous_value` | 反幻觉约�?|
+| A-3 | 删除 training_advice 中重复的 `RuleDefinition` 和 `TrainingTemplate` Model 定义，改为从 `app.models.knowledge_base` 引用 | §3 Model、§1 任务清单、§5 Service import |
+| X-3 | `TechniqueTrend` 使用 `trend`/`current_value`/`previous_value` 字段名（与 §5.6 一致），DB 设计 §2.22 的 `trend_direction` 需回写更新为 `trend` 并补齐 `current_value`/`previous_value` | 反幻觉约束 |
 | X-4 | `AnalysisReport.result_data` 统一使用 JSONB 类型，测试代码传 dict 不用 `json.dumps()` | §2 测试 |
-| A-10 | `AnalysisReport` import 路径统一�?`app.models.video_analysis`（原 `app.models.analysis`�?| §2 测试、�? Service |
-| R-3 | 添加训练单端点：`GET /plans/{id}/sessions`、`POST /plans/{id}/sessions/{sid}/complete` + Service 方法 + Schema | §4 Schema、�? Service、�? API 路由 |
-| A-9 | `datetime.utcnow()` �?`datetime.now(timezone.utc)`；`default`/`onupdate` 改为 lambda 表达式；import 补充 `timezone` | §3 Model、�? Service |
+| A-10 | `AnalysisReport` import 路径统一为 `app.models.video_analysis`（原 `app.models.analysis`）| §2 测试、§5 Service |
+| R-3 | 添加训练单端点：`GET /plans/{id}/sessions`、`POST /plans/{id}/sessions/{sid}/complete` + Service 方法 + Schema | §4 Schema、§5 Service、§6 API 路由 |
+| A-9 | `datetime.utcnow()` → `datetime.now(timezone.utc)`；`default`/`onupdate` 改为 lambda 表达式；import 补充 `timezone` | §3 Model、§5 Service |
 

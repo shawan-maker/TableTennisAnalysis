@@ -7,9 +7,6 @@ app/ai_pipeline/report_generator.py — 分析报告生成器
 """
 
 import logging
-from datetime import datetime, timezone
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import async_session_factory
@@ -151,6 +148,26 @@ class ReportGenerator:
         供 generate() 写入 is_llm_generated 字段，数据飞轮口径保真。
         """
         if settings.LLM_ENABLED and settings.LLM_API_URL:
+            # R14-Beat-N1: AI 推理健康探测降级判断（设计 beat_schedule.py.md §3
+            # / ai_inference.md §6.2 — "ai_inference:available 供 ai_pipeline
+            # 降级判断"，原实现仅写入方无消费方）：健康任务标记 was_unavailable
+            # 且 available 标记缺失时直接走模板降级，不发起 LLM 调用；
+            # available 标记存在或探测尚未运行（两键皆无）时放行（fail-open，
+            # 被动防护仍由熔断器承担）。
+            from app.core.redis import get_redis
+            from app.tasks.ai_inference_health import (
+                HEALTH_KEY_AVAILABLE,
+                HEALTH_KEY_WAS_UNAVAILABLE,
+            )
+            _redis = await get_redis()
+            _unhealthy = await _redis.get(HEALTH_KEY_WAS_UNAVAILABLE)
+            if _unhealthy and not await _redis.get(HEALTH_KEY_AVAILABLE):
+                logger.warning(
+                    "llm_inference_unhealthy_fallback_to_template",
+                    extra={"task_id": task_id},
+                )
+                return ReportGenerator._generate_template_report(result_data), False
+
             # R12-AIPipeline-8: LLM 路径前置熔断检查（设计 §5.5 _generate_report_text 样例）—
             # 熔断中直接降级模板生成，不调用 LLM；成功/失败计入共享 ai_inference 熔断器
             from app.ai_pipeline.circuit_breaker import AICircuitBreaker
@@ -253,6 +270,10 @@ class ReportGenerator:
                 await GamificationService.add_points(
                     db, user_id=user_id, event_type="analysis", ref_id=report_id
                 )
+                # R14-Gam-N1: add_points 契约仅 flush（切片 §5 注记 2 —
+                # "commit 由调用方收口"），缺此收口则积分/自动打卡/徽章在
+                # session close 时整体回滚（analysis +10 丢失）
+                await db.commit()
         except Exception as e:
             logger.error("cascade_gamification_failed", extra={"error": str(e)})
 

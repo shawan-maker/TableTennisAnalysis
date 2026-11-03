@@ -12,7 +12,7 @@ from unittest.mock import patch, AsyncMock
 from app.core.security import create_access_token, generate_jti, pwd_context
 from app.models.user import User
 from app.models.membership import Subscription, MembershipTierConfig
-from app.models.gamification import UserPoints, CheckInRecord, BadgeDefinition
+from app.models.gamification import UserPoints, BadgeDefinition
 from app.models.admin import AdminUser, AuditLog
 from sqlalchemy import select
 
@@ -42,7 +42,6 @@ class TestAuditLogResilience:
     async def test_audit_log_failure_does_not_block_business(self, db_session, admin_with_pwd):
         """审计日志写入失败（_write_audit_log 内部异常）不传播到调用方"""
         from app.services.admin_service import AdminService
-        from app.models.admin import SystemConfig
 
         # _write_audit_log 内部使用 async_session_factory()，
         # 其 try/except 会吞噬所有异常不 re-raise。
@@ -232,11 +231,16 @@ class TestGamificationStreak:
         await db_session.commit()
 
         # 设置 Redis 连续天数为 6（下次打卡将变为 7）
+        # R14-ND-2: 日期基准改用 CST（UTC+8）与服务 _cst_today 一致 — 原用
+        # UTC 日期预置 last_date，CST 00:00-08:00 运行时 gap=2 触发断签重置，
+        # 断言 current_streak == 7 必失败（R13-Admin-Test-1 同型时区缺陷）
         from app.core.redis import get_redis
+        from datetime import timedelta
+        tz_cst = timezone(timedelta(hours=8))
         redis = await get_redis()
         await redis.set("gamification:streak:user:1", 6)
         await redis.set("gamification:streak:last_date:1",
-                        (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat())
+                        (datetime.now(tz_cst) - timedelta(days=1)).date().isoformat())
         # 设置用户 ID 为 1（测试环境通常从 1 开始）
         # 重新创建用户以获取 id=1
 
@@ -244,7 +248,7 @@ class TestGamificationStreak:
         await redis.delete("gamification:streak:user:1")
         await redis.delete("gamification:streak:last_date:1")
         await redis.set(f"gamification:streak:user:{user.id}", 6)
-        last_date = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
+        last_date = (datetime.now(tz_cst) - timedelta(days=1)).date().isoformat()
         await redis.set(f"gamification:streak:last_date:{user.id}", last_date)
 
         # 执行第 7 天打卡

@@ -1,29 +1,32 @@
-﻿# auth 模块 �?后端垂直切片设计
+﻿# auth 模块 — 后端垂直切片设计
 
 > **模块名称**：`auth`
-> **所属目�?*：`app/api/v1/auth/`
+> **所属目录**：`app/api/v1/auth/`
 > **定位**：管理用户认证（微信登录/手机号登录）、JWT Token 签发与刷新、H5 降级认证
-> **依据**：模块详细设�?v1.2 §2.1、API 详细设计 v1.3 §2
+> **依据**：模块详细设计 v1.2 §2.1、API 详细设计 v1.3 §2
+> **P3 文档重建（R14）**：本文件原有 68 处历史性 U+FFFD 编码损坏（UTF-8 中文/标点/换行被截断为乱码并发生行粘连，非契约变更），Round 14 已按 02-user/backend.md 同构模板 + 实际实现逐行重建，未变更任何契约语义。
 
 ---
 
 ## 1. 切片准备清单
 
-- [ ] 阅读模块详细设计 §2.1（auth 模块功能规格�?- [ ] 阅读 API 契约 §2（认证模�?8 个端点）
-- [ ] 阅读 `app/core/security.py`（JWT 工具函数�?- [ ] 阅读 `app/core/deps.py`（认证依赖注入）
-- [ ] 确认本切片范围：8 �?API 端点 + 对应 Service 方法
+- [ ] 阅读模块详细设计 §2.1（auth 模块功能规格）
+- [ ] 阅读 API 契约 §2（认证模块 8 个端点）
+- [ ] 阅读 `app/core/security.py`（JWT 工具函数）
+- [ ] 阅读 `app/core/deps.py`（认证依赖注入）
+- [ ] 确认本切片范围：8 个 API 端点 + 对应 Service 方法
 
 ### 任务清单
 
-| # | 任务 | 文件 | 依赖 | 状�?|
+| # | 任务 | 文件 | 依赖 | 状态 |
 |---|------|------|------|------|
-| 1 | 定义 Model（复�?user 模块 User 表） | `app/models/user.py` | �?| �?|
-| 2 | 定义 Schema | `app/schemas/auth.py` | #1 | �?|
-| 3 | 实现 Service | `app/services/auth_service.py` | #1,#2 | �?|
-| 4 | 实现 API 路由 | `app/api/v1/auth/router.py` | #3 | �?|
-| 5 | 注册 Router | `app/api/v1/__init__.py` | #4 | �?|
-| 6 | 编写测试 | `tests/unit/test_auth.py` | #3 | �?|
-| 7 | 编写冒烟测试 | `tests/smoke/auth_smoke_test.py` | #5 | �?|
+| 1 | 定义 Model（复用 user 模块 User 表） | `app/models/user.py` | - | ☐ |
+| 2 | 定义 Schema | `app/schemas/auth.py` | #1 | ☐ |
+| 3 | 实现 Service | `app/services/auth_service.py` | #1,#2 | ☐ |
+| 4 | 实现 API 路由 | `app/api/v1/auth/router.py` | #3 | ☐ |
+| 5 | 注册 Router | `app/api/v1/__init__.py` | #4 | ☐ |
+| 6 | 编写测试 | `tests/unit/test_auth.py` | #3 | ☐ |
+| 7 | 编写冒烟测试 | `tests/smoke/auth_smoke_test.py` | #5 | ☐ |
 
 ---
 
@@ -34,21 +37,23 @@
 ```python
 # tests/unit/test_auth.py
 """
-auth 模块 �?认证流程测试�?覆盖：微信登录、手机号登录、Token 刷新、H5 降级认证、登出�?"""
+auth 模块 — 认证流程测试。
+覆盖：微信登录、手机号登录、Token 刷新、H5 降级认证、登出。
+"""
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.core.exceptions import AppException
 
 @pytest.fixture
 async def db_session():
-    """创建测试数据库会话�?""
+    """创建测试数据库会话。"""
     # 使用 testclient fixture
     ...
 
 # === 1. Happy Path ===
 @pytest.mark.asyncio
 async def test_wechat_login_success(client, db_session):
-    """微信登录成功，返�?JWT + 用户信息�?""
+    """微信登录成功，返回 JWT + 用户信息。"""
     with patch('app.services.auth_service.AuthService._call_wechat_code2session',
                new_callable=AsyncMock, return_value={
                    "openid": "test_openid_001",
@@ -67,7 +72,7 @@ async def test_wechat_login_success(client, db_session):
 
 @pytest.mark.asyncio
 async def test_token_refresh_success(client, auth_user):
-    """Token 刷新成功，返回新 access_token + refresh_token�?""
+    """Token 刷新成功，返回新 access_token + refresh_token。"""
     resp = await client.post("/api/v1/auth/refresh", json={
         "refresh_token": auth_user["refresh_token"]
     })
@@ -79,25 +84,26 @@ async def test_token_refresh_success(client, auth_user):
 # === 2. Validation Failure ===
 @pytest.mark.asyncio
 async def test_wechat_login_empty_code(client):
-    """code 为空时返�?400�?""
+    """code 为空时返回 400。"""
     resp = await client.post("/api/v1/auth/wechat-login", json={"code": ""})
     assert resp.status_code == 400
     assert "登录凭证不能为空" in resp.json()["message"]
 
 @pytest.mark.asyncio
 async def test_phone_login_invalid_format(client):
-    """手机号格式错误返�?400�?""
+    """手机号格式错误返回 400。"""
     resp = await client.post("/api/v1/auth/phone-login", json={
         "phone": "123", "code": "123456"
     })
     assert resp.status_code == 400
-    assert "手机号格�? in resp.json()["message"]
+    assert "手机号格式不正确" in resp.json()["message"]
 
 # === 3. Permission / Auth Failure ===
 @pytest.mark.asyncio
 async def test_refresh_with_blacklisted_token(client, auth_user):
-    """已撤销�?refresh_token 在黑名单中，返回 401�?""
-    # 先登�?    await client.post("/api/v1/auth/logout",
+    """已撤销的 refresh_token 在黑名单中，返回 401。"""
+    # 先登录
+    await client.post("/api/v1/auth/logout",
                       headers={"Authorization": f"Bearer {auth_user['access_token']}"})
     # 用旧 refresh_token 刷新
     resp = await client.post("/api/v1/auth/refresh", json={
@@ -108,16 +114,18 @@ async def test_refresh_with_blacklisted_token(client, auth_user):
 # === 4. Business Rule ===
 @pytest.mark.asyncio
 async def test_h5_token_one_time_use(client, auth_user):
-    """H5 Token 一次性使用，二次使用返回 401�?""
+    """H5 Token 一次性使用，二次使用返回 401。"""
     # 生成 H5 Token
     resp1 = await client.post("/api/v1/auth/h5-token",
                               headers={"Authorization": f"Bearer {auth_user['access_token']}"})
     h5_token = resp1.json()["data"]["token"]
-    # 第一次使用（成功�?    resp2 = await client.post("/api/v1/auth/h5-exchange", json={"token": h5_token})
+    # 第一次使用（成功）
+    resp2 = await client.post("/api/v1/auth/h5-exchange", json={"token": h5_token})
     assert resp2.status_code == 200
-    # 第二次使用（失败�?    resp3 = await client.post("/api/v1/auth/h5-exchange", json={"token": h5_token})
+    # 第二次使用（失败）
+    resp3 = await client.post("/api/v1/auth/h5-exchange", json={"token": h5_token})
     assert resp3.status_code == 401
-    assert "Token 已使�? in resp3.json()["message"]
+    assert "Token 已使用" in resp3.json()["message"]
 ```
 
 > **P3 文档同步（R12 复验批次 1）**：实际测试文件已演进，与上方先行样例的差异：
@@ -127,11 +135,12 @@ async def test_h5_token_one_time_use(client, auth_user):
 
 ---
 
-## 3. Model（复�?user 模块�?
-auth 模块不独立定�?Model，复�?`app/models/user.py` 中的 `User` 表。关键字段：
+## 3. Model（复用 user 模块）
+auth 模块不独立定义 Model，复用 `app/models/user.py` 中的 `User` 表。关键字段：
 
 ```python
-# app/models/user.py（已有，无需修改�?class User(Base):
+# app/models/user.py（已有，无需修改）
+class User(Base):
     __tablename__ = "user"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     openid: Mapped[str | None] = mapped_column(String(128), unique=True)  # R18-P3-2: 移除冗余 index=True（unique 已隐式创建索引）
@@ -178,12 +187,12 @@ from typing import Optional
 
 # --- 请求 Schema ---
 class WechatLoginRequest(BaseModel):
-    code: str = Field(..., min_length=1, description="wx.login() 返回�?code")
+    code: str = Field(..., min_length=1, description="wx.login() 返回的 code")
     nickname: Optional[str] = Field(default=None, max_length=64)
     avatar_url: Optional[str] = Field(default=None, max_length=512)
 
 class PhoneLoginRequest(BaseModel):
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机�?)
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
     code: str = Field(..., pattern=r"^\d{6}$", description="6 位验证码")
 
 class SendSmsRequest(BaseModel):
@@ -274,16 +283,17 @@ from app.schemas.auth import (
 import httpx
 
 class AuthService:
-    """认证业务逻辑层�?""
+    """认证业务逻辑层。"""
 
     ACCESS_TOKEN_EXPIRE_MINUTES = 120   # 2 小时
-    REFRESH_TOKEN_EXPIRE_DAYS = 7       # 7 �?    H5_TOKEN_TTL = 300                  # 5 分钟
+    REFRESH_TOKEN_EXPIRE_DAYS = 7       # 7 天
+    H5_TOKEN_TTL = 300                  # 5 分钟
     SESSION_KEY_TTL = 900               # 15 分钟
     SMS_CODE_TTL = 300                  # 5 分钟
 
     @staticmethod
     async def _call_wechat_code2session(code: str) -> dict:
-        """调用微信 code2session 接口�?""
+        """调用微信 code2session 接口。"""
         url = "https://api.weixin.qq.com/sns/jscode2session"
         params = {
             "appid": settings.WECHAT_APPID,
@@ -297,18 +307,19 @@ class AuthService:
         if "errcode" in data and data["errcode"] != 0:
             raise AppException("登录凭证无效", 400)
         if "openid" not in data:
-            raise AppException("微信登录服务暂时不可�?, 502)
+            raise AppException("微信登录服务暂时不可用", 502)
         return data
 
     @staticmethod
     async def wechat_login(req: WechatLoginRequest) -> LoginResponse:
-        """微信小程序登录�?""
+        """微信小程序登录。"""
         # 1. 调用微信 code2session
         wx_data = await AuthService._call_wechat_code2session(req.code)
         openid = wx_data["openid"]
         session_key = wx_data.get("session_key", "")
 
-        # 2. 查询或创建用�?        from sqlalchemy import select
+        # 2. 查询或创建用户
+        from sqlalchemy import select
         from app.core.database import get_async_session
         async with get_async_session() as db:
             result = await db.execute(select(User).where(User.openid == openid))
@@ -327,7 +338,7 @@ class AuthService:
             elif user.status == "banned":
                 raise AppException("您的账号已被封禁", 403)
 
-            # 3. 存储 session_key �?Redis
+            # 3. 存储 session_key 到 Redis
             redis = await get_redis()
             await redis.setex(
                 # R13-P3文档同步：键参数按 REDIS-I 键表与实现为 {openid}，原样例 {user.id} 为笔误
@@ -357,13 +368,14 @@ class AuthService:
 
     @staticmethod
     async def phone_login(req: PhoneLoginRequest) -> LoginResponse:
-        """手机号验证码登录�?""
+        """手机号验证码登录。"""
         redis = await get_redis()
         cached_code = await redis.get(f"sms:code:{req.phone}")
         if not cached_code or cached_code != req.code:
-            raise AppException("验证码错误或已过�?, 400)
+            raise AppException("验证码错误或已过期", 400)
 
-        # 查询或创建用�?        from sqlalchemy import select
+        # 查询或创建用户
+        from sqlalchemy import select
         from app.core.database import get_async_session
         async with get_async_session() as db:
             result = await db.execute(select(User).where(User.phone == req.phone))
@@ -400,7 +412,7 @@ class AuthService:
 
     @staticmethod
     async def send_sms(phone: str) -> dict:
-        """发送短信验证码�?""
+        """发送短信验证码。"""
         import random
         code = f"{random.randint(0, 999999):06d}"
         redis = await get_redis()
@@ -447,11 +459,11 @@ class AuthService:
 
     @staticmethod
     async def refresh_token(refresh_token: str) -> RefreshResponse:
-        """刷新 access_token�?""
+        """刷新 access_token。"""
         # P3 文档同步（R12）：实现使用 decode_refresh_token（refresh 专用解码器）
         payload = decode_refresh_token(refresh_token)
         if not payload or payload.get("type") != "refresh":
-            raise AppException("请重新登�?, 401)
+            raise AppException("请重新登录", 401)
 
         jti = payload.get("jti")
         user_id = payload.get("sub")
@@ -460,11 +472,11 @@ class AuthService:
         if blacklisted:
             raise AppException("Token 已撤销，请重新登录", 401)
 
-        # 签发�?token
+        # 签发新 token
         new_access = create_access_token({"sub": user_id, "jti": str(uuid.uuid4())})
         new_refresh = create_refresh_token({"sub": user_id, "jti": str(uuid.uuid4())})
 
-        # �?refresh_token 加入黑名�?
+        # 将 refresh_token 加入黑名单
         await redis.setex(
             f"jwt:blacklist:{jti}",
             AuthService.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
@@ -566,7 +578,7 @@ class AuthService:
 
     @staticmethod
     async def logout(user_id: int, access_token: str, refresh_token: Optional[str] = None) -> None:
-        """登出：access_token + refresh_token �?jti 均加�?Redis 黑名单�?""
+        """登出：access_token + refresh_token 的 jti 均加入 Redis 黑名单。"""
         redis = await get_redis()
         # 撤销 access token
         payload = decode_token(access_token)
@@ -577,7 +589,7 @@ class AuthService:
                 AuthService.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
                 "1"
             )
-        # 撤销 refresh token（SEC-001 修复：防�?logout �?refresh token 仍可刷新�?
+        # 撤销 refresh token（SEC-001 修复：防止 logout 后 refresh token 仍可刷新）
         if refresh_token:
             rt_payload = decode_token(refresh_token)
             if rt_payload and rt_payload.get("type") == "refresh":
@@ -590,7 +602,7 @@ class AuthService:
 
     @staticmethod
     async def generate_h5_token(user_id: int) -> dict:
-        """生成 H5 降级临时 Token�?""
+        """生成 H5 降级临时 Token。"""
         token = str(uuid.uuid4())
         redis = await get_redis()
         expire_at = datetime.now(timezone.utc) + timedelta(seconds=AuthService.H5_TOKEN_TTL)
@@ -599,11 +611,11 @@ class AuthService:
 
     @staticmethod
     async def exchange_h5_token(token: str) -> RefreshResponse:
-        """H5 Token �?JWT（一次性使用）�?""
+        """H5 Token 换 JWT（一次性使用）。"""
         redis = await get_redis()
         user_id = await redis.get(f"h5:token:{token}")
         if not user_id:
-            raise AppException("H5 Token 已过期，请重新操�?, 401)
+            raise AppException("H5 Token 已过期，请重新操作", 401)
 
         # 删除 Token（一次性使用）
         await redis.delete(f"h5:token:{token}")
@@ -836,7 +848,8 @@ api_router.include_router(auth_router)
 ```python
 # tests/smoke/auth_smoke_test.py
 """
-auth 模块冒烟测试�?用法: python -m tests.smoke.auth_smoke_test
+auth 模块冒烟测试。
+用法: python -m tests.smoke.auth_smoke_test
 """
 import httpx
 import asyncio
@@ -845,7 +858,8 @@ BASE_URL = "http://localhost:8000/api/v1"
 
 async def main():
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
-        # 1. 微信登录（使�?mock code�?        print("1. Testing wechat-login...")
+        # 1. 微信登录（使用 mock code）
+        print("1. Testing wechat-login...")
         resp = await client.post("/auth/wechat-login", json={
             "code": "SMOKE_TEST_CODE",
             "nickname": "冒烟测试",
@@ -854,9 +868,9 @@ async def main():
             tokens = resp.json()["data"]
             access_token = tokens["access_token"]
             refresh_token = tokens["refresh_token"]
-            print(f"   �?Login success, user_id={tokens['user']['id']}")
+            print(f"   ✓ Login success, user_id={tokens['user']['id']}")
         else:
-            print(f"   �?Login failed (expected in smoke test without real wx code): {resp.status_code}")
+            print(f"   ✗ Login failed (expected in smoke test without real wx code): {resp.status_code}")
             return
 
         headers = {"Authorization": f"Bearer {access_token}"}
@@ -865,35 +879,35 @@ async def main():
         print("2. Testing /auth/me...")
         resp = await client.get("/auth/me", headers=headers)
         assert resp.status_code == 200, f"Get me failed: {resp.text}"
-        print(f"   �?Current user: {resp.json()['data']['nickname']}")
+        print(f"   ✓ Current user: {resp.json()['data']['nickname']}")
 
         # 3. 刷新 Token
         print("3. Testing /auth/refresh...")
         resp = await client.post("/auth/refresh", json={"refresh_token": refresh_token})
         assert resp.status_code == 200, f"Refresh failed: {resp.text}"
         new_tokens = resp.json()["data"]
-        print(f"   �?Token refreshed")
+        print(f"   ✓ Token refreshed")
 
         # 4. H5 Token
         print("4. Testing /auth/h5-token...")
         resp = await client.post("/auth/h5-token", headers=headers)
         assert resp.status_code == 200, f"H5 token failed: {resp.text}"
         h5_token = resp.json()["data"]["token"]
-        print(f"   �?H5 token generated")
+        print(f"   ✓ H5 token generated")
 
         # 5. H5 Exchange
         print("5. Testing /auth/h5-exchange...")
         resp = await client.post("/auth/h5-exchange", json={"token": h5_token})
         assert resp.status_code == 200, f"H5 exchange failed: {resp.text}"
-        print(f"   �?H5 token exchanged for JWT")
+        print(f"   ✓ H5 token exchanged for JWT")
 
         # 6. 登出
         print("6. Testing /auth/logout...")
         resp = await client.post("/auth/logout", headers=headers)
         assert resp.status_code == 200, f"Logout failed: {resp.text}"
-        print(f"   �?Logout success")
+        print(f"   ✓ Logout success")
 
-    print("\nauth_smoke_test: ALL PASSED �?)
+    print("\nauth_smoke_test: ALL PASSED ✓")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -905,13 +919,21 @@ if __name__ == "__main__":
 
 - [ ] 单元测试全部通过：`pytest tests/unit/test_auth.py -v`
 - [ ] 冒烟测试通过：`python -m tests.smoke.auth_smoke_test`
-- [ ] Model 已在 `app/models/__init__.py` 中导�?- [ ] Router 已在 `app/api/v1/__init__.py` 中注�?- [ ] Redis 连接正确（session_key / jwt blacklist / sms code / h5 token�?- [ ] 微信 code2session 调用正确（生产环境使用真�?AppID�?- [ ] 限流配置生效（wechat-login: 10/min, phone-login: 5/min, send-sms: 1/min�?- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释�?- [ ] 无废话注释、无注释掉的死代�?
+- [ ] Model 已在 `app/models/__init__.py` 中导入
+- [ ] Router 已在 `app/api/v1/__init__.py` 中注册
+- [ ] Redis 连接正确（session_key / jwt blacklist / sms code / h5 token）
+- [ ] 微信 code2session 调用正确（生产环境使用真实 AppID）
+- [ ] 限流配置生效（wechat-login: 10/min, phone-login: 5/min, send-sms: 1/min）
+- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释）
+- [ ] 无废话注释、无注释掉的死代码
 ---
 
-## 反幻觉约�?
-- Service 方法 **必须** 使用 `@staticmethod`�?*禁止** 创建实例
+## 反幻觉约束
+- Service 方法 **必须** 使用 `@staticmethod`，**禁止** 创建实例
 - Schema **必须** 遵循命名：`{Entity}Request`、`{Entity}Response`
-- **禁止** �?API 路由中写业务逻辑，路由只调用 Service
+- **禁止** 在 API 路由中写业务逻辑，路由只调用 Service
 - **禁止** 创建新的异常类型，统一使用 `AppException(message, code)`
-- 微信 API 调用 **必须** 设置超时�?0s�?- session_key / H5 Token **必须** 设置 Redis TTL
-- refresh_token �?jti **必须** 加入 Redis 黑名�?- ALL API 端点已添�?`@limiter.limit()` 限流装饰器，wechat-login 10/minute，phone-login 5/minute，send-sms 1/minute，h5-exchange 10/minute（R19-P1-1 修复），consent 10/minute，其余端点 100/minute
+- 微信 API 调用 **必须** 设置超时 10s
+- session_key / H5 Token **必须** 设置 Redis TTL
+- refresh_token 的 jti **必须** 加入 Redis 黑名单
+- ALL API 端点已添加 `@limiter.limit()` 限流装饰器，wechat-login 10/minute，phone-login 5/minute，send-sms 1/minute，h5-exchange 10/minute（R19-P1-1 修复），consent 10/minute，其余端点 100/minute

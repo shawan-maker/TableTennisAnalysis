@@ -8,13 +8,12 @@ Admin 独立认证体系：admin_user 表 + Redis session（admin:session:{token
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.core.deps import get_admin_session, require_super_admin, require_model_admin
-from app.core.exceptions import AppException, ERR_UNAUTHORIZED
+from app.core.deps import get_admin_session, require_super_admin
 from app.core.limiter import RateLimits, limiter
 from app.core.response import success
 # R4-Admin-18: Schema 重命名
 from app.schemas.admin import (
-    AdminLoginRequest, AdminLoginResponse,
+    AdminLoginRequest,
     ConfigCreateRequest, ConfigUpdateRequest,
     UserBanRequest,
     CategoryCreateRequest, CategoryUpdateRequest,
@@ -33,7 +32,7 @@ def _client_ip(request: Request) -> str | None:
 # ==================== Admin 登录/登出 ====================
 
 @router.post("/login", summary="管理员登录")
-@limiter.limit("5/minute")
+@limiter.limit(RateLimits.ADMIN_LOGIN)
 async def admin_login(body: AdminLoginRequest, request: Request):
     """管理员登录（独立认证体系）"""
     data = await AdminService.login(body.username, body.password)
@@ -194,7 +193,6 @@ async def list_audit_logs(
 ):
     """审计日志查询（支持管理员/时间段筛选）"""
     from datetime import datetime, timezone
-    from datetime import time as dt_time
     start_dt: datetime | None = None
     end_dt: datetime | None = None
     if start_date:

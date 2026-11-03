@@ -12,7 +12,6 @@ tests/unit/test_video_analysis.py — S3 视频分析模块单元测试
 
 import os
 import pytest
-from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
 from app.core.database import async_session_factory
@@ -597,17 +596,11 @@ async def test_quota_limit(client, auth_headers):
     """免费配额 — 超过 3 次/天被拒"""
     # 预填充 Redis 配额计数器到上限
     redis = await get_redis()
-    from datetime import datetime, timezone
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
-
-    # 获取 test_user 的 user_id
-    from app.core.security import generate_jti
-    from app.core.security import create_access_token
-    # auth_headers 中有 access_token，但我们需要 user_id
-    # 直接从 JWT 解析或使用 fixture
-    # 简单方式：直接调用 service 层
-    from app.services.video_analysis_service import VideoAnalysisService
-    from app.schemas.video_analysis import UploadTokenRequest
+    from datetime import datetime, timedelta, timezone
+    # R14-VA-2: 日期改用 CST（UTC+8）口径与 service 预扣键一致 — 原用 UTC
+    # 日期，上海 00:00-07:59 运行时两口径跨日分裂 → 预填键不命中 → 429 不触发
+    tz_cst = timezone(timedelta(hours=8))
+    today = datetime.now(tz_cst).strftime("%Y%m%d")
 
     # 创建第一个文件并完成上传
     file_id, oss_key = await _create_and_upload_file(client, auth_headers)

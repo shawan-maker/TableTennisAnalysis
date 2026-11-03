@@ -1,65 +1,67 @@
-﻿# ai_pipeline 基础设施模块 �?后端垂直切片设计
+﻿# ai_pipeline 基础设施模块 — 后端垂直切片设计
 
 > **模块名称**：`ai_pipeline`
-> **所属目�?*：`app/ai_pipeline/tasks.py` + `app/ai_pipeline/pipeline.py` + `app/ai_pipeline/progress.py` + `app/ai_pipeline/report_generator.py`
-> **定位**：AI 分析流水线编排、Celery 任务定义、进度追踪、结果聚�?> **依据**：模块详细设�?v1.2 §3.2、数据库详细设计 v1.5 §2.5-2.7
+> **所属目录**：`app/ai_pipeline/tasks.py` + `app/ai_pipeline/pipeline.py` + `app/ai_pipeline/progress.py` + `app/ai_pipeline/report_generator.py`
+> **定位**：AI 分析流水线编排、Celery 任务定义、进度追踪、结果聚合。> **依据**：模块详细设计 v1.2 §3.2、数据库详细设计 v1.5 §2.5-2.7
 
 > **R13-P3 文档同步**：实际模块文件为 `app/ai_pipeline/{tasks, pipeline, progress, report_generator, circuit_breaker}.py`，**无** `app/services/ai_pipeline_service.py`；入口编排为 `app/ai_pipeline/pipeline.py::PipelineOrchestrator`（由 `video_analysis_service.create_task` 调用），免费额度退还在 `app/ai_pipeline/tasks.py::_refund_free_quota`。下文 §5.5 样例为早期 Service 形态，保留作历史参考。
+
+> **P3 文档重建（R14）**：本文档仅 2 个历史提交（784ff4b 初始版 / e2f702e）且均含同源 U+FFFD 乱码（HEAD 301 处、v0 302 处），无健康基线可回溯。R14 全量重建：L1-591（89 行 / 153 FFD）+ L592-1134（88 行 / 148 FFD），合并行按 R14-07 先例拆分，1134 → 1168 行（+34）。重建源优先级：03-模块详细设计.md 逐字原文 > 同构模板（同文档兄弟行与存留句式）> 实际代码词汇锚点（git 历史 blob 为不同实现，仅作词汇佐证）。§5.4/§5.5/§5.6 样例系历史设计草稿，重建保持其原始形态、未同步当前实现契约（差异见各节 R13-P3 文档同步注记）。低置信度填充与拆分策略差异（A1 区段未拆分合并行，留待后续归一化）详见 round14 报告存疑清单；本注记不构成 R15 审查豁免。
 
 ---
 
 ## 1. 模块概述
 
-| 属�?| �?|
+| 属性 | 值 |
 |------|-----|
 | 模块名称 | `ai_pipeline` |
-| 所属目�?| `app/ai_pipeline/`（流水线编排�? `app/ai_pipeline/pipeline.py`（入�?Service�?|
-| 一句话定位 | 10 �?AI 分析流水线编排、Celery 任务定义、进度追踪、结果聚�?|
-| 关联数据�?| video_task, pipeline_step, analysis_report |
-| 依赖模块 | ai_inference（HTTP 调用推理 API�? video_analysis（任务入口）, notification（进度推送）, progress_analysis（快照生成）, training_advice（建议生成） |
+| 所属目录 | `app/ai_pipeline/`（流水线编排）+ `app/ai_pipeline/pipeline.py`（入口 Service） |
+| 一句话定位 | 10 步 AI 分析流水线编排、Celery 任务定义、进度追踪、结果聚合 |
+| 关联数据表 | video_task, pipeline_step, analysis_report |
+| 依赖模块 | ai_inference（HTTP 调用推理 API）, video_analysis（任务入口）, notification（进度推送）, progress_analysis（快照生成）, training_advice（建议生成） |
 | 基础设施 | Celery + Redis + GPU 推理服务 |
 
 ### 10 步流水线
 
 | Step | 名称 | 输入 | 输出 | 依赖 | 超时(s) | 重试 |
 |------|------|------|------|------|---------|------|
-| 1 | 视频预处�?| oss_key (原始视频) | 标准化帧序列 (fps=30, 1080p) | �?| 120 | 2 |
-| 2 | 球台检�?| 帧序�?| 球台四角坐标 + 单应性矩�?| �?| 60 | 2 |
-| 3 | 球体检�?| 帧序�?+ 球台坐标 | 每帧球体 bbox | 1,2 | 180 | 2 |
-| 4 | 球体追踪 | 球体 bbox 序列 | 卡尔曼滤波轨�?| 3 | 60 | 1 |
-| 5 | 落点估算 | 轨迹 + 单应性矩�?| 九宫格落点坐�?| 4 | 30 | 1 |
-| 6 | 姿态估�?| 帧序�?| MediaPipe 33 关键�?| 1 | 120 | 2 |
-| 7 | 动作识别 | 关键点序�?+ 帧序�?| 击球动作分类 | 6 | 120 | 2 |
-| 8 | 回合分割 | 轨迹 + 动作 + 落点 | 回合边界 + 技术统�?| 5,7 | 30 | 1 |
+| 1 | 视频预处理 | oss_key (原始视频) | 标准化帧序列 (fps=30, 1080p) | — | 120 | 2 |
+| 2 | 球台检测 | 帧序列 | 球台四角坐标 + 单应性矩阵 | — | 60 | 2 |
+| 3 | 球体检测 | 帧序列 + 球台坐标 | 每帧球体 bbox | 1,2 | 180 | 2 |
+| 4 | 球体追踪 | 球体 bbox 序列 | 卡尔曼滤波轨迹 | 3 | 60 | 1 |
+| 5 | 落点估算 | 轨迹 + 单应性矩阵 | 九宫格落点坐标 | 4 | 30 | 1 |
+| 6 | 姿态估计 | 帧序列 | MediaPipe 33 关键点 | 1 | 120 | 2 |
+| 7 | 动作识别 | 关键点序列 + 帧序列 | 击球动作分类 | 6 | 120 | 2 |
+| 8 | 回合分割 | 轨迹 + 动作 + 落点 | 回合边界 + 技术统计 | 5,7 | 30 | 1 |
 | 9 | 报告生成 | Step 3-8 全部结果 | result_data JSONB + report_text JSONB | 8 | 60 | 1 |
-| 10 | 标注视频 | 帧序�?+ 全部检测结�?| 标注视频 MP4 (上传 OSS) | 9 | 120 | 1 |
+| 10 | 标注视频 | 帧序列 + 全部检测结果 | 标注视频 MP4 (上传 OSS) | 9 | 120 | 1 |
 
 ### 编排策略
 
 ```
 group(step1, step2)
-    �?chain(step3 �?step4 �?step5)
-    | chain(step6 �?step7)
-    �?join �?chain(step8 �?step9 �?step10)
+    → chain(step3 → step4 → step5)
+    | chain(step6 → step7)
+    → join → chain(step8 → step9 → step10)
 ```
 
-两个 chain 并行执行�?join，再进入 step8�?�?0 串行链�?
+两个 chain 并行执行→join，再进入 step8-10 串行链。
 ---
 
 ## 2. 任务清单
 
-| # | 任务 | 文件 | 依赖 | 状�?|
+| # | 任务 | 文件 | 依赖 | 状态 |
 |---|------|------|------|------|
-| 1 | 实现 Model（复�?video_task + pipeline_step�?| `app/models/video_analysis.py` | �?| �?|
-| 2 | 定义 Schema | `app/schemas/ai_pipeline.py` | #1 | �?|
-| 3 | 实现进度推�?| `app/ai_pipeline/progress.py` | #1 | �?|
-| 4 | 实现各步骤任�?| `app/ai_pipeline/tasks.py` | #3 | �?|
-| 5 | 实现流水线编�?| `app/ai_pipeline/pipeline.py` | #4 | �?|
-| 6 | 实现报告生成�?| `app/ai_pipeline/report_generator.py` | #5 | �?|
-| 7 | 实现入口 Service | `app/ai_pipeline/pipeline.py`（PipelineOrchestrator 入口编排） | #5 | �?|
-| 8 | 配置 Celery Beat 健康检�?| `app/core/celery.py` | #4 | �?|
-| 9 | 编写测试 | `tests/unit/test_ai_pipeline.py` | #7 | �?|
-| 10 | 编写冒烟测试 | `tests/smoke/ai_pipeline_smoke_test.py` | #7 | �?|
+| 1 | 实现 Model（复用 video_task + pipeline_step） | `app/models/video_analysis.py` | - | ☐ |
+| 2 | 定义 Schema | `app/schemas/ai_pipeline.py` | #1 | ☐ |
+| 3 | 实现进度推送 | `app/ai_pipeline/progress.py` | #1 | ☐ |
+| 4 | 实现各步骤任务 | `app/ai_pipeline/tasks.py` | #3 | ☐ |
+| 5 | 实现流水线编排 | `app/ai_pipeline/pipeline.py` | #4 | ☐ |
+| 6 | 实现报告生成器 | `app/ai_pipeline/report_generator.py` | #5 | ☐ |
+| 7 | 实现入口 Service | `app/ai_pipeline/pipeline.py`（PipelineOrchestrator 入口编排） | #5 | ☐ |
+| 8 | 配置 Celery Beat 健康检查 | `app/core/celery.py` | #4 | ☐ |
+| 9 | 编写测试 | `tests/unit/test_ai_pipeline.py` | #7 | ☐ |
+| 10 | 编写冒烟测试 | `tests/smoke/ai_pipeline_smoke_test.py` | #7 | ☐ |
 
 ---
 
@@ -87,7 +89,7 @@ from app.models.video_analysis import VideoTask, PipelineStep, AnalysisReport
 
 ```python
 # app/schemas/ai_pipeline.py
-"""AI 流水�?Schema 定义�?""
+"""AI 流水线 Schema 定义。"""
 
 from datetime import datetime, timezone
 from typing import Optional, Any
@@ -95,7 +97,7 @@ from pydantic import BaseModel, Field
 
 
 class PipelineProgress(BaseModel):
-    """流水线进度�?""
+    """流水线进度。"""
     task_id: int
     step: int = Field(ge=0, le=10)
     total: int = 10
@@ -105,7 +107,7 @@ class PipelineProgress(BaseModel):
 
 
 class StepResult(BaseModel):
-    """单步结果�?""
+    """单步结果。"""
     step_number: int
     step_name: str
     status: str
@@ -115,30 +117,30 @@ class StepResult(BaseModel):
 
 
 class AnalysisResultData(BaseModel):
-    """分析结果 JSONB 结构�?""
+    """分析结果 JSONB 结构。"""
     landing: Optional[dict] = None
-    """九宫格落点分�?""
+    """九宫格落点分布"""
     technique: Optional[dict] = None
     """技术统计（正反手比例、击球类型分布）"""
     rallies: Optional[list] = None
     """回合分割结果"""
     ball_speed: Optional[dict] = None
-    """球速统�?""
+    """球速统计"""
     pose: Optional[dict] = None
-    """姿态数据摘�?""
+    """姿态数据摘要"""
     actions: Optional[dict] = None
     """动作识别结果"""
 
 
 class ReportText(BaseModel):
-    """文字报告 JSONB 结构�?""
+    """文字报告 JSONB 结构。"""
     summary: str
     issues: list[dict] = Field(default_factory=list)
     suggestions: list[dict] = Field(default_factory=list)
 
 
 class CreateTaskRequest(BaseModel):
-    """创建分析任务�?""
+    """创建分析任务请求。"""
     file_id: int = Field(..., ge=1)
 ```
 
@@ -146,7 +148,7 @@ class CreateTaskRequest(BaseModel):
 
 ## 5. Service 实现
 
-### 5.1 进度推�?
+### 5.1 进度推送
 
 > **R13-P3 文档同步**（实际实现 `app/ai_pipeline/progress.py`）：
 > - `on_step_start(task_id, step, db: AsyncSession)` 需调用方传入会话（`async_session_factory()` 包裹）；样例的 `get_async_session` 自管会话形态未采用；
@@ -155,7 +157,7 @@ class CreateTaskRequest(BaseModel):
 > - 无 `_get_task_user` 辅助方法（会话内直查 VideoTask 取 user_id）。
 ```python
 # app/ai_pipeline/progress.py
-"""流水线进度推送�?""
+"""流水线进度推送。"""
 
 import json
 from datetime import datetime, timezone
@@ -168,27 +170,27 @@ from app.services.notification_service import NotificationService
 
 
 class ProgressTracker:
-    """流水线进度追踪与 WebSocket 推送�?""
+    """流水线进度追踪与 WebSocket 推送。"""
 
-    # 10 步骤的中文名�?    STEP_MESSAGES = {
+    # 10 步骤的中文名称    STEP_MESSAGES = {
         1: "视频预处理中...",
         2: "球台检测中...",
         3: "球体检测中...",
-        4: "球体追踪�?..",
-        5: "落点估算�?..",
+        4: "球体追踪中..",
+        5: "落点估算中..",
         6: "姿态估计中...",
-        7: "动作识别�?..",
-        8: "回合分割�?..",
-        9: "报告生成�?..",
-        10: "标注视频生成�?..",
+        7: "动作识别中..",
+        8: "回合分割中..",
+        9: "报告生成中..",
+        10: "标注视频生成中..",
     }
 
     @staticmethod
     async def on_step_start(task_id: int, step: int) -> None:
-        """步骤开始�?""
-        message = ProgressTracker.STEP_MESSAGES.get(step, f"步骤 {step} 执行�?..")
+        """步骤开始。"""
+        message = ProgressTracker.STEP_MESSAGES.get(step, f"步骤 {step} 执行中..")
         async with get_async_session() as db:
-            # 更新 pipeline_step 状�?            await db.execute(
+            # 更新 pipeline_step 状态            await db.execute(
                 update(PipelineStep)
                 .where(PipelineStep.task_id == task_id, PipelineStep.step_number == step)
                 .values(status="running", started_at=datetime.now(timezone.utc))
@@ -201,7 +203,7 @@ class ProgressTracker:
             )
             await db.commit()
 
-        # WS 推送进�?        task = await ProgressTracker._get_task_user(task_id)
+        # WS 推送进度        task = await ProgressTracker._get_task_user(task_id)
         if task:
             await NotificationService.push_ws_message(
                 task.user_id, "analysis_progress", {
@@ -219,7 +221,7 @@ class ProgressTracker:
         step_result: dict,
         duration_ms: int,
     ) -> None:
-        """步骤完成�?""
+        """步骤完成。"""
         async with get_async_session() as db:
             await db.execute(
                 update(PipelineStep)
@@ -235,7 +237,7 @@ class ProgressTracker:
 
     @staticmethod
     async def on_step_failed(task_id: int, step: int, error: str) -> None:
-        """步骤失败�?""
+        """步骤失败。"""
         async with get_async_session() as db:
             await db.execute(
                 update(PipelineStep)
@@ -260,7 +262,7 @@ class ProgressTracker:
 
     @staticmethod
     async def on_task_complete(task_id: int, report_id: int) -> None:
-        """任务完成�?""
+        """任务完成。"""
         async with get_async_session() as db:
             await db.execute(
                 update(VideoTask)
@@ -280,7 +282,7 @@ class ProgressTracker:
 
     @staticmethod
     async def _get_task_user(task_id: int) -> VideoTask | None:
-        """获取任务的用�?ID�?""
+        """获取任务的用户 ID。"""
         async with get_async_session() as db:
             return await db.scalar(
                 select(VideoTask).where(VideoTask.id == task_id)
@@ -290,10 +292,12 @@ class ProgressTracker:
 ### 5.2 Celery 任务定义
 
 > **R13-P3 文档同步**：Phase 1 实际为**单 Celery 任务** `ai_pipeline.run_pipeline`（`bind=True, max_retries=1, default_retry_delay=30`），任务体内 `run_pipeline_async` 顺序执行 10 步，每步经 `_exec_step` 统一封装（on_step_start → 共享 `ai_inference` 服务级熔断器（R12-AIPipeline-7）→ 执行 → on_step_complete/failed）；Step 9 手工编排 start → ReportGenerator.generate → complete/failed（R12-AIPipeline-11）。失败链路：`self.retry()` 不传 exc（R12-AIPipeline-1 / SUP-1：传 exc 时耗尽后重抛原异常，兜底分支不可达）→ 重试耗尽走 `MaxRetriesExceededError` 分支 `_mark_task_failed`（状态机校验 + 幂等）+ `_refund_free_quota`（Redis DECR，R12-AIPipeline-2）。本节 per-step 任务 / `retry_backoff=[10,30]` 指数退避 / httpx 推理调用为 Phase 2 生产形态（Mock 边界见 R19-P2-16 与 tasks.py 头部声明）。
+>
+> **R14-P3 文档同步（R14-AIP-N1 / R14-Pay-N1）**：① Step 10 标注视频 URL 写库后**不再先行 `transition_task_status("completed")`**（原 R12-VA-2 内联转换使 `on_task_complete` 内部二次转换被 `TASK_TRANSITIONS["completed"]=set()` 终态空集拒绝 → R13-AIP-2 完成通知分支永不可达）——`processing→completed` 转换单点收口于 `ProgressTracker.on_task_complete`；② `_refund_free_quota` 签名扩展为 `(user_id, task_id=None)`：按 `quota:src:{task_id}` 来源标记退还——`bonus`（付费分析包）→ INCR `quota:bonus:{uid}`，`free`/无标记 → DECR 日额度（R12-AIPipeline-2 原语义）；退还后标记改写为墓碑 `refunded`（保留 TTL），二次调用直接返回，幂等防跨池双退（R14-Pay-N1-d1：原 getdel 即删方案下"已退还"与"无标记历史任务"不可区分，bonus 任务二次退款会误走 free 回退）。回归守卫见 test_r14_f_aip_beat.py（完成通知可达性 + 熔断 half_open + was_unavailable 模板回退）。
 
 ```python
 # app/ai_pipeline/tasks.py
-"""AI 流水线各步骤 Celery 任务�?""
+"""AI 流水线各步骤 Celery 任务。"""
 
 import time
 import asyncio
@@ -325,12 +329,12 @@ STEP_RETRIES = {
     6: 2, 7: 2, 8: 1, 9: 1, 10: 1,
 }
 
-# --- 指数退避重试间�?---
+# --- 指数退避重试间隔 ---
 RETRY_BACKOFF = [10, 30]  # 10s, 30s
 
 
 def _get_step_task(step: int):
-    """根据步骤号获取对应的 Celery 任务函数�?""
+    """根据步骤号获取对应的 Celery 任务函数。"""
     step_map = {
         1: step_1_video_preprocessing,
         2: step_2_table_detection,
@@ -354,15 +358,15 @@ def _get_step_task(step: int):
     retry_backoff=RETRY_BACKOFF,
 )
 def step_1_video_preprocessing(self, task_id: int, oss_key: str):
-    """Step 1: 视频预处理——标准化帧序�?(fps=30, 1080p)�?""
+    """Step 1: 视频预处理——标准化帧序列 (fps=30, 1080p)。"""
     return asyncio.run(_step_1_video_preprocessing_async(self, task_id, oss_key))
 
 async def _step_1_video_preprocessing_async(self, task_id: int, oss_key: str):
     start = time.time()
     try:
         await ProgressTracker.on_step_start(task_id, 1)
-        # Step 1: 视频预处�?�?FFmpeg 标准化转�?(1080p/30fps/H.264) + 抽帧
-        # TD-4 实现：转码超�?300s（对齐架�?§6.4�?        import subprocess
+        # Step 1: 视频预处理：FFmpeg 标准化转码 (1080p/30fps/H.264) + 抽帧
+        # TD-4 实现：转码超时 300s（对齐架构 §6.4）        import subprocess
         cmd = [
             "ffmpeg", "-i", input_path,
             "-vf", "scale=1080:-2,fps=30",
@@ -375,8 +379,8 @@ async def _step_1_video_preprocessing_async(self, task_id: int, oss_key: str):
         try:
             await asyncio.wait_for(process.wait(), timeout=300)
         except asyncio.TimeoutError:
-            raise PipelineError("视频转码超时�?300s），可能视频过大或格式异�?)
-        # 抽帧：每�?30 帧存储到 frames_dir
+            raise PipelineError("视频转码超时（300s），可能视频过大或格式异常")
+        # 抽帧：每秒 30 帧存储到 frames_dir
         frame_cmd = ["ffmpeg", "-i", output_path, "-vf", "fps=30", f"{frames_dir}/%08d.jpg"]
         await asyncio.create_subprocess_exec(*frame_cmd)
         result = {"fps": 30, "resolution": "1080p", "frame_count": 5400}
@@ -384,7 +388,7 @@ async def _step_1_video_preprocessing_async(self, task_id: int, oss_key: str):
         await ProgressTracker.on_step_complete(task_id, 1, result, duration_ms)
         return {"step": 1, "result": result}
     except SoftTimeLimitExceeded:
-        await ProgressTracker.on_step_failed(task_id, 1, "视频预处理超�?)
+        await ProgressTracker.on_step_failed(task_id, 1, "视频预处理超时")
         raise
     except Exception as e:
         await ProgressTracker.on_step_failed(task_id, 1, str(e))
@@ -399,7 +403,7 @@ async def _step_1_video_preprocessing_async(self, task_id: int, oss_key: str):
     retry_backoff=RETRY_BACKOFF,
 )
 def step_2_table_detection(self, task_id: int, oss_key: str):
-    """Step 2: 球台检测——球台四角坐�?+ 单应性矩阵�?""
+    """Step 2: 球台检测——球台四角坐标 + 单应性矩阵。"""
     return asyncio.run(_step_2_table_detection_async(self, task_id, oss_key))
 
 async def _step_2_table_detection_async(self, task_id: int, oss_key: str):
@@ -407,13 +411,13 @@ async def _step_2_table_detection_async(self, task_id: int, oss_key: str):
     try:
         await ProgressTracker.on_step_start(task_id, 2)
 
-        # 熔断器检查（A-6: 连续 5 次失�?�?60s 半开探测�?        from app.ai_pipeline.circuit_breaker import AICircuitBreaker
+        # 熔断器检查（A-6: 连续 5 次失败→60s 半开探测）        from app.ai_pipeline.circuit_breaker import AICircuitBreaker
         redis = await get_redis()
         cb_state = await AICircuitBreaker.get_state(redis, "ai_inference")
         if cb_state == "open":
             import logging
-            logging.getLogger(__name__).warning("AI 推理熔断中，跳过球台检测步�?)
-            await ProgressTracker.on_step_failed(task_id, 2, "AI 推理服务熔断�?)
+            logging.getLogger(__name__).warning("AI 推理熔断中，跳过球台检测步骤")
+            await ProgressTracker.on_step_failed(task_id, 2, "AI 推理服务熔断")
             raise AppException("AI 推理服务暂时不可用（熔断中）", 503)
 
         async with httpx.AsyncClient() as client:
@@ -441,7 +445,7 @@ async def _step_2_table_detection_async(self, task_id: int, oss_key: str):
     retry_backoff=RETRY_BACKOFF,
 )
 def step_3_ball_detection(self, task_id: int, oss_key: str, frame_range: dict, table_result: dict):
-    """Step 3: 球体检测——每帧球�?bbox�?""
+    """Step 3: 球体检测——每帧球体 bbox。"""
     return asyncio.run(_step_3_ball_detection_async(self, task_id, oss_key, frame_range, table_result))
 
 async def _step_3_ball_detection_async(self, task_id: int, oss_key: str, frame_range: dict, table_result: dict):
@@ -463,11 +467,11 @@ async def _step_3_ball_detection_async(self, task_id: int, oss_key: str, frame_r
         raise
 
 
-# Step 4-10 同理，省略具体实�?..
+# Step 4-10 同理，省略具体实现..
 
 @shared_task(name="ai_pipeline.step_4", bind=True, time_limit=STEP_TIMEOUTS[4], max_retries=STEP_RETRIES[4])
 def step_4_ball_tracking(self, task_id: int, ball_result: dict):
-    """Step 4: 球体追踪——卡尔曼滤波轨迹�?""
+    """Step 4: 球体追踪——卡尔曼滤波轨迹。"""
     asyncio.run(_step_4_ball_tracking_async(self, task_id, ball_result))
 
 async def _step_4_ball_tracking_async(self, task_id: int, ball_result: dict):
@@ -478,7 +482,7 @@ async def _step_4_ball_tracking_async(self, task_id: int, ball_result: dict):
 
 @shared_task(name="ai_pipeline.step_5", bind=True, time_limit=STEP_TIMEOUTS[5], max_retries=STEP_RETRIES[5])
 def step_5_landing_estimation(self, task_id: int, track_result: dict, homography: dict):
-    """Step 5: 落点估算——九宫格落点坐标�?""
+    """Step 5: 落点估算——九宫格落点坐标。"""
     asyncio.run(_step_5_landing_estimation_async(self, task_id, track_result, homography))
 
 async def _step_5_landing_estimation_async(self, task_id: int, track_result: dict, homography: dict):
@@ -489,7 +493,7 @@ async def _step_5_landing_estimation_async(self, task_id: int, track_result: dic
 
 @shared_task(name="ai_pipeline.step_6", bind=True, time_limit=STEP_TIMEOUTS[6], max_retries=STEP_RETRIES[6])
 def step_6_pose_estimation(self, task_id: int, oss_key: str, frame_range: dict):
-    """Step 6: 姿态估计——MediaPipe 33 关键点�?""
+    """Step 6: 姿态估计——MediaPipe 33 关键点。"""
     asyncio.run(_step_6_pose_estimation_async(self, task_id, oss_key, frame_range))
 
 async def _step_6_pose_estimation_async(self, task_id: int, oss_key: str, frame_range: dict):
@@ -500,7 +504,7 @@ async def _step_6_pose_estimation_async(self, task_id: int, oss_key: str, frame_
 
 @shared_task(name="ai_pipeline.step_7", bind=True, time_limit=STEP_TIMEOUTS[7], max_retries=STEP_RETRIES[7])
 def step_7_action_recognition(self, task_id: int, keypoints_result: dict, frame_range: dict):
-    """Step 7: 动作识别——击球动作分类�?""
+    """Step 7: 动作识别——击球动作分类。"""
     asyncio.run(_step_7_action_recognition_async(self, task_id, keypoints_result, frame_range))
 
 async def _step_7_action_recognition_async(self, task_id: int, keypoints_result: dict, frame_range: dict):
@@ -511,7 +515,7 @@ async def _step_7_action_recognition_async(self, task_id: int, keypoints_result:
 
 @shared_task(name="ai_pipeline.step_8", bind=True, time_limit=STEP_TIMEOUTS[8], max_retries=STEP_RETRIES[8])
 def step_8_rally_segmentation(self, task_id: int, track_result: dict, action_result: dict, landing_result: dict):
-    """Step 8: 回合分割——回合边�?+ 每回合技术统计�?""
+    """Step 8: 回合分割——回合边界 + 每回合技术统计。"""
     asyncio.run(_step_8_rally_segmentation_async(self, task_id, track_result, action_result, landing_result))
 
 async def _step_8_rally_segmentation_async(self, task_id: int, track_result: dict, action_result: dict, landing_result: dict):
@@ -522,7 +526,7 @@ async def _step_8_rally_segmentation_async(self, task_id: int, track_result: dic
 
 @shared_task(name="ai_pipeline.step_9", bind=True, time_limit=STEP_TIMEOUTS[9], max_retries=STEP_RETRIES[9])
 def step_9_report_generation(self, task_id: int, step_results: dict):
-    """Step 9: 报告生成——聚�?Step 3-8 输出�?JSONB + LLM 生成 report_text�?""
+    """Step 9: 报告生成——聚合 Step 3-8 输出→JSONB + LLM 生成 report_text。"""
     return asyncio.run(_step_9_report_generation_async(self, task_id, step_results))
 
 async def _step_9_report_generation_async(self, task_id: int, step_results: dict):
@@ -546,19 +550,19 @@ async def _step_9_report_generation_async(self, task_id: int, step_results: dict
 
 @shared_task(name="ai_pipeline.step_10", bind=True, time_limit=STEP_TIMEOUTS[10], max_retries=STEP_RETRIES[10])
 def step_10_annotated_video(self, task_id: int, oss_key: str, all_results: dict, report_id: int):
-    """Step 10: 标注视频——生成标�?MP4 上传 OSS�?""
+    """Step 10: 标注视频——生成标注视频 MP4 上传 OSS。"""
     asyncio.run(_step_10_annotated_video_async(self, task_id, oss_key, all_results, report_id))
 
 async def _step_10_annotated_video_async(self, task_id: int, oss_key: str, all_results: dict, report_id: int):
     pass  # 原 async 实现
 ```
 
-### 5.3 流水线编�?
+### 5.3 流水线编排
 
 > **R13-P3 文档同步**：实际 `app/ai_pipeline/pipeline.py::PipelineOrchestrator` 提供 `init_steps`（预插 10 条 pending pipeline_step）与 `build_and_run(task_id, oss_key)`（eager 模式直接 `await run_pipeline_async`，生产模式 `run_pipeline.apply_async` 派发单任务；`queued→processing` 经状态机校验，非法转换中止流水线）。group/chord 并行编排与 `app/ai_pipeline/callback.py` 回调模块未实现 —— pipeline.py 头部声明 "Phase 1：顺序执行（parallel 优化留 S6）"，本节样例为 S6+ 目标形态。
 ```python
 # app/ai_pipeline/pipeline.py
-"""AI 分析流水线编排�?""
+"""AI 分析流水线编排。"""
 
 from celery import chain, group, chord
 from app.ai_pipeline.tasks import (
@@ -577,18 +581,18 @@ from app.ai_pipeline.callback import on_pipeline_complete, on_pipeline_failed
 
 
 class PipelineOrchestrator:
-    """10 步流水线编排器�?
-    编排策略�?    group(step1, step2) �?chain(step3�?�?) | chain(step6�?) �?join �?chain(step8�?�?0)
+    """10 步流水线编排器：
+    编排策略：    group(step1, step2) → chain(step3-5) | chain(step6-7) → join → chain(step8-10)
 
-    BL-9 修复：并行执行说�?    - Step 1（视频预处理）与 Step 2（球台检测）无数据依赖，通过 Celery group 并行执行
-    - Step 3�?�?（球体检测→追踪→落点估算）串行，依赖球台坐标和帧序�?    - Step 6�?（姿态估计→动作识别）串行，仅依赖帧序列
+    BL-9 修复：并行执行说明：    - Step 1（视频预处理）与 Step 2（球台检测）无数据依赖，通过 Celery group 并行执行
+    - Step 3-5（球体检测→追踪→落点估算）串行，依赖球台坐标和帧序列    - Step 6-7（姿态估计→动作识别）串行，仅依赖帧序列
     - 上述两条 chain 无交叉数据依赖，通过 group 并行执行
-    - Step 8（回合分割）依赖 Step 5 落点 + Step 7 动作，须等两�?chain 全部完成（chord join�?    - Step 9�?0 串行：报告生�?�?标注视频生成
+    - Step 8（回合分割）依赖 Step 5 落点 + Step 7 动作，须等两条 chain 全部完成（chord join）    - Step 9-10 串行：报告生成→标注视频生成
     """
 
     @staticmethod
     def build_pipeline(task_id: int, oss_key: str):
-        """构建流水�?Celery 任务链�?""
+        """构建流水线 Celery 任务链。"""
 
         # Step 1-2 并行
         prep_group = group(
@@ -596,27 +600,30 @@ class PipelineOrchestrator:
             step_2_table_detection.s(task_id, oss_key),
         )
 
-        # Step 3-5 串行�?        detection_chain = chain(
+        # Step 3-5 串行
+        detection_chain = chain(
             step_3_ball_detection.s(task_id),  # 接收 step1+step2 结果
             step_4_ball_tracking.s(task_id),
             step_5_landing_estimation.s(task_id),
         )
 
-        # Step 6-7 串行�?        pose_chain = chain(
+        # Step 6-7 串行
+        pose_chain = chain(
             step_6_pose_estimation.s(task_id),
             step_7_action_recognition.s(task_id),
         )
 
-        # 两个 chain 并行�?join
+        # 两个 chain 并行后 join
         parallel = group(detection_chain, pose_chain)
 
-        # Step 8-9-10 串行�?        final_chain = chain(
+        # Step 8-9-10 串行
+        final_chain = chain(
             step_8_rally_segmentation.s(task_id),
             step_9_report_generation.s(task_id),
             step_10_annotated_video.s(task_id),
         )
 
-        # 完整编排：prep �?parallel �?final
+        # 完整编排：prep → parallel → final
         full_pipeline = chord(
             group(prep_group, parallel),
             final_chain,
@@ -626,7 +633,7 @@ class PipelineOrchestrator:
 
     @staticmethod
     def build_with_callbacks(task_id: int, oss_key: str):
-        """构建带成�?失败回调的流水线�?""
+        """构建带成功，失败回调的流水线。"""
         pipeline = PipelineOrchestrator.build_pipeline(task_id, oss_key)
         # 成功回调
         pipeline = pipeline.on_success(on_pipeline_complete.s(task_id))
@@ -635,7 +642,7 @@ class PipelineOrchestrator:
         return pipeline
 ```
 
-### 5.4 报告生成�?
+### 5.4 报告生成器
 
 > **R13-P3 文档同步**（实际实现 `app/ai_pipeline/report_generator.py`）：
 > - `generate(task_id, step_results)` 返回 `{report_id, result_data, report_text}` 字典（非 `(result_data, report_text)` 元组）；已存在报告（task_id 唯一）则更新 result_data / report_text / is_llm_generated（幂等重生成）；
@@ -645,7 +652,7 @@ class PipelineOrchestrator:
 > - `_trigger_cascade(task_id, report_id, user_id, result_data=None)`：训练建议经 `generate_advice_task.delay(user_id, report_id)`（直接 import `app.tasks.training`）；游戏化积分内联（与样例一致）；进度快照与看板缓存失效（R13-AIP-1 修复）改为 Celery 投递 —— `app/tasks/progress.py` `generate_snapshot_task`（name=`progress_analysis.generate_snapshot`，`.delay(user_id, report_id, result_data)`）与 `app/tasks/dashboard.py` `bust_cache_task`（name=`dashboard.bust_cache`，`.delay(user_id, "analysis_complete")`），与样例 send_task 异步触发语义一致，比赛结束侧（scoring `finish_match` → `bust_cache_task.delay(user_id, "match_end")`）同链路；分析完成通知（R13-AIP-2 修复）由 `ProgressTracker.on_task_complete` / `on_step_failed` 调 `NotificationService.send_notification` 承担（在线 WS 实时推送 / 离线 DB 落库 + 未读计数，通道矩阵见 12-notification §send_notification）；全部子项 try/except 不阻塞。
 ```python
 # app/ai_pipeline/report_generator.py
-"""分析报告生成器�?""
+"""分析报告生成器。"""
 
 import json
 from datetime import datetime, timezone
@@ -662,14 +669,15 @@ import httpx
 
 
 class ReportGenerator:
-    """分析报告生成——Step 9 核心逻辑�?""
+    """分析报告生成——Step 9 核心逻辑。"""
 
     @staticmethod
     async def generate(task_id: int, step_results: dict) -> tuple[dict, dict]:
-        """聚合 Step 3-8 输出�?result_data + 生成 report_text�?
+        """聚合 Step 3-8 输出→result_data + 生成 report_text。
         返回: (result_data JSONB, report_text JSONB)
         """
-        # 1. 提取各步骤结�?        landing = step_results.get("step_5", {}).get("result", {})
+        # 1. 提取各步骤结果
+        landing = step_results.get("step_5", {}).get("result", {})
         technique = step_results.get("step_7", {}).get("result", {})
         rallies = step_results.get("step_8", {}).get("result", {}).get("rallies", [])
         ball_speed = ReportGenerator._calculate_ball_speed(
@@ -708,23 +716,25 @@ class ReportGenerator:
             await db.refresh(report)
             report_id = report.id
 
-        # 5. 触发级联�?        await ReportGenerator._trigger_cascade(task_id, report_id, task.user_id)
+        # 5. 触发级联
+        await ReportGenerator._trigger_cascade(task_id, report_id, task.user_id)
 
         return result_data, report_text
 
     @staticmethod
     def _calculate_ball_speed(detection_result: dict, tracking_result: dict) -> dict:
-        """从球体检测和追踪结果推算球速�?""
-        # 简化实�?        return {"avg": 18.5, "max": 25.3, "speed_range": {"min": 14.8, "max": 22.2}, "note": "误差范围 20-30%，展示为范围�?, "by_action": {}}
+        """从球体检测和追踪结果推算球速。"""
+        # 简化实现
+        return {"avg": 18.5, "max": 25.3, "speed_range": {"min": 14.8, "max": 22.2}, "note": "误差范围 20-30%，展示为范围", "by_action": {}}
 
     @staticmethod
     def _summarize_pose(pose_result: dict) -> dict:
-        """姿态数据摘要�?""
+        """姿态数据摘要。"""
         return {"keypoints_count": 33, "frames_analyzed": pose_result.get("frame_count", 0)}
 
     @staticmethod
     def _summarize_actions(action_result: dict) -> dict:
-        """动作识别摘要�?""
+        """动作识别摘要。"""
         actions = action_result.get("actions", [])
         from collections import Counter
         counts = Counter(a.get("label", "unknown") for a in actions)
@@ -732,12 +742,14 @@ class ReportGenerator:
 
     @staticmethod
     async def _generate_report_text(result_data: dict, task_id: int) -> dict:
-        """生成文字报告——LLM 优先，降级模板�?""
-        # 熔断器检查（A-6: 连续 5 次失�?�?60s 半开探测�?        from app.ai_pipeline.circuit_breaker import AICircuitBreaker
+        """生成文字报告——LLM 优先，降级模板。"""
+        # 熔断器检查（A-6: 连续 5 次失败→60s 半开探测）
+        from app.ai_pipeline.circuit_breaker import AICircuitBreaker
         redis = await get_redis()
         cb_state = await AICircuitBreaker.get_state(redis, "ai_inference")
         if cb_state == "open":
-            # LLM 熔断中，直接降级为模板生�?            return ReportGenerator._generate_template_report(result_data)
+            # LLM 熔断中，直接降级为模板生成
+            return ReportGenerator._generate_template_report(result_data)
 
         try:
             # 尝试调用 LLM
@@ -762,20 +774,22 @@ class ReportGenerator:
         except Exception:
             await AICircuitBreaker.record_failure(redis, "ai_inference")
 
-        # 降级：模板生�?        return ReportGenerator._generate_template_report(result_data)
+        # 降级：模板生成
+        return ReportGenerator._generate_template_report(result_data)
 
     @staticmethod
     def _build_prompt(result_data: dict) -> str:
-        """构建 LLM 提示词�?""
+        """构建 LLM 提示词。"""
         technique = result_data.get("technique", {})
         landing = result_data.get("landing", {})
-        return f"""请分析以下乒乓球技术数据并生成报告�?技术统�? {json.dumps(technique, ensure_ascii=False)}
+        return f"""请分析以下乒乓球技术数据并生成报告。
+技术统计: {json.dumps(technique, ensure_ascii=False)}
 落点分布: {json.dumps(landing, ensure_ascii=False)}
-请返�?JSON: {{"summary": "总结", "issues": [{{"title":"问题","severity":"medium"}}], "suggestions":[{{"title":"建议","detail":"详情"}}]}}"""
+请返回 JSON: {{"summary": "总结", "issues": [{{"title":"问题","severity":"medium"}}], "suggestions":[{{"title":"建议","detail":"详情"}}]}}"""
 
     @staticmethod
     def _generate_template_report(result_data: dict) -> dict:
-        """模板生成报告（LLM 不可用时降级）�?""
+        """模板生成报告（LLM 不可用时降级）。"""
         technique = result_data.get("technique", {})
         forehand = technique.get("forehand_ratio", 0)
         backhand = technique.get("backhand_ratio", 0)
@@ -785,25 +799,25 @@ class ReportGenerator:
 
         if backhand < 0.30:
             issues.append({
-                "title": "反手使用率不�?,
+                "title": "反手使用率不足",
                 "severity": "medium",
-                "detail": f"反手使用�?{backhand:.0%}，低于推荐�?30%",
+                "detail": f"反手使用率 {backhand:.0%}，低于推荐值 30%",
             })
             suggestions.append({
                 "title": "增加反手练习",
-                "detail": "建议通过反手多球练习提升反手使用�?,
+                "detail": "建议通过反手多球练习提升反手使用率",
             })
 
         if forehand > 0.75:
             issues.append({
-                "title": "正手使用率偏�?,
+                "title": "正手使用率偏高",
                 "severity": "low",
-                "detail": f"正手使用�?{forehand:.0%}，建议平衡正反手",
+                "detail": f"正手使用率 {forehand:.0%}，建议平衡正反手",
             })
 
         return {
-            "summary": f"本次分析共识�?{technique.get('total_shots', 0)} 次击球，"
-                       f"正反手比 {forehand:.0%}:{backhand:.0%}�?,
+            "summary": f"本次分析共识别 {technique.get('total_shots', 0)} 次击球，"
+                       f"正反手比 {forehand:.0%}:{backhand:.0%}",
             "issues": issues,
             "suggestions": suggestions,
             "_is_llm": False,
@@ -811,13 +825,16 @@ class ReportGenerator:
 
     @staticmethod
     async def _trigger_cascade(task_id: int, report_id: int, user_id: int) -> None:
-        """分析完成后的级联链�?
-        1. 触发训练建议生成 (training_advice) �?负责写入 training_plan �?        2. 触发进度快照生成 (progress_analysis) �?不再直接写入 training_plan �?        3. 触发看板缓存 bust (data_dashboard)
-        4. 触发通知推�?(notification)
+        """分析完成后的级联链：
+        1. 触发训练建议生成 (training_advice) ——负责写入 training_plan 表
+        2. 触发进度快照生成 (progress_analysis) ——不再直接写入 training_plan 表
+        3. 触发看板缓存 bust (data_dashboard)
+        4. 触发通知推送 (notification)
         """
         from app.core.celery import celery_app
 
-        # BL-14 修复：明确模块边�?        # training_advice 模块负责 training_plan 表的写入
+        # BL-14 修复：明确模块边界
+        # training_advice 模块负责 training_plan 表的写入
         celery_app.send_task(
             "training_advice.generate_advice",
             args=[user_id, report_id],  # R17-P0: 补充 user_id，匹配 generate_advice_task(user_id, report_id) 签名
@@ -828,14 +845,19 @@ class ReportGenerator:
             args=[user_id, report_id],  # R17-P0: 补充 user_id，匹配 generate_snapshot_task(user_id, report_id) 签名
         )
 
-        # 看板缓存 bust �?通过 dashboard 模块�?Celery 任务异步失效缓存，避免跨模块直接操作 Redis
-        # F6-4 修复：bust �?Redis Key 清单（由 dashboard 模块内部执行，ai_pipeline 不直接操作）�?        #   - dashboard:summary:{user_id}          �?用户看板汇总缓�?        #   - dashboard:technique_trend:{user_id}  �?技术趋势缓�?        #   - dashboard:recent_reports:{user_id}   �?最近分析报告列表缓�?        #   - dashboard:badge_progress:{user_id}   �?徽章进度缓存
+        # 看板缓存 bust ——通过 dashboard 模块的 Celery 任务异步失效缓存，避免跨模块直接操作 Redis
+        # F6-4 修复：bust 相关 Redis Key 清单（由 dashboard 模块内部执行，ai_pipeline 不直接操作）
+        #   - dashboard:summary:{user_id}          ——用户看板汇总缓存
+        #   - dashboard:technique_trend:{user_id}  ——技术趋势缓存
+        #   - dashboard:recent_reports:{user_id}   ——最近分析报告列表缓存
+        #   - dashboard:badge_progress:{user_id}   ——徽章进度缓存
         celery_app.send_task(
             "dashboard.bust_cache",
             args=[user_id, "analysis_complete"],
         )
 
-        # 积分触发：完�?AI 分析 +10 积分（P0-4 修复�?        try:
+        # 积分触发：完成 AI 分析 +10 积分（P0-4 修复）
+        try:
             from app.services.gamification_service import GamificationService
             async with get_async_session() as db:
                 await GamificationService.add_points(
@@ -846,7 +868,8 @@ class ReportGenerator:
             logger = logging.getLogger(__name__)
             logger.error("gamification_add_points_analysis_failed", error=str(e), user_id=user_id)
 
-        # 通知推�?        await NotificationService.send_notification(
+        # 通知推送
+        await NotificationService.send_notification(
             user_id=user_id,
             notif_type="analysis_complete",
             title="分析完成",
@@ -862,10 +885,12 @@ class ReportGenerator:
 ### 5.5 入口 Service
 
 > **R13-P3 文档同步**：实际无 `app/services/ai_pipeline_service.py`。入口为 `app/ai_pipeline/pipeline.py::PipelineOrchestrator.build_and_run(task_id, oss_key)`（init_steps 预插 10 条 pipeline_step + `queued→processing` 状态机校验 + eager 直跑 / 生产 `run_pipeline.apply_async` 派发），由 `video_analysis_service.create_task` 调用（启动失败路径：状态机标 failed + `_refund_free_quota` 退额度）。本节样例为早期 Service 形态，保留作历史参考；其中 `refund_free_quota` 样例的日期 key 格式已按实际修正（`strftime("%Y%m%d")`，与 `_check_free_quota` 预扣键一致，实际函数位于 `app/ai_pipeline/tasks.py::_refund_free_quota`）。
+>
+> **R14-P3 文档同步**：`refund_free_quota` 实际签名已扩展为 `(user_id, task_id=None)`，按 `quota:src:{task_id}` 来源标记分池退还（bonus → INCR `quota:bonus:{uid}`；free → DECR 日额度）+ 墓碑 `refunded` 幂等收口（R14-Pay-N1/-N1-d1，契约描述见 §5.2 注记）；本节样例按历史形态保留、不回退。
 
 ```python
 # app/services/ai_pipeline_service.py
-"""AI 流水线入�?Service�?""
+"""AI 流水线入口 Service。"""
 
 from datetime import datetime, timezone
 from sqlalchemy import select, update
@@ -879,27 +904,29 @@ from app.ai_pipeline.pipeline import PipelineOrchestrator
 
 
 class AIPipelineService:
-    """AI 流水线入�?Service——供 video_analysis 模块调用�?""
+    """AI 流水线入口 Service——供 video_analysis 模块调用。"""
 
     @staticmethod
     async def start_analysis(task_id: int) -> None:
-        """启动 AI 分析流水线�?
-        1. 初始�?10 �?pipeline_step 记录
-        2. 构建流水线编�?        3. 入队 Celery
+        """启动 AI 分析流水线：
+        1. 初始化 10 条 pipeline_step 记录
+        2. 构建流水线编排
+        3. 入队 Celery
         """
         async with get_async_session() as db:
             task = await db.scalar(select(VideoTask).where(VideoTask.id == task_id))
             if not task:
-                raise AppException("分析任务不存�?, 404)
+                raise AppException("分析任务不存在", 404)
             if task.status not in ("queued", "failed"):
                 raise AppException(
                     f"任务状态不允许启动分析: {task.status}", 400
                 )
 
-            # 更新任务状�?            task.status = "processing"
+            # 更新任务状态
+            task.status = "processing"
             task.retry_count += 0
 
-            # 初始�?pipeline_step 记录
+            # 初始化 pipeline_step 记录
             step_names = [
                 "video_preprocessing", "table_detection", "ball_detection",
                 "ball_tracking", "landing_estimation", "pose_estimation",
@@ -925,7 +952,7 @@ class AIPipelineService:
 
     @staticmethod
     async def refund_free_quota(user_id: int) -> None:
-        """退还免费额度（分析失败时调用）——Redis DECR�?""
+        """退还免费额度（分析失败时调用）——Redis DECR。"""
         redis = await get_redis()
         from datetime import datetime, timezone, timedelta
         today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")  # R13-P3：与 _check_free_quota 预扣键格式一致（YYYYMMDD 无连字符；原 isoformat() 会退错 key）
@@ -936,11 +963,11 @@ class AIPipelineService:
 
     @staticmethod
     async def get_task_progress(task_id: int) -> dict:
-        """获取任务进度�?""
+        """获取任务进度。"""
         async with get_async_session() as db:
             task = await db.scalar(select(VideoTask).where(VideoTask.id == task_id))
             if not task:
-                raise AppException("分析任务不存�?, 404)
+                raise AppException("分析任务不存在", 404)
 
             steps = await db.scalars(
                 select(PipelineStep)
@@ -967,13 +994,13 @@ class AIPipelineService:
             }
 ```
 
-### 5.6 AI 熔断�?
+### 5.6 AI 熔断器
 
 > **R13-P3 文档同步**：实际 `app/ai_pipeline/circuit_breaker.py` 为**实例化 API**：`cb = AICircuitBreaker(service_name)` 后调用 `await cb.get_state()`（返回 `CircuitState` 枚举）/ `await cb.allow_request()`（state != OPEN）/ `await cb.record_success()` / `await cb.record_failure()`；Redis 连接在方法内部经 `get_redis()` 获取，无需外部传入。Redis key 布局与本节一致（R19-P3-B：`ai_pipeline:circuit_breaker:{service_name}:state|:failures|:opened_at`；服务名实际统一使用 `ai_inference` 共享实例，R12-AIPipeline-7）。本节类样例的 `get_state(redis, service_name)` 静态方法形态已废弃，实际用法见下方"熔断器使用方式"。
 ```python
 # app/ai_pipeline/circuit_breaker.py
-"""AI 推理熔断器：连续 5 次失�?�?60s 半开探测�?
-架构反幻觉约�?#18：AI 熔断（连�?5 次失败→60s 半开探测）�?当前切片有超时降级但需补充连续失败计数熔断器�?"""
+"""AI 推理熔断器：连续 5 次失败→60s 半开探测。
+架构反幻觉约束 #18：AI 熔断（连续 5 次失败→60s 半开探测）——当前切片有超时降级但需补充连续失败计数熔断器。"""
 
 import time
 
@@ -981,12 +1008,12 @@ from app.core.redis import get_redis
 
 
 class AICircuitBreaker:
-    """AI 推理熔断器：连续 5 次失�?�?60s 半开探测�?""
+    """AI 推理熔断器：连续 5 次失败→60s 半开探测。"""
     FAILURE_THRESHOLD = 5
-    RECOVERY_TIMEOUT = 60  # �?
+    RECOVERY_TIMEOUT = 60  # 秒
     @staticmethod
     async def get_state(redis, service_name: str) -> str:
-        """获取熔断状�? closed / open / half_open"""
+        """获取熔断状态: closed / open / half_open"""
         # R19-P3-B: Key 前缀固定为 ai_pipeline:circuit_breaker: 避免跨模块冲突，{service_name} 为 model_name
         key = f"ai_pipeline:circuit_breaker:{service_name}"
         state = await redis.get(f"{key}:state")
@@ -1000,7 +1027,7 @@ class AICircuitBreaker:
 
     @staticmethod
     async def record_failure(redis, service_name: str):
-        """记录失败，达到阈值则熔断�?""
+        """记录失败，达到阈值则熔断。"""
         key = f"ai_pipeline:circuit_breaker:{service_name}"
         count = await redis.incr(f"{key}:failures")
         if count == 1:
@@ -1011,12 +1038,12 @@ class AICircuitBreaker:
 
     @staticmethod
     async def record_success(redis, service_name: str):
-        """记录成功，重置计数�?""
+        """记录成功，重置计数器。"""
         key = f"ai_pipeline:circuit_breaker:{service_name}"
         await redis.delete(f"{key}:failures", f"{key}:state", f"{key}:opened_at")
 ```
 
-**熔断器使用方�?*：在调用 AI 推理服务（`ai_inference` HTTP 调用 / LLM 生成）前检查熔断状态，调用后记录成�?失败�?
+**熔断器使用方式**：在调用 AI 推理服务（`ai_inference` HTTP 调用 / LLM 生成）前检查熔断状态，调用后记录成功/失败。
 ```python
 from app.ai_pipeline.circuit_breaker import AICircuitBreaker
 
@@ -1037,15 +1064,17 @@ except Exception as e:
 
 ## 6. 调用方式
 
-ai_pipeline 模块**无独�?REST API 路由**，通过 Service 层被 video_analysis 模块调用�?
+ai_pipeline 模块**无独立 REST API 路由**，通过 Service 层被 video_analysis 模块调用。
 ```python
-# app/api/v1/video_analysis/router.py（调用方示例�?@router.post("/tasks", summary="创建分析任务")
+# app/api/v1/video_analysis/router.py（调用方示例）
+@router.post("/tasks", summary="创建分析任务")
 async def create_task(
     body: CreateTaskRequest,
     user: User = Depends(get_current_user),
 ):
     # ... 创建 VideoTask ...
-    # 启动 AI 流水�?    await AIPipelineService.start_analysis(task.id)
+    # 启动 AI 流水线
+    await AIPipelineService.start_analysis(task.id)
     return success(data={"task_id": task.id, "status": "processing"})
 ```
 
@@ -1054,57 +1083,60 @@ async def create_task(
 ## 7. 测试要点
 
 > **R13-P3 文档同步**：实际测试为 `tests/unit/test_ai_pipeline.py`（R12-AIPipeline-12 整文件补齐，18 个测试）：流水线完整执行（10 步全 completed + 报告生成 + advice 级联投递 spy）、任务状态机矩阵（queued→failed / failed→failed 幂等拒绝 / 任务不存在 False / 矩阵常量校验）、退额度语义（DECR 回 0 / 禁止负计数 / 幂等不双退 / 终态不退）、重试耗尽（MaxRetriesExceededError 兜底 + 标记失败 + 退额度）、is_llm_generated 实际方式（LLM 成功 True / 失败降级 False / 配置关闭 False / 写库校验）。本节样例中 `AIPipelineService.refund_free_quota` / `ProgressTracker._get_task_user` 符号已不存在，样例保留作历史参考。
+>
+> **R14-P3 文档同步**：R14 新增 `tests/unit/test_r14_f_aip_beat.py`（14 例）——完成通知分支可达性（R14-AIP-N1 回归守卫：离线落库 / 在线 WS / 终态二次调用幂等）、熔断器 half_open 状态机（超时转 half_open → 探测成败分派 closed/open，既有覆盖仅 closed→open）、`was_unavailable` 健康标记消费（报告生成模板回退 fail-open / available 放行）、`ai_inference_health` beat 任务体三分支 + `ai-inference-health-check` 注册断言；退额度墓碑/分池语义（R14-Pay-N1/-N1-d1）由 `test_r14_d_pay_mbr_notif.py` 覆盖。
 
 ```python
 # tests/unit/test_ai_pipeline.py
-"""ai_pipeline 模块测试。覆盖：流水线编排、进度推送、失败处理、额度退还�?""
+"""ai_pipeline 模块测试。覆盖：流水线编排、进度推送、失败处理、额度退还。"""
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.services.ai_pipeline_service import AIPipelineService
 from app.ai_pipeline.progress import ProgressTracker
 
 
-# === 1. 进度推�?===
+# === 1. 进度推送 ===
 @pytest.mark.asyncio
 async def test_step_start_updates_db(db_session):
-    """步骤开始时更新 DB 状态�?""
+    """步骤开始时更新 DB 状态。"""
     with patch.object(ProgressTracker, "_get_task_user", new_callable=AsyncMock):
         with patch.object(NotificationService, "push_ws_message", new_callable=AsyncMock):
             await ProgressTracker.on_step_start(task_id=1, step=3)
-    # 验证 DB 状态已更新（pipeline_step.status=running, video_task.current_step=3�?
+    # 验证 DB 状态已更新（pipeline_step.status=running, video_task.current_step=3）
 
 @pytest.mark.asyncio
 async def test_step_failed_pushes_ws(db_session):
-    """步骤失败时推�?analysis_failed 事件�?""
+    """步骤失败时推送 analysis_failed 事件。"""
     with patch.object(ProgressTracker, "_get_task_user", new_callable=AsyncMock, return_value=type("T", (), {"user_id": 1})()):
         with patch.object(NotificationService, "push_ws_message", new_callable=AsyncMock) as mock_ws:
-            await ProgressTracker.on_step_failed(1, 3, "球体检测超�?)
+            await ProgressTracker.on_step_failed(1, 3, "球体检测超时")
             mock_ws.assert_called_with(
                 1, "analysis_failed",
-                {"task_id": 1, "error": "球体检测超�?},
+                {"task_id": 1, "error": "球体检测超时"},
             )
 
 
-# === 2. 额度退�?===
+# === 2. 额度退还 ===
 @pytest.mark.asyncio
 async def test_refund_free_quota(mock_redis):
-    """分析失败时退还免费额度�?""
+    """分析失败时退还免费额度。"""
     mock_redis.get.return_value = 2
     with patch("app.services.ai_pipeline_service.get_redis", return_value=mock_redis):
         await AIPipelineService.refund_free_quota(user_id=1)
         mock_redis.decr.assert_called_once()
 
 
-# === 3. 级联链触�?===
+# === 3. 级联链触发 ===
 @pytest.mark.asyncio
 async def test_cascade_triggered(db_session):
-    """报告生成完成后触发级联链�?""
+    """报告生成完成后触发级联链。"""
     from app.ai_pipeline.report_generator import ReportGenerator
     with patch("app.core.celery.celery_app.send_task") as mock_send, \
          patch("app.services.notification_service.NotificationService.send_notification", new_callable=AsyncMock), \
          patch("app.ai_pipeline.report_generator.get_async_session") as mock_session:
         await ReportGenerator._trigger_cascade(1, 1, 1)
-        # 验证级联任务被触�?        assert mock_send.call_count >= 2
+        # 验证级联任务被触发
+        assert mock_send.call_count >= 2
 ```
 
 ---
@@ -1112,23 +1144,33 @@ async def test_cascade_triggered(db_session):
 ## 8. 验证清单
 
 - [ ] 单元测试全部通过：`pytest tests/unit/test_ai_pipeline.py -v`
-- [ ] 10 步流水线按依赖关系正确执�?- [ ] Step 1-2 并行 + Step 3-5 �?6-7 并行
-- [ ] 每步进度通过 WebSocket 实时推送（analysis_progress�?- [ ] 超时正确触发重试（指数退�?10s, 30s�?- [ ] 重试次数耗尽后标�?task.status=failed
-- [ ] 失败后免费额度正确退还（Redis DECR�?- [ ] 失败�?WS push analysis_failed
-- [ ] 结果 JSONB 结构完整（含落点/技�?回合/球�?文字结论�?- [ ] LLM 不可用时降级为模板生�?report_text（is_llm_generated=false�?- [ ] 级联链正确触发（进度快照 + 训练建议 + 看板缓存 bust + 通知推送）
+- [ ] 10 步流水线按依赖关系正确执行
+- [ ] Step 1-2 并行 + Step 3-5 与 6-7 并行
+- [ ] 每步进度通过 WebSocket 实时推送（analysis_progress）
+- [ ] 超时正确触发重试（指数退避 10s, 30s）
+- [ ] 重试次数耗尽后标记 task.status=failed
+- [ ] 失败后免费额度正确退还（Redis DECR）
+- [ ] 失败后 WS push analysis_failed
+- [ ] 结果 JSONB 结构完整（含落点/技术/回合/球速/文字结论）
+- [ ] LLM 不可用时降级为模板生成 report_text（is_llm_generated=false）
+- [ ] 级联链正确触发（进度快照 + 训练建议 + 看板缓存 bust + 通知推送）
 - [ ] Celery Beat 健康检查任务每 5min 执行
-- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释�?- [ ] 无废话注释、无注释掉的死代�?
+- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释）
+- [ ] 无废话注释、无注释掉的死代码
 
 > **R13-P3 文档同步**：验证清单口径按 Phase 1 实际修正 —— "Step 1-2 并行 + Step 3-5/6-7 并行" 为 S6+ 目标形态（Phase 1 为单任务顺序执行）；"超时正确触发重试（指数退避 10s, 30s）" 实际为 `max_retries=1 + default_retry_delay=30` 固定延迟重试（指数退避为 Phase 2 形态）；"级联链" 中的通知推送由 WS 推送（analysis_complete，ProgressTracker.on_task_complete）承担。
 ---
 
-## 反幻觉约�?
-- Service 方法 **必须** 使用 `@staticmethod`�?*禁止** 创建实例
-- **无独立路�?*，通过 `AIPipelineService.start_analysis()` �?video_analysis 调用
-- Celery 任务 **必须** 设置 `time_limit` �?`max_retries`�?*禁止** 无限超时
-- 每步 **必须** 推�?WebSocket 进度（开�?+ 完成/失败），**禁止** 静默执行
-- 失败�?**必须** 退还免费额度（Redis DECR），**禁止** 不退�?- LLM 不可用时 **必须** 降级为模板生成，**禁止** 直接失败
-- 级联�?**必须** 异步触发�?*禁止** 同步阻塞流水�?- 推理服务调用 **必须** 设置超时�?*禁止** 无限等待
-- AI 推理 **必须** 经过熔断器（`AICircuitBreaker`），连续 5 次失�?�?60s 熔断 + 半开探测�?*禁止** 无限重试
+## 反幻觉约束
+- Service 方法 **必须** 使用 `@staticmethod`，**禁止** 创建实例
+- **无独立路由**，通过 `AIPipelineService.start_analysis()` 供 video_analysis 调用
+- Celery 任务 **必须** 设置 `time_limit` 和 `max_retries`，**禁止** 无限超时
+- 每步 **必须** 推送 WebSocket 进度（开始 + 完成/失败），**禁止** 静默执行
+- 失败后**必须** 退还免费额度（Redis DECR），**禁止** 不退款
+- LLM 不可用时 **必须** 降级为模板生成，**禁止** 直接失败
+- 级联链**必须** 异步触发，**禁止** 同步阻塞流水线
+- 推理服务调用 **必须** 设置超时，**禁止** 无限等待
+- AI 推理 **必须** 经过熔断器（`AICircuitBreaker`），连续 5 次失败→60s 熔断 + 半开探测，**禁止** 无限重试
 
-> **覆盖度修复说明（A-6�?*：已添加 `AICircuitBreaker` 熔断器类（�?.6），�?Step 2 球台检测和 Step 9 报告生成（LLM 调用）处接入熔断检查�?> 架构反幻觉约�?#18（AI 熔断：连�?5 次失败→60s 半开探测）现已覆盖�?
+> **覆盖度修复说明（A-6）**：已添加 `AICircuitBreaker` 熔断器类（§5.6），在 Step 2 球台检测和 Step 9 报告生成（LLM 调用）处接入熔断检查。
+> 架构反幻觉约束 #18（AI 熔断：连续 5 次失败→60s 半开探测）现已覆盖。

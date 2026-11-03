@@ -565,7 +565,13 @@ class PaymentService:
                 elif elapsed <= timedelta(hours=24):
                     reversal_type = "full"
                 else:
-                    reversal_type = "full_reversal"
+                    # R14-Pay-N2: 24h-7d 窗口内全额退款同样受 50% 限额约束
+                    # （API 详细设计 §12 退款规则 — "24h~7d 支持部分退款
+                    # （≤订单金额 50%）"；原 full_reversal 分支直接放行，
+                    # 全额退款绕过限额）。该窗口内仅允许部分退款。
+                    raise AppException(
+                        "24小时至7天内仅支持不超过50%的部分退款", 400,
+                    )
             else:
                 reversal_type = "full"
 

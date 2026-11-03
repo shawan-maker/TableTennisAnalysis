@@ -9,7 +9,7 @@ import json
 import uuid
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.core.security import create_access_token, generate_jti
 from app.core.database import async_session_factory
@@ -156,11 +156,12 @@ class TestQuotaConcurrentDecrement:
         await db_session.commit()
         await db_session.refresh(user)
 
-        # 先清理可能残留的 key
+        # 先清理可能残留的 key（日期键为 CST/UTC+8，与 _check_free_quota 预扣键一致；bonus 池一并清）
         redis = await get_redis()
-        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")
         key = f"quota:analysis:{user.id}:{today}"
-        await redis.delete(key)
+        bonus_key = f"quota:bonus:{user.id}"
+        await redis.delete(key, bonus_key)
 
         # 并发调用 3 次（假设 FREE_DAILY_LIMIT >= 3）
         from app.core.config import settings
@@ -171,8 +172,9 @@ class TestQuotaConcurrentDecrement:
             return_exceptions=True,
         )
 
-        # 前 limit 次应成功，超出应抛异常
-        success_count = sum(1 for r in results if r is None)
+        # 前 limit 次应成功（返回扣减来源 "free"/"bonus"），超出应抛异常
+        # （R14-Pay-N1 起 _check_free_quota 返回 str 来源标记，不再是 None）
+        success_count = sum(1 for r in results if r in ("free", "bonus"))
         if limit >= 3:
             assert success_count == 3
         else:
@@ -183,7 +185,7 @@ class TestQuotaConcurrentDecrement:
         assert count == success_count
 
         # 清理
-        await redis.delete(key)
+        await redis.delete(key, bonus_key)
 
 
 @pytest.mark.asyncio

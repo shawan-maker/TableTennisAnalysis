@@ -73,6 +73,8 @@ class MatchDataService:
                 await GamificationService.add_points(
                     db, user_id=user_id, event_type="record", ref_id=record_id
                 )
+                # R14-Gam-N1: add_points 契约仅 flush，积分持久化由调用方 commit 收口
+                await db.commit()
         except Exception as e:
             logger.error("match_data_trigger_gamification_failed", extra={
                 "error": str(e), "record_id": record_id

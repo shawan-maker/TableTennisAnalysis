@@ -735,7 +735,7 @@ class VideoAnalysisService:
     # ===== 分析任务管理 =====    # ===== 分析任务管理 =====
 
     @staticmethod
-    async def _check_free_quota(user_id: int) -> None:
+    async def _check_free_quota(user_id: int) -> str:
         """检查免费用户每日分析额度。Key: quota:analysis:{user_id}:{date}"""
         redis = await get_redis()
         tz_cst = timezone(timedelta(hours=8))  # Asia/Shanghai (UTC+8)
@@ -749,9 +749,25 @@ class VideoAnalysisService:
             ttl = int((end_of_day - now_cst).total_seconds()) + 3600
             await redis.expire(key, ttl)
 
-        if count > VideoAnalysisService.FREE_DAILY_LIMIT:
-            await redis.decr(key)  # 回退
+        # R14-Pay-N1: 返回本次消耗来源 "free"/"bonus"（供失败退款按来源退还）；
+        # 免费日额度耗尽 → 消耗付费分析包额度（quota:bonus:{uid}，支付回调
+        # INCR + 90d TTL）— 原实现只有写入方无消费方，模块详设 §2.11 BR-2
+        # "分析包 → 增加额外额度"全链路空转
+        if count <= VideoAnalysisService.FREE_DAILY_LIMIT:
+            return "free"
+
+        # 免费日额度已耗尽 → 尝试消耗付费分析包额度（原子 DECR + 负数回补防并发超扣）
+        bonus_key = f"quota:bonus:{user_id}"
+        bonus_count = await redis.decr(bonus_key)
+        if bonus_count < 0:
+            # 并发竞争或额度已耗尽 → 回补 bonus 并回滚日额度计数
+            await redis.incr(bonus_key)
+            await redis.decr(key)
             raise AppException("今日免费分析次数已用完，升级会员可无限分析", 429)
+
+        # 本次分析计入付费包：回滚日额度计数（不计入免费额度）
+        await redis.decr(key)
+        return "bonus"
 
     @staticmethod
     async def create_task(user_id: int, req, db: AsyncSession) -> CreateTaskResponse:
@@ -767,9 +783,12 @@ class VideoAnalysisService:
             raise AppException("文件尚未上传完成", 400)
 
         # 2. 检查会员状态 + 免费额度
+        # R14-Pay-N1: quota_source 记录本次额度消耗来源（member/free/bonus），
+        # 供任务失败退款时按来源退还
         membership = await MembershipService.check_membership(db, user_id)
+        quota_source = "member"
         if not membership.is_member:
-            await VideoAnalysisService._check_free_quota(user_id)
+            quota_source = await VideoAnalysisService._check_free_quota(user_id)
 
         # 3. 创建 VideoTask
         task_uuid = str(uuid.uuid4())  # 对外暴露的 UUID
@@ -785,12 +804,20 @@ class VideoAnalysisService:
         await db.commit()
         await db.refresh(task)
 
+        # R14-Pay-N1: 记录额度消耗来源标记（quota:src:{task.id}，24h TTL 覆盖
+        # 流水线重试窗口），退款时区分退还免费日额度 or 付费包额度；标记失败
+        # 仅 warning 不阻塞任务创建
+        if quota_source != "member":
+            redis = await get_redis()
+            await redis.set(f"quota:src:{task.id}", quota_source, ex=86400)
+
         # 4. 启动 Celery 流水线（R13-P3 文档同步 VA-12：实际实现调用
         #    PipelineOrchestrator.build_and_run(task.id, oss_key)，替换原注释桩）
         #    启动失败时（R12 复验-VA-2 旁路收口 + R12-AIPipeline-2 退额度）：
         #    - 走 transition_task_status 状态机校验标记 failed（queued→failed 合法转换）
-        #    - 调用 ai_pipeline.tasks._refund_free_quota 退还预扣的免费额度
-        #      （任务未进入 Celery 重试流程，需在此直接退还）
+        #    - 调用 ai_pipeline.tasks._refund_free_quota 退还预扣额度
+        #      （R14-Pay-N1: 传 task_id 按 quota:src 标记退还对应来源 —
+        #      任务未进入 Celery 重试流程，需在此直接退还）
         try:
             from app.ai_pipeline.pipeline import PipelineOrchestrator
             await PipelineOrchestrator.build_and_run(task.id, file_record.oss_key)
@@ -997,6 +1024,8 @@ class VideoAnalysisService:
         try:
             from app.services.gamification_service import GamificationService
             await GamificationService.add_points(db, user_id=user_id, event_type="feedback", ref_id=feedback_id)
+            # R14-Gam-N1: add_points 契约仅 flush，积分持久化由调用方 commit 收口
+            await db.commit()
         except Exception as e:
             logger.error("gamification_add_points_feedback_failed", error=str(e), feedback_id=feedback_id)
 
@@ -1139,6 +1168,8 @@ class VideoAnalysisService:
                 await GamificationService.add_points(
                     db, user_id=user_id, event_type="share", ref_id=share.id
                 )
+                # R14-Gam-N1: add_points 契约仅 flush，积分持久化由调用方 commit 收口
+                await db.commit()
             except Exception as e:
                 logger.warning("share_add_points_failed", extra={
                     "error": str(e), "share_id": share.id

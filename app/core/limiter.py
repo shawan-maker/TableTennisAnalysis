@@ -41,4 +41,3 @@ class RateLimits:
     # 业务相关
     AI_ANALYSIS = "10/hour"
     SHARE = "5/day"
-    USER_EXPORT = "1/month"

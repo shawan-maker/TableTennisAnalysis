@@ -105,7 +105,7 @@ class RefundRecord(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     reversal_type: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, comment="退款类型：full/full_reversal/partial",
+        String(20), nullable=True, comment="退款类型：full/partial（full_reversal 已废弃，R14-Pay-N2）",
     )
     operator_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     callback_raw: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

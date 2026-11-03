@@ -182,9 +182,12 @@ class VideoAnalysisService:
                 raise AppException("oss_key 与文件记录不匹配", 400, code=ERR_BAD_REQUEST)
 
             # 会员状态检查 + 免费配额检查（会员跳过）
+            # R14-Pay-N1: quota_source 记录本次额度消耗来源（free/bonus），
+            # 供任务失败退款时按来源退还
             membership = await MembershipService.check_membership(db, user_id)
+            quota_source = "member"
             if not membership.is_member:
-                await VideoAnalysisService._check_free_quota(user_id)
+                quota_source = await VideoAnalysisService._check_free_quota(user_id)
 
             # 创建 VideoTask
             task_uuid = str(uuid.uuid4())
@@ -202,6 +205,17 @@ class VideoAnalysisService:
             db.add(task)
             await db.commit()
             await db.refresh(task)
+
+            # R14-Pay-N1: 记录额度消耗来源标记（24h TTL 覆盖流水线重试窗口），
+            # 退款时区分退还免费日额度 or 付费包额度
+            if quota_source != "member":
+                try:
+                    redis = await get_redis()
+                    await redis.set(f"quota:src:{task.id}", quota_source, ex=86400)
+                except Exception as marker_err:
+                    logger.warning("quota_source_marker_failed", extra={
+                        "error": str(marker_err), "task_id": task.id
+                    })
 
         # 启动 Celery 流水线
         try:
@@ -226,9 +240,10 @@ class VideoAnalysisService:
 
             # R12-AIPipeline-2: 启动失败同样退还免费额度（额度已在请求时预扣，
             # 任务未进入 Celery 重试流程，需在此直接退还）
+            # R14-Pay-N1: 按 quota:src 标记退还对应来源额度
             try:
                 from app.ai_pipeline.tasks import _refund_free_quota
-                await _refund_free_quota(user_id)
+                await _refund_free_quota(user_id, task_id=task.id)
             except Exception as quota_err:
                 logger.error(
                     "startup_refund_quota_failed",
@@ -478,18 +493,14 @@ class VideoAnalysisService:
                 await db.refresh(feedback)
                 feedback_id = feedback.id
 
-            # 数据飞轮：is_correct=True 时归档样本用于训练
-            if req.is_correct:
-                try:
-                    await FileService.archive_for_training(report_id, report.task_id)
-                except AttributeError:
-                    # FileService 尚未实现 archive_for_training 方法
-                    # TODO: S6+ 实现 FileService.archive_for_training 后移除此分支
-                    logger.warning("FileService.archive_for_training not implemented")
-                except Exception as e:
-                    logger.error("archive_for_training_failed", extra={
-                        "error": str(e), "report_id": report_id
-                    })
+            # 数据飞轮：is_correct=True 时样本归档（feedback_record.status=
+            # "archived" 落库即数据飞轮归档语义，供后续模型训练筛选）。
+            # R14-VA-1: FileService.archive_for_training（视频文件入训练集）
+            # 为 Phase 2 边界 — 真实 AI 训练管线接入后实现，原内联
+            # AttributeError 静默吞错桩已移除（响应 data_flywheel_action
+            # 与 feedback_record.status 落库状态一致，见切片 §5 边界注记）。
+            # Phase 2 接入点：在此处调用 archive_for_training(report_id,
+            # report.task_id)（try/except 不阻塞反馈主流程）。
 
             # 游戏化积分（try/except 不阻塞主流程）
             try:
@@ -497,6 +508,8 @@ class VideoAnalysisService:
                 await GamificationService.add_points(
                     db, user_id=user_id, event_type="feedback", ref_id=feedback_id
                 )
+                # R14-Gam-N1: add_points 契约仅 flush，积分持久化由调用方 commit 收口
+                await db.commit()
             except Exception as e:
                 logger.warning("feedback_add_points_failed", extra={
                     "error": str(e), "feedback_id": feedback_id
@@ -642,6 +655,8 @@ class VideoAnalysisService:
                 await GamificationService.add_points(
                     db, user_id=user_id, event_type="share", ref_id=share.id
                 )
+                # R14-Gam-N1: add_points 契约仅 flush，积分持久化由调用方 commit 收口
+                await db.commit()
             except Exception as e:
                 logger.warning("share_add_points_failed", extra={
                     "error": str(e), "share_id": share.id
@@ -728,11 +743,19 @@ class VideoAnalysisService:
         return record
 
     @staticmethod
-    async def _check_free_quota(user_id: int) -> None:
+    async def _check_free_quota(user_id: int) -> str:
         """
         免费配额检查 — Redis INCR。
         会员跳过（S5 实现）。
         使用 CST（UTC+8）日期作为 key，避免跨日边界错误。
+
+        R14-Pay-N1: 免费日额度耗尽后消耗付费分析包额度（quota:bonus:{uid}，
+        支付回调 INCR + 90d TTL）— 原实现只有写入方无消费方，用户购买分析包
+        后可用分析次数实际未增加（模块详细设计 §2.11 BR-2 "分析包 → 增加额外
+        额度"全链路空转）。
+
+        返回本次消耗来源："free"（免费日额度）或 "bonus"（付费包额度），
+        供任务失败退款时按来源退还（ai_pipeline._refund_free_quota）。
         """
         redis = await get_redis()
         tz_cst = timezone(timedelta(hours=8))
@@ -747,14 +770,25 @@ class VideoAnalysisService:
             ttl = int((end_of_day - now).total_seconds()) + 3600  # +1h buffer
             await redis.expire(key, ttl)
 
-        if count > VideoAnalysisService.FREE_DAILY_LIMIT:
-            # 超额回滚
+        if count <= VideoAnalysisService.FREE_DAILY_LIMIT:
+            return "free"
+
+        # 免费日额度已耗尽 → 尝试消耗付费分析包额度（原子 DECR + 负数回补防并发超扣）
+        bonus_key = f"quota:bonus:{user_id}"
+        bonus_count = await redis.decr(bonus_key)
+        if bonus_count < 0:
+            # 并发竞争或额度已耗尽 → 回补 bonus 并回滚日额度计数
+            await redis.incr(bonus_key)
             await redis.decr(key)
             raise AppException(
-                "今日免费分析次数已用完",
+                "今日免费分析次数已用完，升级会员可无限分析",
                 429,
                 code=ERR_QUOTA_EXHAUSTED,
             )
+
+        # 本次分析计入付费包：回滚日额度计数（不计入免费额度）
+        await redis.decr(key)
+        return "bonus"
 
     @staticmethod
     async def _check_share_limit(user_id: int) -> None:

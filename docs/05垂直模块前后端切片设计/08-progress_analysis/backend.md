@@ -1,30 +1,35 @@
-﻿# progress_analysis 模块 �?后端垂直切片设计
+﻿# progress_analysis 模块 — 后端垂直切片设计
 
 > **模块名称**：`progress_analysis`
-> **所属目�?*：`app/api/v1/progress/` + `app/services/progress_service.py` + `app/models/progress.py` + `app/schemas/progress.py`
+> **所属目录**：`app/api/v1/progress/` + `app/services/progress_service.py` + `app/models/progress.py` + `app/schemas/progress.py`
 > **定位**：AI 分析报告完成后自动生成进度快照，计算 18 项技术指标趋势，支持报告对比、趋势详情、进度综合摘要与问题变化分析
-> **依据**：模块详细设�?v1.2 §2.8、API 详细设计 v1.3 §9、数据库详细设计 v1.5 §2.21-2.22
+> **依据**：模块详细设计 v1.2 §2.8、API 详细设计 v1.3 §9、数据库详细设计 v1.5 §2.21-2.22
+> **P3 文档重建（R14）**：本文件原有 73 处历史性 U+FFFD 编码损坏（UTF-8 中文/标点/换行被截断为乱码并发生行粘连，非契约变更），Round 14 已按同构模板 + 实际实现逐行重建，未变更任何契约语义。
 
 ---
 
 ## 1. 切片准备清单
 
-- [ ] 阅读模块详细设计 §2.8（progress_analysis 模块功能规格�?- [ ] 阅读 API 契约 §9�? 个端点：snapshots / technique-trends / technique-trends/{metric} / comparison / summary / problem-changes�?- [ ] 阅读 `app/models/progress.py`（ProgressSnapshot + TechniqueTrend 模型�?- [ ] 阅读 `app/models/video_analysis.py`（AnalysisReport 模型，result_data JSONB 结构�?- [ ] 阅读 `app/ai_pipeline/report_generator.py`（AI 流水�?Step 9 报告生成完成后触发快照生成）
-- [ ] 确认本切片范围：6 �?API 端点 + 对应 Service 方法 + 快照生成内部方法
+- [ ] 阅读模块详细设计 §2.8（progress_analysis 模块功能规格）
+- [ ] 阅读 API 契约 §9（6 个端点：snapshots / technique-trends / technique-trends/{metric} / comparison / summary / problem-changes）
+- [ ] 阅读 `app/models/progress.py`（ProgressSnapshot + TechniqueTrend 模型）
+- [ ] 阅读 `app/models/video_analysis.py`（AnalysisReport 模型，result_data JSONB 结构）
+- [ ] 阅读 `app/ai_pipeline/report_generator.py`（AI 流水线 Step 9 报告生成完成后触发快照生成）
+- [ ] 确认本切片范围：6 个 API 端点 + 对应 Service 方法 + 快照生成内部方法
 
 ### 任务清单
 
-| # | 任务 | 文件 | 依赖 | 状�?|
+| # | 任务 | 文件 | 依赖 | 状态 |
 |---|------|------|------|------|
-| 1 | 定义 Model（ProgressSnapshot + TechniqueTrend�?| `app/models/progress.py` | �?| �?|
-| 2 | 注册 Model | `app/models/__init__.py` | #1 | �?|
-| 3 | 生成 Alembic 迁移 | `alembic revision --autogenerate` | #2 | �?|
-| 4 | 定义 Schema | `app/schemas/progress.py` | #1 | �?|
-| 5 | 实现 Service | `app/services/progress_service.py` | #2,#4 | �?|
-| 6 | 实现 API 路由 | `app/api/v1/progress/router.py` | #5 | �?|
-| 7 | 注册 Router | `app/api/v1/__init__.py` | #6 | �?|
-| 8 | 编写单元测试 | `tests/unit/test_progress.py` | #5 | �?|
-| 9 | 编写冒烟测试 | `tests/smoke/progress_smoke_test.py` | #7 | �?|
+| 1 | 定义 Model（ProgressSnapshot + TechniqueTrend） | `app/models/progress.py` | - | ☐ |
+| 2 | 注册 Model | `app/models/__init__.py` | #1 | ☐ |
+| 3 | 生成 Alembic 迁移 | `alembic revision --autogenerate` | #2 | ☐ |
+| 4 | 定义 Schema | `app/schemas/progress.py` | #1 | ☐ |
+| 5 | 实现 Service | `app/services/progress_service.py` | #2,#4 | ☐ |
+| 6 | 实现 API 路由 | `app/api/v1/progress/router.py` | #5 | ☐ |
+| 7 | 注册 Router | `app/api/v1/__init__.py` | #6 | ☐ |
+| 8 | 编写单元测试 | `tests/unit/test_progress.py` | #5 | ☐ |
+| 9 | 编写冒烟测试 | `tests/smoke/progress_smoke_test.py` | #7 | ☐ |
 
 ---
 
@@ -35,14 +40,16 @@
 ```python
 # tests/unit/test_progress.py
 """
-progress_analysis 模块 �?进度分析测试�?覆盖：快照列表、趋势查询、报告对比、综合摘要、问题变化、快照自动生成�?"""
+progress_analysis 模块 — 进度分析测试。
+覆盖：快照列表、趋势查询、报告对比、综合摘要、问题变化、快照自动生成。
+"""
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.core.exceptions import AppException
 
 @pytest.fixture
 async def progress_ctx(db_session, auth_user):
-    """创建测试上下文：用户 + 分析报告 + 进度快照�?""
+    """创建测试上下文：用户 + 分析报告 + 进度快照。"""
     from app.models.video_analysis import AnalysisReport
     from app.models.progress import ProgressSnapshot, TechniqueTrend
     from datetime import datetime, timezone, timedelta
@@ -146,7 +153,7 @@ async def progress_ctx(db_session, auth_user):
 # === 1. Happy Path ===
 @pytest.mark.asyncio
 async def test_list_snapshots_success(client, progress_ctx, auth_headers):
-    """获取进度快照列表，返回分页结果�?""
+    """获取进度快照列表，返回分页结果。"""
     resp = await client.get("/api/v1/progress/snapshots", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -157,7 +164,7 @@ async def test_list_snapshots_success(client, progress_ctx, auth_headers):
 
 @pytest.mark.asyncio
 async def test_get_technique_trends_success(client, progress_ctx, auth_headers):
-    """获取全部技术指标趋势�?""
+    """获取全部技术指标趋势。"""
     resp = await client.get("/api/v1/progress/technique-trends", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -169,7 +176,7 @@ async def test_get_technique_trends_success(client, progress_ctx, auth_headers):
 
 @pytest.mark.asyncio
 async def test_get_comparison_success(client, progress_ctx, auth_headers):
-    """对比两份报告，返�?6 个维度的对比结果�?""
+    """对比两份报告，返回 6 个维度的对比结果。"""
     resp = await client.get(
         f"/api/v1/progress/comparison?report_a={progress_ctx['report_a'].id}"
         f"&report_b={progress_ctx['report_b'].id}",
@@ -187,7 +194,7 @@ async def test_get_comparison_success(client, progress_ctx, auth_headers):
 
 @pytest.mark.asyncio
 async def test_get_summary_success(client, progress_ctx, auth_headers):
-    """获取进度综合摘要，含 forecast 字段�?""
+    """获取进度综合摘要，含 forecast 字段。"""
     resp = await client.get("/api/v1/progress/summary", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -203,7 +210,7 @@ async def test_get_summary_success(client, progress_ctx, auth_headers):
 # === 2. Validation Failure ===
 @pytest.mark.asyncio
 async def test_get_comparison_same_report(client, progress_ctx, auth_headers):
-    """report_a �?report_b 相同时返�?422�?""
+    """report_a 与 report_b 相同时返回 422。"""
     resp = await client.get(
         f"/api/v1/progress/comparison?report_a={progress_ctx['report_a'].id}"
         f"&report_b={progress_ctx['report_a'].id}",
@@ -214,17 +221,17 @@ async def test_get_comparison_same_report(client, progress_ctx, auth_headers):
 
 @pytest.mark.asyncio
 async def test_get_trend_detail_invalid_metric(client, auth_headers):
-    """不存在的指标名返�?404�?""
+    """不存在的指标名返回 404。"""
     resp = await client.get(
         "/api/v1/progress/technique-trends/nonexistent_metric",
         headers=auth_headers,
     )
     assert resp.status_code == 404
-    assert "指标不存�? in resp.json()["message"]
+    assert "指标不存在" in resp.json()["message"]
 
 @pytest.mark.asyncio
 async def test_list_snapshots_invalid_period(client, auth_headers):
-    """period 参数不在枚举中时返回 422�?""
+    """period 参数不在枚举中时返回 422。"""
     resp = await client.get(
         "/api/v1/progress/snapshots?period=invalid",
         headers=auth_headers,
@@ -238,13 +245,13 @@ async def test_list_snapshots_invalid_period(client, auth_headers):
 # === 3. Permission / Auth Failure ===
 @pytest.mark.asyncio
 async def test_list_snapshots_no_auth(client):
-    """未登录访问返�?401�?""
+    """未登录访问返回 401。"""
     resp = await client.get("/api/v1/progress/snapshots")
     assert resp.status_code == 401
 
 @pytest.mark.asyncio
 async def test_get_comparison_other_user_report(client, auth_user2, auth_headers):
-    """对比其他用户的报告返�?403/404�?""
+    """对比其他用户的报告返回 403/404。"""
     resp = await client.get(
         "/api/v1/progress/comparison?report_a=99999&report_b=99998",
         headers=auth_headers,
@@ -395,10 +402,10 @@ async def test_forecast_only_when_r2_above_threshold(db_session):
 
 ---
 
-## 3. Model（SQLAlchemy 2.0�?
+## 3. Model（SQLAlchemy 2.0）
 ```python
 # app/models/progress.py
-"""进度分析模型�?""
+"""进度分析模型。"""
 
 from sqlalchemy import BigInteger, String, Integer, Float, ForeignKey, Index, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -409,7 +416,7 @@ from app.core.database import Base
 
 
 class ProgressSnapshot(Base):
-    """进度快照 �?每次分析报告完成后自动生成，存储 18 项关键指标�?""
+    """进度快照 — 每次分析报告完成后自动生成，存储 18 项关键指标。"""
 
     __tablename__ = "progress_snapshot"
 
@@ -420,7 +427,7 @@ class ProgressSnapshot(Base):
     report_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("analysis_report.id", ondelete="CASCADE"), unique=True,
     )
-    metrics_snapshot: Mapped[dict] = mapped_column(JSONB, comment="18 项关键指标快�?)
+    metrics_snapshot: Mapped[dict] = mapped_column(JSONB, comment="18 项关键指标快照")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
@@ -430,7 +437,7 @@ class ProgressSnapshot(Base):
 
 
 class TechniqueTrend(Base):
-    """技术指标趋�?�?每用户每指标一条，更新而非新增�?""
+    """技术指标趋势 — 每用户每指标一条，更新而非新增。"""
 
     __tablename__ = "technique_trend"
 
@@ -438,7 +445,7 @@ class TechniqueTrend(Base):
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("user.id", ondelete="CASCADE"),  # R19-P3-11: 移除冗余 index=True（__table_args__ uq_trend_user_metric UniqueConstraint 已覆盖）
     )
-    metric_name: Mapped[str] = mapped_column(String(64), comment="指标�?)
+    metric_name: Mapped[str] = mapped_column(String(64), comment="指标名")
     current_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     previous_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     change_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -460,17 +467,18 @@ class TechniqueTrend(Base):
     )
 ```
 
-**实现后必�?*�?- [ ] �?`app/models/__init__.py` 中导入：`from app.models.progress import ProgressSnapshot, TechniqueTrend`
+**实现后必须**：
+- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.progress import ProgressSnapshot, TechniqueTrend`
 - [ ] 生成 Alembic 迁移：`alembic revision --autogenerate -m "add progress_snapshot and technique_trend"`
 - [ ] 执行迁移：`alembic upgrade head`
 <!-- R19-P2-3: idx_ps_metrics_gin 已通过 ProgressSnapshot.__table_args__ 显式定义，Alembic autogenerate 会自动包含，无需手动 op.execute -->
 
 ---
 
-## 4. Schema（Pydantic�?
+## 4. Schema（Pydantic）
 ```python
 # app/schemas/progress.py
-"""进度分析 Schema�?""
+"""进度分析 Schema。"""
 
 from pydantic import BaseModel, Field
 from typing import Optional, Any
@@ -503,7 +511,7 @@ PaginatedSnapshots = Paginated[SnapshotBrief]
 
 
 class MetricTrendBrief(BaseModel):
-    """单项指标趋势摘要�?""
+    """单项指标趋势摘要。"""
     metric: str
     metric_name: str
     current_value: Optional[float] = None
@@ -517,7 +525,7 @@ class MetricTrendBrief(BaseModel):
 
 
 class TechniqueTrendsResponse(BaseModel):
-    """全部技术指标趋势响应�?""
+    """全部技术指标趋势响应。"""
     metrics: list[MetricTrendBrief]
 
 
@@ -527,7 +535,7 @@ class TrendHistoryPoint(BaseModel):
 
 
 class TechniqueTrendDetail(BaseModel):
-    """单项指标趋势详情�?""
+    """单项指标趋势详情。"""
     metric: str
     metric_name: str
     current_value: Optional[float] = None
@@ -540,7 +548,7 @@ class TechniqueTrendDetail(BaseModel):
 
 
 class ComparisonDimension(BaseModel):
-    """对比维度项�?""
+    """对比维度项。"""
     a: Optional[Any] = None
     b: Optional[Any] = None
     change: Optional[float] = None
@@ -553,7 +561,7 @@ class ProblemChanges(BaseModel):
 
 
 class ComparisonResponse(BaseModel):
-    """报告对比响应�?""
+    """报告对比响应。"""
     report_a: dict
     report_b: dict
     comparisons: dict
@@ -574,7 +582,7 @@ class TrainingPlanStatus(BaseModel):
 
 
 class SummaryResponse(BaseModel):
-    """进度综合摘要响应�?""
+    """进度综合摘要响应。"""
     summary_period: str
     total_analyses: int
     overall_progress: str
@@ -593,7 +601,7 @@ class ProblemChangeItem(BaseModel):
 
 
 class ProblemChangesResponse(BaseModel):
-    """问题变化列表响应�?""
+    """问题变化列表响应。"""
     new: list[ProblemChangeItem] = []
     resolved: list[ProblemChangeItem] = []
     persistent: list[ProblemChangeItem] = []
@@ -601,7 +609,7 @@ class ProblemChangesResponse(BaseModel):
 
 ---
 
-## 5. Service（@staticmethod�?
+## 5. Service（@staticmethod）
 ```python
 # app/services/progress_service.py
 # R13-P3 文档同步：以下为实际实现原文回写（app/services/progress_service.py）。
@@ -1011,8 +1019,10 @@ class ProgressService:
     @staticmethod
     async def get_technique_trend_detail(user_id: int, metric: str) -> Optional[dict]:
         # R6-Prog-2: 仅当指标名不在 METRIC_DEFINITIONS 时返回 404；有效指标无趋势数据返回 null 字段
+        # R14-B4-1: code 40420 → 40415（原 40420 与 training"训练方案不存在"
+        # 双义冲突 — API §1.8 全局命名空间要求业务 code 唯一）
         if metric not in METRIC_DEFINITIONS:
-            raise AppException("指标不存在", 404, code=40420)
+            raise AppException("指标不存在", 404, code=ERR_METRIC_NOT_FOUND)
 
         redis = await get_redis()
         cache_key = f"progress:trend_detail:{user_id}:{metric}"
@@ -1552,27 +1562,27 @@ class ReportGenerator:
         except Exception as e:
             logger.error("cascade_generate_advice_failed", extra={"error": str(e)})
 
-        # R12-Prog-1: 进度快照生成 — 报告完成后自动写入 ProgressSnapshot
+        # R12-Prog-1 → R13-AIP-1: 进度快照生成 — 按 ai_pipeline.md 反幻觉约束
+        # （"级联链必须异步触发，禁止同步阻塞流水线"）改 Celery 投递
+        # （progress_analysis.generate_snapshot，设计 §5.4 第 2 步）
         try:
-            from app.services.progress_service import ProgressService
-            await ProgressService.generate_snapshot(
-                user_id=user_id, report_id=report_id,
-                result_data=result_data or {},
-            )
+            from app.tasks.progress import generate_snapshot_task
+            generate_snapshot_task.delay(user_id, report_id, result_data or {})
         except Exception as e:
             logger.error("cascade_generate_snapshot_failed", extra={"error": str(e)})
 
-        # R12-Dash-1: 看板缓存失效 — 分析完成后清除该用户 dashboard 缓存
+        # R12-Dash-1 → R13-AIP-1: 看板缓存失效 — 同上改 Celery 投递
+        # （dashboard.bust_cache，设计 §5.4 第 3 步）
         try:
-            from app.services.dashboard_service import DashboardService
-            await DashboardService.bust_cache(user_id, "analysis_complete")
+            from app.tasks.dashboard import bust_cache_task
+            bust_cache_task.delay(user_id, "analysis_complete")
         except Exception as e:
             logger.error("cascade_bust_cache_failed", extra={"error": str(e)})
 ```
 
 ---
 
-## 6. API 路由（FastAPI�?
+## 6. API 路由（FastAPI）
 ```python
 # app/api/v1/progress/router.py
 # R13-P3 文档同步：以下为实际实现原文回写。装饰器顺序 @router.* 在上、
@@ -1684,7 +1694,8 @@ api_router.include_router(progress_router)
 ```python
 # tests/smoke/progress_smoke_test.py
 """
-progress_analysis 模块冒烟测试�?用法: python -m tests.smoke.progress_smoke_test
+progress_analysis 模块冒烟测试。
+用法: python -m tests.smoke.progress_smoke_test
 """
 import httpx
 import asyncio
@@ -1701,24 +1712,25 @@ async def main():
             "nickname": "progress_smoke",
         })
         if login_resp.status_code != 200:
-            print(f"   �?Login failed: {login_resp.status_code}")
+            print(f"   ✗ Login failed: {login_resp.status_code}")
             return
         token = login_resp.json()["data"]["access_token"]
         h = {"Authorization": f"Bearer {token}"}
-        print("   �?Login success")
+        print("   ✓ Login success")
 
         # 2. 获取快照列表
         print("1. Testing /progress/snapshots...")
         resp = await client.get("/progress/snapshots", headers=h)
         assert resp.status_code == 200, f"Snapshots failed: {resp.text}"
         snap_data = resp.json()["data"]
-        print(f"   �?Snapshots: total={snap_data['total']}, items={len(snap_data['items'])}")
+        print(f"   ✓ Snapshots: total={snap_data['total']}, items={len(snap_data['items'])}")
 
-        # 3. 获取技术趋�?        print("2. Testing /progress/technique-trends...")
+        # 3. 获取技术趋势
+        print("2. Testing /progress/technique-trends...")
         resp = await client.get("/progress/technique-trends", headers=h)
         assert resp.status_code == 200, f"Trends failed: {resp.text}"
         trends = resp.json()["data"]["metrics"]
-        print(f"   �?Trends: {len(trends)} metrics")
+        print(f"   ✓ Trends: {len(trends)} metrics")
         if trends:
             print(f"     First: {trends[0]['metric_name']} = {trends[0]['current_value']} ({trends[0]['trend']})")
 
@@ -1729,7 +1741,7 @@ async def main():
             resp = await client.get(f"/progress/technique-trends/{metric}", headers=h)
             assert resp.status_code == 200, f"Trend detail failed: {resp.text}"
             detail = resp.json()["data"]
-            print(f"   �?Detail: {detail['metric_name']}, history points={len(detail['history'])}")
+            print(f"   ✓ Detail: {detail['metric_name']}, history points={len(detail['history'])}")
 
         # 5. 报告对比
         if snap_data["items"]:
@@ -1742,23 +1754,23 @@ async def main():
                 )
                 assert resp.status_code == 200, f"Comparison failed: {resp.text}"
                 comp = resp.json()["data"]["comparisons"]
-                print(f"   �?Comparison: {list(comp.keys())}")
+                print(f"   ✓ Comparison: {list(comp.keys())}")
 
         # 6. 综合摘要
         print("5. Testing /progress/summary...")
         resp = await client.get("/progress/summary", headers=h)
         assert resp.status_code == 200, f"Summary failed: {resp.text}"
         summary = resp.json()["data"]
-        print(f"   �?Summary: total_analyses={summary['total_analyses']}, overall={summary['overall_progress']}")
+        print(f"   ✓ Summary: total_analyses={summary['total_analyses']}, overall={summary['overall_progress']}")
 
         # 7. 问题变化
         print("6. Testing /progress/problem-changes...")
         resp = await client.get("/progress/problem-changes", headers=h)
         assert resp.status_code == 200, f"Problem changes failed: {resp.text}"
         changes = resp.json()["data"]
-        print(f"   �?Problem changes: new={len(changes['new'])}, resolved={len(changes['resolved'])}, persistent={len(changes['persistent'])}")
+        print(f"   ✓ Problem changes: new={len(changes['new'])}, resolved={len(changes['resolved'])}, persistent={len(changes['persistent'])}")
 
-    print("\nprogress_smoke_test: ALL PASSED �?)
+    print("\nprogress_smoke_test: ALL PASSED ✓")
 
 
 if __name__ == "__main__":
@@ -1771,31 +1783,45 @@ if __name__ == "__main__":
 
 - [ ] 单元测试全部通过：`pytest tests/unit/test_progress.py -v`
 - [ ] 冒烟测试通过：`python -m tests.smoke.progress_smoke_test`
-- [ ] Model 已在 `app/models/__init__.py` 中导�?- [ ] Router 已在 `app/api/v1/__init__.py` 中注�?- [ ] Alembic 迁移已生成并执行（含 GIN 索引�?- [ ] 18 项关键指标全部可提取
-- [ ] 趋势判定 6 种类型逻辑正确（improving/stagnant/declining/achieved/new/resolved�?- [ ] 报告对比覆盖 6 个维度（技术统�?落点/回合/球�?得分/问题变化�?- [ ] 线性回�?R² > 0.4 时填�?forecast 字段
-- [ ] Redis 缓存生效（trends / trend_detail / problems TTL 1h；summary TTL 5min�?- [ ] 快照生成�?AI 流水�?Step 9 后自动触�?- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释�?- [ ] 无废话注释、无注释掉的死代�?
+- [ ] Model 已在 `app/models/__init__.py` 中导入
+- [ ] Router 已在 `app/api/v1/__init__.py` 中注册
+- [ ] Alembic 迁移已生成并执行（含 GIN 索引）
+- [ ] 18 项关键指标全部可提取
+- [ ] 趋势判定 6 种类型逻辑正确（improving/stagnant/declining/achieved/new/resolved）
+- [ ] 报告对比覆盖 6 个维度（技术统计/落点/回合/球速/得分/问题变化）
+- [ ] 线性回归 R² > 0.4 时填充 forecast 字段
+- [ ] Redis 缓存生效（trends / trend_detail / problems TTL 1h；summary TTL 5min）
+- [ ] 快照生成在 AI 流水线 Step 9 后自动触发
+- [ ] 代码注释完整（文件头、docstring、复杂逻辑注释）
+- [ ] 无废话注释、无注释掉的死代码
 ---
 
-## 反幻觉约�?
-- Service 方法 **必须** 使用 `@staticmethod`�?*禁止** 创建实例
+## 反幻觉约束
+- Service 方法 **必须** 使用 `@staticmethod`，**禁止** 创建实例
 - Schema **必须** 遵循命名：`{Entity}Brief`、`{Entity}Detail`、`{Entity}Response`、`Paginated{Entities}`
-- **禁止** �?API 路由中写业务逻辑，路由只调用 Service
+- **禁止** 在 API 路由中写业务逻辑，路由只调用 Service
 - **禁止** 创建新的异常类型，统一使用 `AppException(message, code)`
-- 18 项指�?**必须** �?`analysis_report.result_data` JSONB 中提取，**禁止** 硬编码指标�?- 趋势判定 **必须** 基于 `change_rate` + `persistence_count`�?*禁止** 随意判定
-- 线性回归预�?**必须** �?R² > 0.4 时才填充 forecast�?*禁止** �?R² 低时返回预测结果
-- 查询接口 **必须** 设置 Redis 缓存（summary TTL 5min；trends / trend_detail / problems TTL 1h），快照生成�?**必须** 清除缓存
-- **禁止** 跨用户查询数据（`user_id` 必须�?`get_current_user` 获取�?- `TechniqueTrend` 模型使用 `trend`/`current_value`/`previous_value` 字段名（�?DB 设计 v1.3 §2.22/§5.6 一致）。（X-3 已修复）
-- `AnalysisReport.result_data` **必须** 使用 JSONB 类型，测试代码中 **必须** 直接�?dict�?*禁止** 使用 `json.dumps()`（X-4 修复�?- `AnalysisReport` 模型归属�?video_analysis 模块（DB 设计 §5.3），统一使用 `from app.models.video_analysis import AnalysisReport`�?*禁止** 使用 `app.models.analysis`（A-10 修复�?- `ProgressSnapshot`/`TechniqueTrend` 模型归属�?progress 模块，统一使用 `from app.models.progress import ProgressSnapshot, TechniqueTrend`�?*禁止** 使用 `app.models.progress_analysis`（A-11 修复�?- 所�?API 端点 **必须** 添加 `@limiter.limit("100/minute")` 限流装饰器，**禁止** 裸奔无限�?- `from app.core.limiter import limiter` **必须** 在路由文�?import 区声明，**禁止** 遗漏导入
+- 18 项指标 **必须** 从 `analysis_report.result_data` JSONB 中提取，**禁止** 硬编码指标
+- 趋势判定 **必须** 基于 `change_rate` + `persistence_count`，**禁止** 随意判定
+- 线性回归预测 **必须** 在 R² > 0.4 时才填充 forecast，**禁止** 在 R² 低时返回预测结果
+- 查询接口 **必须** 设置 Redis 缓存（summary TTL 5min；trends / trend_detail / problems TTL 1h），快照生成后 **必须** 清除缓存
+- **禁止** 跨用户查询数据（`user_id` 必须从 `get_current_user` 获取）
+- `TechniqueTrend` 模型使用 `trend`/`current_value`/`previous_value` 字段名（与 DB 设计 v1.3 §2.22/§5.6 一致）。（X-3 已修复）
+- `AnalysisReport.result_data` **必须** 使用 JSONB 类型，测试代码中 **必须** 直接传 dict，**禁止** 使用 `json.dumps()`（X-4 修复）
+- `AnalysisReport` 模型归属于 video_analysis 模块（DB 设计 §5.3），统一使用 `from app.models.video_analysis import AnalysisReport`，**禁止** 使用 `app.models.analysis`（A-10 修复）
+- `ProgressSnapshot`/`TechniqueTrend` 模型归属于 progress 模块，统一使用 `from app.models.progress import ProgressSnapshot, TechniqueTrend`，**禁止** 使用 `app.models.progress_analysis`（A-11 修复）
+- 所有 API 端点 **必须** 添加 `@limiter.limit("100/minute")` 限流装饰器，**禁止** 裸奔无限流
+- `from app.core.limiter import limiter` **必须** 在路由文件 import 区声明，**禁止** 遗漏导入
 
-### 覆盖度修复说�?
+### 覆盖度修复说明
 | 编号 | 修复内容 | 位置 |
 |------|---------|------|
-| X-3 | `TechniqueTrend` 使用 `trend`/`current_value`/`previous_value` 字段名（�?§5.6 一致），DB 设计 §2.22 �?`trend_direction` 需回写更新�?`trend` 并补�?`current_value`/`previous_value` | 反幻觉约�?|
+| X-3 | `TechniqueTrend` 使用 `trend`/`current_value`/`previous_value` 字段名（与 §5.6 一致），DB 设计 §2.22 的 `trend_direction` 需回写更新为 `trend` 并补齐 `current_value`/`previous_value` | 反幻觉约束 |
 | X-4 | `AnalysisReport.result_data` 统一使用 JSONB 类型，测试代码传 dict 不用 `json.dumps()`，移除多余的 `import json` | §2 测试 |
-| A-4 | summary 端点缓存 TTL �?1h�?600s）改�?5min�?00s），趋势类端点保�?1h 不变 | §5 Service（get_summary）、�? API 路由、�? 验证清单 |
-| A-10 | `AnalysisReport` import 路径统一�?`app.models.video_analysis`（原 `app.models.analysis`），模型归属�?video_analysis 模块（DB 设计 §5.3�?| §2 测试、�? Service |
-| A-11 | `ProgressSnapshot`/`TechniqueTrend` import 路径统一�?`app.models.progress`（原 `app.models.progress_analysis`�?| §2 测试 |
-| A-9 | `datetime.utcnow()` �?`datetime.now(timezone.utc)`；`default`/`onupdate` 改为 lambda 表达式；import 补充 `timezone` | §3 Model、�? Service |
+| A-4 | summary 端点缓存 TTL 从 1h（3600s）改为 5min（300s），趋势类端点保持 1h 不变 | §5 Service（get_summary）、§6 API 路由、§8 验证清单 |
+| A-10 | `AnalysisReport` import 路径统一为 `app.models.video_analysis`（原 `app.models.analysis`），模型归属于 video_analysis 模块（DB 设计 §5.3）| §2 测试、§5 Service |
+| A-11 | `ProgressSnapshot`/`TechniqueTrend` import 路径统一为 `app.models.progress`（原 `app.models.progress_analysis`）| §2 测试 |
+| A-9 | `datetime.utcnow()` → `datetime.now(timezone.utc)`；`default`/`onupdate` 改为 lambda 表达式；import 补充 `timezone` | §3 Model、§5 Service |
 
 ### R13-P3 文档同步（Round 13 复验，Progress 模块）
 
@@ -1810,3 +1836,12 @@ if __name__ == "__main__":
 | P4 | §5 样例整块以实际实现原文回写：`async_session_factory`、快照幂等重入、`_calculate_trend` 同步新签名含 resolved 分支、down 指标 target_progress None 防御、trend_detail 缓存 scan 清理、comparison 返回 None 由路由守卫、summary 含 training_plan_status/goal_completion、forecast 方向感知 slope | §5 |
 | P5 | §5.5 原 Celery 任务（progress_analysis_beat.py + send_task 事件驱动）-> `report_generator._trigger_cascade` 直接 await `generate_snapshot`（R12-Prog-1，result_data 直传免二次读取） | §5.5 |
 | P6 | §6 路由样例以实际实现回写：装饰器顺序（@router.* 在上、@limiter.limit 在下）+ request: Request 参数；comparison 422/404 路由守卫；snapshots status 过滤（R4-Progress-11） | §6 |
+
+### R14-P3 文档同步（Round 14，Progress 模块）
+
+以实现为准回写，涉及 §5/§5.5。
+
+| # | 差异 | 修改位置 |
+|---|------|---------|
+| P1 | §5.5 快照触发链回写 R13-AIP-1 当前基线：原样例残留 R12-Prog-1 内联 await（`await ProgressService.generate_snapshot(...)` / `await DashboardService.bust_cache(...)`）→ 改 Celery 投递 `generate_snapshot_task.delay(user_id, report_id, result_data or {})` 与 `bust_cache_task.delay(user_id, "analysis_complete")`，与 app/ai_pipeline/report_generator.py L287-302 逐字一致 | §5.5 |
+| P2 | §5 `get_technique_trend_detail` 错误码同步：`code=40420` → `code=ERR_METRIC_NOT_FOUND`（40415，R14-B4-1：原 40420 与 training 域"训练方案不存在"同码双义冲突） | §5 |

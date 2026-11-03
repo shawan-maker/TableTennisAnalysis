@@ -14,12 +14,9 @@ tests/conftest.py — 共享测试 Fixture
   以便及早暴露环境问题。
 """
 
-import asyncio
 import os
-from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -34,7 +31,7 @@ from app.core.config import settings
 from app.core.database import Base, async_session_factory, engine
 from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, generate_jti
-from app.models.user import ConsentLog, User
+from app.models.user import User
 
 # 测试环境强制 Celery eager 模式 — pipeline 同步执行，确保任务状态在测试内完成
 from app.core.celery import celery_app
@@ -117,7 +114,7 @@ async def db_setup():
         # 删除所有 scoring:match:* 和 ws:* 相关的 key
         # R4-Auth-4: sms:rate:* → sms:sent:*（保留两者兼容旧测试缓存）
         # R12-Gam-13: LIMITER* — slowapi/limits Redis 存储 key（限流计数）
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "quota:src:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "ai_inference:*", "alert:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
                 keys = await redis.keys(pattern)
                 if keys:
                     await redis.delete(*keys)
@@ -135,7 +132,7 @@ async def db_setup():
     # 清理 Redis
     try:
         redis = await get_redis()
-        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
+        for pattern in ["scoring:match:*", "ws:online:*", "ws:relay:*", "ws:user:*", "quota:analysis:*", "quota:src:*", "share:count:*", "ai_pipeline:circuit_breaker:*", "ai_inference:*", "alert:*", "dashboard:*", "gamification:*", "progress:*", "membership:*", "payment:*", "quota:bonus:*", "downgrade:*", "export:count:*", "big_data:user:*", "sms:code:*", "sms:rate:*", "sms:sent:*", "config:*", "LIMITER*"]:
             keys = await redis.keys(pattern)
             if keys:
                 await redis.delete(*keys)

@@ -518,6 +518,10 @@ class ScoringService:
                 await GamificationService.add_points(
                     db, user_id=match.user_id, event_type="match", ref_id=match.id
                 )
+                # R14-Gam-N1: add_points 契约仅 flush（切片 §5 注记 2 —
+                # "commit 由调用方收口"），缺此收口则 match +5 积分与自动打卡
+                # 随 session 结束回滚丢失
+                await db.commit()
             except Exception as e:
                 logger.error("gamification_add_points_match_failed", extra={
                     "error": str(e), "match_id": match_id

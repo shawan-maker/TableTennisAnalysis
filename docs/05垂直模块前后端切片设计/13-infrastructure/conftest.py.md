@@ -1,8 +1,9 @@
-﻿# 共享测试 Fixture �?conftest.py
+﻿# 共享测试 Fixture — conftest.py
 
 > **模块名称**：`infrastructure / conftest`
-> **定位**：所有垂直切片测试的公共 fixture �?setup/teardown 逻辑
-> **依据**：INF-3 �?统一测试基础设施，消除各切片重复定义�?fixture
+> **定位**：所有垂直切片测试的公共 fixture 与 setup/teardown 逻辑
+> **依据**：INF-3 — 统一测试基础设施，消除各切片重复定义的 fixture
+> **P3 文档重建（R14）**：本文件原有 61 处历史性 U+FFFD 编码损坏（UTF-8 中文/标点/换行被截断为乱码并发生行粘连，非契约变更），Round 14 已按 13-infrastructure 同构文档（pytest_config.md / ws_manager.md）+ 实际实现逐行重建，未变更任何契约语义。
 
 ---
 
@@ -10,10 +11,10 @@
 
 | 目标 | 说明 |
 |------|------|
-| 统一 fixture | 所有切片测试共�?`client`、`auth_user`、`db_session`、`mock_redis`、`admin_user` |
-| 异步支持 | 基于 `pytest-asyncio`，所�?async fixture 自动注入事件循环 |
-| 隔离�?| 每个测试用例独立数据库会�?+ 独立 Redis mock，互不污�?|
-| 快速回�?| 使用内存 SQLite + fakeredis，无需外部依赖 |
+| 统一 fixture | 所有切片测试共享 `client`、`auth_user`、`db_session`、`mock_redis`、`admin_user` |
+| 异步支持 | 基于 `pytest-asyncio`，所有 async fixture 自动注入事件循环 |
+| 隔离性 | 每个测试用例独立数据库会话 + 独立 Redis mock，互不污染 |
+| 快速反馈 | 使用内存 SQLite + fakeredis，无需外部依赖 |
 
 ---
 
@@ -21,8 +22,9 @@
 
 ```python
 # tests/conftest.py
-"""共享测试 fixture �?所有垂直切片测试公共基础设施�?
-依赖�?  - pytest-asyncio
+"""共享测试 fixture — 所有垂直切片测试公共基础设施。
+依赖：
+  - pytest-asyncio
   - httpx (用于 AsyncClient)
   - fakeredis
   - factory-boy (可选，生成测试数据)
@@ -43,35 +45,37 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """会话级事件循环，所�?async fixture 共享�?""
+    """会话级事件循环，所有 async fixture 共享。"""
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
 
 # ---------------------------------------------------------------------------
-# 2. 应用实例（每次测试新建，保证隔离�?# ---------------------------------------------------------------------------
+# 2. 应用实例（每次测试新建，保证隔离）
+# ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
 async def app():
-    """创建 FastAPI 应用实例，覆盖依赖项�?""
+    """创建 FastAPI 应用实例，覆盖依赖项。"""
     # 延迟导入，避免在收集阶段加载
     from app.main import create_app
 
     application = create_app()
 
-    # 覆盖 get_redis �?mock_redis
+    # 覆盖 get_redis 为 mock_redis
     mock_redis = MockRedis()
     application.dependency_overrides = _build_override_map(mock_redis)
 
     yield application
 
-    # teardown：清理覆�?    application.dependency_overrides.clear()
+    # teardown：清理覆盖
+    application.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture
 async def client(app) -> AsyncGenerator[AsyncClient, None]:
-    """异步 HTTP 测试客户端�?
+    """异步 HTTP 测试客户端。
     用法::
 
         async def test_something(client):
@@ -89,8 +93,9 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
 
 @pytest_asyncio.fixture
 async def auth_user():
-    """模拟已认证普通用户�?
-    返回 UserDTO，含 id=1001, role=user, tier=pro�?    """
+    """模拟已认证普通用户。
+    返回 UserDTO，含 id=1001, role=user, tier=pro。
+    """
     return {
         "id": 1001,
         "username": "test_user",
@@ -105,19 +110,21 @@ async def auth_user():
 
 @pytest_asyncio.fixture
 async def auth_headers(auth_user):
-    """携带普通用�?JWT 的请求头�?""
+    """携带普通用户 JWT 的请求头。"""
     from app.core.security import create_access_token
     token = create_access_token({"sub": str(auth_user["id"]), "role": auth_user["role"]})
     return {"Authorization": f"Bearer {token}"}
 
 
 # ---------------------------------------------------------------------------
-# 4. 模拟管理员用�?# ---------------------------------------------------------------------------
+# 4. 模拟管理员用户
+# ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
 async def admin_user():
-    """模拟已认证管理员用户�?
-    返回 UserDTO，含 id=1, role=admin, tier=pro�?    """
+    """模拟已认证管理员用户。
+    返回 UserDTO，含 id=1, role=admin, tier=pro。
+    """
     return {
         "id": 1,
         "username": "admin",
@@ -131,7 +138,7 @@ async def admin_user():
 
 @pytest_asyncio.fixture
 async def admin_headers(admin_user):
-    """携带管理�?JWT 的请求头�?""
+    """携带管理员 JWT 的请求头。"""
     from app.core.security import create_access_token
     token = create_access_token({"sub": str(admin_user["id"]), "role": admin_user["role"]})
     return {"Authorization": f"Bearer {token}"}
@@ -143,8 +150,8 @@ async def admin_headers(admin_user):
 
 @pytest_asyncio.fixture
 async def db_session():
-    """模拟数据库会话�?
-    - 使用内存 SQLite，表结构�?alembic 迁移�?metadata.create_all 创建
+    """模拟数据库会话。
+    - 使用内存 SQLite，表结构无 alembic 迁移，由 metadata.create_all 创建
     - 每个测试结束后事务回滚，保证数据隔离
     """
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -156,7 +163,8 @@ async def db_session():
 
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
-        # 注入到依赖覆�?        with patch("app.core.database.get_async_session", return_value=_async_gen(session)):
+        # 注入到依赖覆盖
+        with patch("app.core.database.get_async_session", return_value=_async_gen(session)):
             yield session
 
     await engine.dispose()
@@ -167,7 +175,7 @@ async def db_session():
 # ---------------------------------------------------------------------------
 
 class MockRedis:
-    """轻量 Redis mock，支�?get/set/setex/delete/exists 等常用操作�?""
+    """轻量 Redis mock，支持 get/set/setex/delete/exists 等常用操作。"""
 
     def __init__(self):
         self._store: dict[bytes, bytes] = {}
@@ -231,7 +239,7 @@ class MockRedis:
         return val
 
     async def hset(self, name: str, key=None, value=None, mapping=None):
-        """支持单字�?(key, value) 和批�?mapping={field: val} 两种形式�?""
+        """支持单字段 (key, value) 和批量 mapping={field: val} 两种形式。"""
         count = 0
         if mapping:
             for field, val in mapping.items():
@@ -342,8 +350,9 @@ class MockPubSub:
 
 @pytest_asyncio.fixture
 async def mock_redis():
-    """模拟 Redis 客户端�?
-    每个测试获取独立实例，互不污染�?    """
+    """模拟 Redis 客户端。
+    每个测试获取独立实例，互不污染。
+    """
     redis = MockRedis()
     yield redis
     redis._store.clear()
@@ -354,14 +363,14 @@ async def mock_redis():
 # ---------------------------------------------------------------------------
 
 def pytest_configure(config):
-    """全局 setup：在测试收集完成后、执行前运行�?""
+    """全局 setup：在测试收集完成后、执行前运行。"""
     # 标记 async 测试模式
     config.addinivalue_line("markers", "integration: marks integration tests")
     config.addinivalue_line("markers", "slow: marks slow tests")
 
 
 def pytest_sessionstart(session):
-    """会话开始时初始化�?""
+    """会话开始时初始化。"""
     # 可在此处加载 .env.test 环境变量
     import os
     os.environ.setdefault("TESTING", "1")
@@ -370,17 +379,17 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """会话结束时清理�?""
+    """会话结束时清理。"""
     pass
 
 
 async def _async_gen(session):
-    """将同�?session 包装为异步生成器（兼�?FastAPI Depends）�?""
+    """将同一 session 包装为异步生成器（兼容 FastAPI Depends）。"""
     yield session
 
 
 def _build_override_map(mock_redis: "MockRedis") -> dict:
-    """构建 FastAPI 依赖覆盖映射�?""
+    """构建 FastAPI 依赖覆盖映射。"""
     from app.core.database import get_async_session
     from app.core.redis import get_redis
 
@@ -394,10 +403,10 @@ def _build_override_map(mock_redis: "MockRedis") -> dict:
 
 ---
 
-## 3. 各切片使用示�?
+## 3. 各切片使用示例
 ```python
 # tests/test_match_scoring.py
-"""比赛记分切片测试 �?使用共享 fixture�?""
+"""比赛记分切片测试 — 使用共享 fixture。"""
 
 import pytest
 
@@ -405,10 +414,10 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestMatchScoring:
-    """比赛记分 API 测试�?""
+    """比赛记分 API 测试。"""
 
     async def test_create_match(self, client, auth_headers, db_session):
-        """创建比赛 �?返回 201 + match_id�?""
+        """创建比赛 — 返回 201 + match_id。"""
         resp = await client.post(
             "/api/v1/matches",
             json={"opponent": "player_b", "score": "11:7"},
@@ -420,7 +429,7 @@ class TestMatchScoring:
     async def test_get_overview_readonly(
         self, client, auth_headers, mock_redis
     ):
-        """降级用户只读检�?(TD-2) �?设置降级标记后返回简化数据�?""
+        """降级用户只读检查 (TD-2) — 设置降级标记后返回简化数据。"""
         await mock_redis.set("downgrade:report:readonly:1001", "1")
         resp = await client.get(
             "/api/v1/dashboard/overview",
@@ -434,7 +443,7 @@ class TestMatchScoring:
 
 ## 4. 依赖说明
 
-| 依赖 | 版本 | 用�?|
+| 依赖 | 版本 | 用途 |
 |------|------|------|
 | pytest | >=7.4 | 测试框架 |
 | pytest-asyncio | >=0.23 | 异步测试支持 |
@@ -447,5 +456,6 @@ class TestMatchScoring:
 ## 5. 约定
 
 1. **所有切片测试统一 import**：`from tests.conftest import *`（可选）
-2. **fixture 命名**：保�?`client`、`auth_user`、`auth_headers`、`admin_user`、`admin_headers`、`db_session`、`mock_redis` 不可�?3. **新增 fixture**：切片级 fixture 放各切片 `conftest.py`，公�?fixture 放此文件
-4. **禁止**在切片测试中重复定义上述 5 个公�?fixture
+2. **fixture 命名**：保留 `client`、`auth_user`、`auth_headers`、`admin_user`、`admin_headers`、`db_session`、`mock_redis` 不可变
+3. **新增 fixture**：切片级 fixture 放各切片 `conftest.py`，公共 fixture 放此文件
+4. **禁止**在切片测试中重复定义上述 5 个公共 fixture

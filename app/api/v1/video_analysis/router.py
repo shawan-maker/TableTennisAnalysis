@@ -12,10 +12,8 @@ import json as _json
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
-from app.core.database import get_db
 from app.core.limiter import RateLimits, limiter
 from app.core.response import success
 from app.models.user import User
@@ -66,7 +64,7 @@ async def confirm_upload(
 # =============================================================================
 
 @router.post("/tasks", summary="创建分析任务")
-@limiter.limit("10/hour")
+@limiter.limit(RateLimits.AI_ANALYSIS)
 async def create_task(
     body: CreateTaskRequest,
     request: Request,
@@ -172,7 +170,7 @@ async def get_annotated_video(
 
 
 @router.post("/reports/{report_id}/share", summary="创建分享")
-@limiter.limit("5/day")
+@limiter.limit(RateLimits.SHARE)
 async def create_share(
     report_id: int,
     request: Request,

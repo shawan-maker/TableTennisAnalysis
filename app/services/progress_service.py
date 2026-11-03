@@ -15,7 +15,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, ERR_METRIC_NOT_FOUND
 from app.core.redis import get_redis
 from app.models.progress import ProgressSnapshot, TechniqueTrend
 from app.models.video_analysis import AnalysisReport, VideoTask
@@ -398,8 +398,10 @@ class ProgressService:
     @staticmethod
     async def get_technique_trend_detail(user_id: int, metric: str) -> Optional[dict]:
         # R6-Prog-2: 仅当指标名不在 METRIC_DEFINITIONS 时返回 404；有效指标无趋势数据返回 null 字段
+        # R14-B4-1: code 40420 → 40415（原 40420 与 training"训练方案不存在"
+        # 双义冲突 — API §1.8 全局命名空间要求业务 code 唯一）
         if metric not in METRIC_DEFINITIONS:
-            raise AppException("指标不存在", 404, code=40420)
+            raise AppException("指标不存在", 404, code=ERR_METRIC_NOT_FOUND)
 
         redis = await get_redis()
         cache_key = f"progress:trend_detail:{user_id}:{metric}"

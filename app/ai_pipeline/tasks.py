@@ -14,9 +14,8 @@ import time
 from celery import shared_task
 from sqlalchemy import update
 
-from app.core.config import settings
 from app.core.database import async_session_factory
-from app.models.video_analysis import AnalysisReport, PipelineStep, VideoTask
+from app.models.video_analysis import AnalysisReport, VideoTask
 from app.ai_pipeline.circuit_breaker import AICircuitBreaker
 from app.ai_pipeline.progress import ProgressTracker
 from app.ai_pipeline.report_generator import ReportGenerator
@@ -111,7 +110,13 @@ async def run_pipeline_async(task_id: int, oss_key: str) -> None:
     await _exec_step(task_id, 10, "annotated_video",
                      lambda: _mock_step_10(oss_key=oss_key), step_results)
 
-    # 更新报告标注视频 URL + 任务完成
+    # 更新报告标注视频 URL
+    # R14-AIP-N1: 状态转换单点收口移交 on_task_complete —— 原实现此处先行
+    # transition_task_status("completed") 后，on_task_complete 内部二次转换被
+    # TASK_TRANSITIONS["completed"]=set()（终态空集）拒绝 → allowed=False →
+    # 提前 return → R13-AIP-2 完成通知分支（在线 WS / 离线 DB 落库）永不可达。
+    # 移除此处转换后，on_task_complete 成为唯一的 processing→completed 转换点，
+    # 通知分支恢复可达。
     async with async_session_factory() as db:
         mock_url = step_results.get(10, {}).get("annotated_video_url", "")
         await db.execute(
@@ -119,12 +124,9 @@ async def run_pipeline_async(task_id: int, oss_key: str) -> None:
             .where(AnalysisReport.task_id == task_id)
             .values(annotated_video_url=mock_url)
         )
-        # R12-VA-2: processing → completed 需状态机校验
-        from app.ai_pipeline.progress import transition_task_status
-        await transition_task_status(db, task_id, "completed")
         await db.commit()
 
-    # WS 推送完成
+    # WS 推送完成（on_task_complete 内单点完成状态转换 + 通知）
     await ProgressTracker.on_task_complete(task_id, report_id)
 
 
@@ -155,11 +157,14 @@ def run_pipeline(self, task_id: int, oss_key: str):
             raise
 
 
-async def _refund_free_quota(user_id: int) -> None:
+async def _refund_free_quota(user_id: int, task_id: int | None = None) -> None:
     """
-    R12-AIPipeline-2: 退还免费额度（分析最终失败时调用）——Redis DECR。
+    R12-AIPipeline-2: 退还分析额度（分析最终失败时调用）。
 
-    设计 ai_pipeline.md §refund_free_quota：current > 0 才 DECR，防止负计数。
+    R14-Pay-N1: 按 quota:src:{task_id} 标记退还对应来源额度 —
+    "bonus"（付费分析包）→ INCR quota:bonus:{uid}；
+    "free"/无标记 → DECR quota:analysis:{uid}:{yyyymmdd}（原语义）。
+    退还后标记改写为墓碑 "refunded"（R14-Pay-N1-d1 幂等收口）。
     使用 CST（UTC+8）日期 key，与 _check_free_quota 预扣键一致。
     """
     from datetime import datetime, timedelta, timezone
@@ -167,6 +172,36 @@ async def _refund_free_quota(user_id: int) -> None:
     from app.core.redis import get_redis
 
     redis = await get_redis()
+
+    # R14-Pay-N1: 读取额度消耗来源标记；退还后改写为墓碑标记 "refunded"
+    # （保留 TTL），二次调用命中墓碑直接返回 —— 幂等防跨池双退
+    # （R14-Pay-N1-d1：原 getdel 即删方案下，"已退还"与"无标记历史任务"
+    # 不可区分，bonus 任务的二次退款会误走 free 回退扣减日额度）。
+    # 顺序双调幂等；并发双调窗口极小（读-判-写非原子），可接受。
+    source = None
+    if task_id is not None:
+        marker_key = f"quota:src:{task_id}"
+        raw = await redis.get(marker_key)
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="replace")
+        if raw == "refunded":
+            logger.info(
+                "quota_refund_skipped",
+                extra={"user_id": user_id, "task_id": task_id, "reason": "already_refunded"},
+            )
+            return
+        source = raw
+
+    if task_id is not None:
+        # 墓碑标记先行：本调用无论走 bonus/free 哪条路径都视为"已处理"
+        await redis.set(marker_key, "refunded", ex=86400)
+
+    if source == "bonus":
+        bonus_key = f"quota:bonus:{user_id}"
+        await redis.incr(bonus_key)
+        logger.info("bonus_quota_refunded", extra={"user_id": user_id, "task_id": task_id})
+        return
+
     tz_cst = timezone(timedelta(hours=8))
     today = datetime.now(tz_cst).strftime("%Y%m%d")
     key = f"quota:analysis:{user_id}:{today}"
@@ -199,10 +234,11 @@ async def _mark_task_failed(task_id: int, error: str, user_id: int | None = None
                 await db.flush()
         await db.commit()
 
-    # 退还免费额度：仅在本次实际完成状态转换时执行（防重复退还）
+    # 退还分析额度：仅在本次实际完成状态转换时执行（防重复退还）
     if allowed and user_id is not None:
         try:
-            await _refund_free_quota(user_id)
+            # R14-Pay-N1: 传入 task_id 按消耗来源（free/bonus）退还对应额度
+            await _refund_free_quota(user_id, task_id=task_id)
         except Exception as quota_err:
             # 退额度失败不阻塞失败标记流程（记日志便于补偿）
             logger.error(

@@ -64,6 +64,10 @@ ERR_MATCH_NOT_FOUND = 40411     # 比赛不存在
 ERR_REPORT_NOT_FOUND = 40412    # 分析报告不存在
 ERR_RECORD_NOT_FOUND = 40413    # 比赛记录不存在
 ERR_SHARE_TOKEN_INVALID = 40414  # 分享 Token 无效或已过期
+# R14-B4-1: 40415 进度指标不存在（原 progress 使用 40420 与 training
+# "训练方案不存在"同码双义冲突 — 前端按 code 差异化提示必错；training
+# 域 40420/40421/40422 语义保持不变）
+ERR_METRIC_NOT_FOUND = 40415    # 技术指标不存在（progress_analysis）
 ERR_MATCH_STATE_CONFLICT = 40910  # 比赛不在进行中
 ERR_CONFLICT = 40900               # 资源冲突（重复创建/状态冲突）
 ERR_RECORD_LINKED = 40911        # 比赛记录已关联记分牌

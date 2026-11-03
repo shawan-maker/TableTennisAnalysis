@@ -7,20 +7,14 @@ tests/integration/test_cascade_chains.py — 跨模块级联链集成测试
 
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone, timedelta
 
 from app.core.security import create_access_token, generate_jti
 from app.core.database import async_session_factory
-from app.models.user import User
 from app.models.match import Match, ScoreRecord, MatchStatistic
 from app.models.gamification import UserPoints
-from app.models.payment import Order, PaymentRecord
-from app.models.membership import Subscription, MembershipTierConfig
+from app.models.membership import Subscription
 from app.models.admin import AdminUser
 from app.core.security import pwd_context
-from app.services.payment_service import PaymentService
-from app.services.membership_service import MembershipService
-from app.services.gamification_service import GamificationService
 from sqlalchemy import select
 
 
@@ -177,23 +171,45 @@ class TestMatchCascade:
         match_data = resp.json()["data"]
         match_id = match_data.get("id") or match_data.get("match_id")
 
+        # R14-ND-1: 原测试未调用 start（score/finish 均因 status=setup 被 409
+        # 拒绝），流程实际未走通 + 恒真断言掩盖；补全合法状态流转
+        resp = await client.post(
+            f"/api/v1/scoring/matches/{match_id}/start",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200, f"start 失败: {resp.text}"
+
         await client.post(
             f"/api/v1/scoring/matches/{match_id}/score",
             json={"scorer": "user", "score_method": "serve_point"},
             headers=auth_headers,
         )
-        await client.post(
+        resp = await client.post(
             f"/api/v1/scoring/matches/{match_id}/finish",
             headers=auth_headers,
         )
+        assert resp.status_code == 200, f"finish 失败: {resp.text}"
 
         async with async_session_factory() as verify_session:
             result = await verify_session.execute(
                 select(UserPoints).where(UserPoints.user_id == test_user.id)
             )
             points = result.scalar_one_or_none()
-            if points:
-                assert points.total_points >= 0
+            # R14-ND-1: 原断言 if points: assert points.total_points >= 0 为恒真
+            # （UserPoints 行不存在时静默跳过 — 正是 R14-Gam-N1 调用方缺 commit
+            # 收口的后果），无法发现积分链路失效；改为严格断言：
+            # 比赛结束后必须存在积分行且 total_points 含 match 事件分值（+5）
+            assert points is not None, (
+                "比赛结束后应存在 UserPoints 行 — add_points 调用方缺 commit 收口"
+                "（R14-Gam-N1）或积分级聤断裂"
+            )
+            assert points.total_points >= 5, (
+                f"比赛结束积分应含 match +5，实际 total_points={points.total_points}"
+            )
+            # match 事件自动打卡（_auto_checkin）也应落库
+            assert points.current_streak >= 1, (
+                "match 事件应触发自动打卡（current_streak >= 1）"
+            )
 
 
 @pytest.mark.asyncio
@@ -333,7 +349,12 @@ class TestCeleryBeatTasks:
 
         防止 beat_schedule 引用了未定义/未导入的任务（运行期 UnknownTaskError）。
         app/tasks/__init__.py 显式导入全部任务模块，注册表应全覆盖。
+
+        R14-Test-N1: 显式 import app.tasks 保证隔离运行确定性 — 原实现依赖
+        同文件其他测试类顶部 import 的级联副作用触发任务注册（autodiscover
+        惰性导入），单跑本测试类时 1 failed / 整文件跑 28 passed。
         """
+        import app.tasks  # noqa: F401 — 显式触发任务模块注册
         from app.core.celery import celery_app
 
         beat = self._get_beat_schedule()

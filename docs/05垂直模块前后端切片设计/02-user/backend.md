@@ -715,12 +715,25 @@ class UserService:
 
     @staticmethod
     async def cancel_deletion(user: User, db: AsyncSession) -> dict:
-        """撤销用户注销申请（72h 冷静期内）。API §3.10。"""
+        """撤销用户注销申请（72h 冷静期内）。API §3.10 业务规则 3。"""
         if user.status != "pending_deletion":
             raise AppException("无待执行的注销申请", 409)
         user.status = "active"
         user.scheduled_deletion_at = None
         user.deletion_reason = None
+
+        # R14-User-2: 撤销注销审计日志（API §3.10 业务规则 3 — 用户侧操作，
+        # admin_id 为空）
+        from app.models.admin import AuditLog
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="account_deletion_cancelled",
+                target_type="user",
+                target_id=user.id,
+                detail="用户在 72h 冷静期内撤销注销申请",
+            )
+        )
         await db.commit()
         return {"status": "active", "cancelled_at": datetime.now(timezone.utc).isoformat()}
 
@@ -1073,8 +1086,13 @@ if __name__ == "__main__":
 
 ```python
 # app/tasks/user.py（P3 文档同步：注册名 app.tasks.user.process_account_deletions；
-# 当前实现为 async _run_async 简化版 — 扫描到期账户后置 status="deleted"，
-# 下方 BR-4 七步级联为设计目标样例，级联细节由实现侧补齐）
+# R14-User-1 补齐 BR-4 七步级联（原实现仅置 status="deleted"）。下方样例为同步
+# Session 形态设计稿，实现为 async _run_async + update() 语句，实现侧差异：
+# ① 唯一部分索引释放 — phone/openid 置 null 使已注销手机号/微信号可重新注册；
+# ② 订阅取消仅限非终态 active/expiring_soon/grace_period（样例含 cancelled，
+#    实现不回退终态）；③ Redis 清理键为 big_data:user:{uid} / notif:unread:{uid}
+#    （清理失败仅 warning，不回滚匿名化）；④ 审计日志已写入（用户侧操作，
+#    admin_id 为空）；⑤ 注销标记字段置 None（样例为拼接保留原始原因））
 """用户模块 Celery 任务。"""
 from datetime import datetime, timezone
 from celery import shared_task
@@ -1167,17 +1185,16 @@ def process_account_deletions():
             user.scheduled_deletion_at = None
             user.deletion_reason = f"已物理删除，原始原因: {user.deletion_reason or 'N/A'}"
 
-            # 7. 清理 Redis 缓存
-            redis.delete(f"user:profile:{user.id}")
-            redis.delete(f"user:big_data:{user.id}")
-            redis.delete(f"ws:user:{user.id}")
+            # 7. 清理 Redis 缓存（R14-User-1 实现：big_data:user / notif:unread）
+            redis.delete(f"big_data:user:{user.id}")
+            redis.delete(f"notif:unread:{user.id}")
 
             processed += 1
 
         db.commit()
 
-        # 8. 记录审计日志（通过 admin 模块的 AuditLog）
-        # admin 模块 Phase 2 实现后接入：app.tasks.audit.log_action(action="batch_delete", target_type="user", target_count=processed)
+            # 8. 记录审计日志（R14-User-1 已实现：AuditLog(user_id, action="account_deleted",
+            # target_type="user", target_id=user.id)——用户侧操作，admin_id 为空）
 
         return {"processed": processed, "message": f"Deleted {processed} accounts"}
 

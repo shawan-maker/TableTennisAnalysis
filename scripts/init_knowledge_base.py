@@ -135,7 +135,13 @@ async def init_knowledge_base():
 
         # 2. 写入问题条目（按 title + category 幂等）
         for prob_data in PROBLEMS:
-            category_code = prob_data.pop("category_code")
+            # R14-KB-1: 原实现 pop("category_code") 原地删除破坏模块级常量
+            # PROBLEMS → 同进程第二次调用 init_knowledge_base() 在 pop 处抛
+            # KeyError（幂等性失效，在跳过逻辑之前中断）；改为读取后按需构造
+            category_code = prob_data["category_code"]
+            entry_data = {
+                k: v for k, v in prob_data.items() if k != "category_code"
+            }
             cat = await db.scalar(
                 select(KnowledgeCategory).where(
                     KnowledgeCategory.code == category_code
@@ -145,12 +151,12 @@ async def init_knowledge_base():
                 continue
             existing = await db.scalar(
                 select(KnowledgeEntry).where(
-                    KnowledgeEntry.title == prob_data["title"],
+                    KnowledgeEntry.title == entry_data["title"],
                     KnowledgeEntry.category_id == cat.id,
                 )
             )
             if not existing:
-                db.add(KnowledgeEntry(category_id=cat.id, **prob_data))
+                db.add(KnowledgeEntry(category_id=cat.id, **entry_data))
                 stats["entries"] += 1
             else:
                 stats["skipped"] += 1
