@@ -1,0 +1,109 @@
+/* 比赛统计页样式（04-scoring/frontend.md §5.3） */
+.match-stats {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+}
+
+.result-card {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  text-align: center;
+  margin-bottom: var(--spacing-md);
+
+  .result-title {
+    display: block;
+    font-size: var(--fs-h2);
+    font-weight: bold;
+    margin-bottom: var(--spacing-sm);
+
+    &.win {
+      color: var(--color-success);
+    }
+
+    &.lose {
+      color: var(--color-warning);
+    }
+  }
+
+  .result-score {
+    display: block;
+    font-size: var(--fs-h1);
+    font-weight: bold;
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .result-opponent {
+    display: block;
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+  }
+}
+
+.stats-section {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-sm-md);
+
+  .section-title {
+    display: block;
+    font-size: var(--fs-body);
+    font-weight: bold;
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-sm-md);
+  }
+}
+
+.dist-count {
+  font-size: var(--fs-title);
+  font-weight: bold;
+  color: var(--color-accent);
+}
+
+.key-point-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm-md);
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  .kp-seq {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+    min-width: 32px;
+  }
+
+  .kp-winner {
+    font-size: var(--fs-small);
+    font-weight: bold;
+    min-width: 48px;
+
+    &.user {
+      color: var(--color-primary);
+    }
+
+    &.opponent {
+      color: var(--color-secondary);
+    }
+  }
+
+  .kp-score {
+    font-size: var(--fs-small);
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+}
+
+.total-points {
+  text-align: center;
+  padding: var(--spacing-md);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}

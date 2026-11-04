@@ -1,0 +1,178 @@
+/* 详细录入页样式（05-match_data/frontend.md §5.2） */
+.detailed-entry {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: 0 var(--spacing-md);
+}
+
+.entry-header {
+  padding: var(--spacing-lg) 0 var(--spacing-md);
+
+  .entry-title {
+    display: block;
+    font-size: var(--fs-h2);
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+
+  .entry-desc {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+  }
+}
+
+.cell-input {
+  width: 180px;
+  text-align: right;
+}
+
+.picker-value {
+  color: var(--color-text-primary);
+  font-size: var(--fs-body);
+}
+
+/* 当前比分条 */
+.current-score-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm-md) var(--spacing-md);
+  background: var(--color-card);
+  border-radius: var(--radius-sm);
+  margin: var(--spacing-md) 0;
+
+  .current-label {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+  }
+
+  .current-score {
+    font-size: var(--fs-h2);
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+}
+
+/* 添加得分按钮 */
+.add-score-buttons {
+  display: flex;
+  gap: var(--spacing-sm-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.btn-add {
+  flex: 1;
+  height: 80px !important;
+  font-size: var(--fs-title) !important;
+  font-weight: bold !important;
+  border-radius: var(--radius-md) !important;
+}
+
+.btn-add-user {
+  background: var(--color-primary) !important;
+  color: var(--color-text-inverse) !important;
+}
+
+.btn-add-opp {
+  background: var(--color-secondary) !important;
+  color: var(--color-text-inverse) !important;
+}
+
+/* 得分明细列表 */
+.detail-list {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+
+  .detail-list-title {
+    display: block;
+    font-size: var(--fs-body);
+    font-weight: bold;
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-sm-md);
+  }
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm-md);
+  padding: var(--spacing-sm) var(--spacing-xs);
+  border-bottom: 1px solid var(--color-divider);
+
+  .detail-seq {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+    min-width: 32px;
+  }
+
+  .detail-scorer {
+    font-size: var(--fs-small);
+    font-weight: bold;
+    min-width: 48px;
+
+    &.user {
+      color: var(--color-primary);
+    }
+
+    &.opponent {
+      color: var(--color-secondary);
+    }
+  }
+
+  .detail-method {
+    font-size: var(--fs-small);
+    color: var(--color-text-primary);
+  }
+
+  .detail-technique {
+    font-size: var(--fs-caption);
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+  }
+}
+
+/* 左滑删除按钮 */
+.btn-swipe-delete {
+  height: 100% !important;
+  border-radius: 0 !important;
+}
+
+.method-sheet {
+  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xl);
+
+  .method-title {
+    display: block;
+    font-size: var(--fs-body);
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-md);
+  }
+}
+
+.method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm-md);
+}
+
+.btn-method {
+  border-radius: var(--radius-sm) !important;
+}
+
+.entry-actions {
+  margin-top: var(--spacing-lg);
+  padding-bottom: var(--spacing-md);
+
+  :global(.nut-button.primary) {
+    background: var(--color-primary);
+    border-radius: var(--radius-md);
+    height: 48px;
+    font-size: var(--fs-title);
+  }
+}

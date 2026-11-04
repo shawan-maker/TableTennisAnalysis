@@ -1,0 +1,109 @@
+/* 比赛记录列表页样式（05-match_data/frontend.md §5.3） */
+.record-list {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+}
+
+.list-header {
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.list-skeleton {
+  padding: var(--spacing-md) 0;
+}
+
+.filter-bar {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+
+  .filter-tag {
+    flex: 1;
+    text-align: center;
+    padding: var(--spacing-sm) 0;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-small);
+    background: var(--color-card);
+    color: var(--color-text-secondary);
+
+    &.active {
+      background: var(--color-primary);
+      color: var(--color-text-inverse);
+    }
+  }
+}
+
+.record-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm-md);
+}
+
+.record-card {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm-md);
+
+    .card-opponent {
+      font-size: var(--fs-body);
+      font-weight: bold;
+      color: var(--color-text-primary);
+    }
+
+    .card-result {
+      font-size: var(--fs-caption);
+      padding: var(--spacing-xs) var(--spacing-sm-md);
+      border-radius: var(--radius-md);
+      font-weight: bold;
+
+      &.win {
+        background: var(--color-success);
+        color: var(--color-text-inverse);
+      }
+
+      &.lose {
+        background: var(--color-warning);
+        color: var(--color-text-inverse);
+      }
+    }
+  }
+
+  .card-bottom {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm-md);
+
+    .card-score {
+      font-size: var(--fs-h2);
+      font-weight: bold;
+      color: var(--color-primary);
+    }
+
+    .card-format {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+
+    .card-date {
+      margin-left: auto;
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+  }
+}
+
+.load-more {
+  text-align: center;
+  padding: var(--spacing-md);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}

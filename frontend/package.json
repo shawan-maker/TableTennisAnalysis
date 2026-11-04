@@ -18,7 +18,8 @@
     "dev:weapp": "npm run build:weapp -- --watch",
     "build:h5": "taro build --type h5",
     "dev:h5": "npm run build:h5 -- --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
   },
   "browserslist": [
     "defaults and fully supports es6-module",
@@ -52,13 +53,16 @@
     "@tarojs/plugin-generator": "4.3.2",
     "@tarojs/taro-loader": "4.3.2",
     "@tarojs/webpack5-runner": "4.3.2",
+    "@types/jest": "^29.5.14",
     "@types/node": "^18",
     "@types/react": "^18.0.0",
     "@types/webpack-env": "^1.13.6",
     "babel-preset-taro": "4.3.2",
+    "jest": "^29.7.0",
     "postcss": "^8.5.6",
     "react-refresh": "^0.14.0",
     "sass": "^1.75.0",
+    "ts-jest": "^29.4.15",
     "tsconfig-paths-webpack-plugin": "^4.1.0",
     "typescript": "^5.4.5",
     "webpack": "5.91.0"

@@ -20,6 +20,29 @@
 
 ## 2. API Service 模块
 
+> **R-FS2-P3 端点口径同步**：本节及 §1 前置检查单所写「7 个端点」为 v0 口径。
+> 后端 `app/api/v1/scoring/router.py` 实际提供 **10 个端点**，多出 3 个状态机动作端点
+> （X-21/X-26：`setup → in_progress`、`in_progress → finished`、`in_progress → abandoned`、
+> `abandoned → in_progress` 24h 恢复窗口）。前端 `services/scoring.ts` 已按 10 端点全量镜像：
+>
+> ```typescript
+> /** 开始比赛（setup → in_progress；score 端点要求 in_progress，记分页进入时自动调用，X-21） */
+> export function startMatch(id: number) {
+>   return request.post(`/scoring/matches/${id}/start`)
+> }
+> /** 放弃比赛（in_progress → abandoned，记分页 action bar 按钮，X-26） */
+> export function abandonMatch(id: number) {
+>   return request.post(`/scoring/matches/${id}/abandon`)
+> }
+> /** 恢复比赛（abandoned → in_progress，24h 窗口内） */
+> export function resumeMatch(id: number) {
+>   return request.post(`/scoring/matches/${id}/resume`)
+> }
+> ```
+>
+> 派生口径：statistics 端点要求 `status === 'finished'`，比赛列表对 `abandoned` 比赛路由到
+> 记分页（提供恢复入口）而非统计页。
+
 ```typescript
 // frontend/src/services/scoring.ts
 import request from './request'
@@ -1347,6 +1370,11 @@ export const MATCH_STATUS_MAP: Record<string, { labelKey: string; color: string 
 
 ## 8. WebSocket 订阅 Hook
 
+> **R-FS2-P3 契约同步**：本节样例的订阅消息 `{ event: 'join', room: 'ws:match:{id}' }` 为 v0 假想协议。
+> 后端 `app/api/v1/ws.py` receive_loop 实际协议为 `{ event: 'subscribe', match_id: <int> }`，
+> 订阅成功后服务端自动推送 `subscribed` ack + `sync_match` 全量同步（R12-SC-2），断连重连补偿由该链路承担。
+> 已按后端实现落地（见 frontend/src/hooks/useMatchSync.ts 的 buildSubscribeMessage）。
+
 ```typescript
 // frontend/src/hooks/useMatchSync.ts
 import { useEffect } from 'react'
@@ -1362,10 +1390,10 @@ export function useMatchSync(matchId: number | null) {
   const { fetchMatch } = useScoringStore()
   const { sendMessage, isConnected, onMessage } = useWebSocket()
 
-  // 连接就绪后加入比赛房间
+  // 连接就绪后订阅比赛频道（R-FS2-P3：后端 subscribe 协议，非 join/room）
   useEffect(() => {
     if (!matchId || !isConnected) return
-    sendMessage(JSON.stringify({ event: 'join', room: `ws:match:${matchId}` }))
+    sendMessage(JSON.stringify({ event: 'subscribe', match_id: matchId }))
   }, [matchId, isConnected, sendMessage])
 
   // 监听比分更新与全量同步消息

@@ -1,16 +1,22 @@
 /**
  * useWebSocket — 统一 WebSocket Hook（总览 §3.3/§3.6）
  *
- * - 连接地址：buildWsUrl(token)（wss://api.pingpongai.com/ws?token=xxx，开发环境 ws://localhost:8000/ws）
+ * - 连接地址：buildWsUrl()（wss://api.pingpongai.com/ws / ws://localhost:8000/ws）
+ * - 认证：Sec-WebSocket-Protocol 子协议 `jwt.{access_token}`（API §14.1 P2 安全合规；
+ *   Token 不进 URL，避免日志/代理缓存/Referer 泄露；后端 ws.py Step 0 实现一致）
  * - 指数退避重连：1 → 2 → 4 → 8 → 16s，最大 5 次（禁止固定间隔）
- * - 30s 心跳 ping 维持连接活性
+ * - 30s 心跳 ping 维持连接活性；pong 返回 token_expired=true 时自动刷新 Token 并重建连接（API §14.2）
  * - 重连成功后回调 onReconnect() 拉取断连期间错过的消息
  *
  * weapp 端无全局 WebSocket，使用 Taro.connectSocket（SocketTask）屏蔽端差异；
  * H5 端 Taro.connectSocket 同样返回 Promise<SocketTask>，行为一致。
+ *
+ * FS2-P3 契约同步：FS1 初版 buildWsUrl(token) 构造 `?token=` 查询参数，
+ * 与 API §14.1（P2 修改：URL Query → Sec-WebSocket-Protocol 子协议）不符，本 FS2 修正。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
+import { useAuthStore } from '@/stores/authStore'
 
 const RECONNECT_DELAYS = [1, 2, 4, 8, 16] // 秒，指数退避
 
@@ -26,10 +32,9 @@ export interface UseWebSocketOptions {
   onReconnect?: () => void
 }
 
-/** 构造 WS 连接地址 */
-export function buildWsUrl(token: string): string {
-  const base = process.env.TARO_APP_WS || 'wss://api.pingpongai.com/ws'
-  return `${base}?token=${token}`
+/** 构造 WS 连接地址（Token 不进 URL，走 Sec-WebSocket-Protocol 子协议，API §14.1） */
+export function buildWsUrl(): string {
+  return process.env.TARO_APP_WS || 'wss://api.pingpongai.com/ws'
 }
 
 export function useWebSocket(url: string | null, options: UseWebSocketOptions = {}) {
@@ -61,9 +66,12 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
   const connect = useCallback(() => {
     const url = urlRef.current
     if (!url) return
+    // Sec-WebSocket-Protocol 子协议认证（API §14.1 P2 / 后端 ws.py Step 0）
+    const token = Taro.getStorageSync('access_token')
+    if (!token) return // 无 Token 不连接，由登录流程就绪后重建
     manualCloseRef.current = false
     // Taro.connectSocket 返回 Promise<SocketTask>（weapp/H5 行为一致）
-    const taskPromise: Promise<any> = Taro.connectSocket({ url })
+    const taskPromise: Promise<any> = Taro.connectSocket({ url, protocols: [`jwt.${token}`] })
     socketTaskRef.current = taskPromise
 
     taskPromise
@@ -99,6 +107,25 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
             msg = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
           } catch {
             msg = { raw: res.data }
+          }
+          // API §14.2：pong 返回 token_expired=true 时前端需刷新 Token 并重建连接
+          if (msg.event === 'pong' && msg.data?.token_expired) {
+            useAuthStore
+              .getState()
+              .refreshAccessToken()
+              .then((ok) => {
+                if (!ok) return // 刷新失败：401 拦截器负责跳登录
+                manualCloseRef.current = true
+                try {
+                  task.close({})
+                } catch {
+                  // 忽略
+                }
+                manualCloseRef.current = false
+                reconnectAttemptRef.current = 0
+                connectRef.current() // 以新 Token 重连
+              })
+            return
           }
           optionsRef.current.onMessage?.(msg)
         })

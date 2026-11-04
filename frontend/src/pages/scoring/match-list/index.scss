@@ -1,0 +1,129 @@
+/* 比赛列表页样式（04-scoring/frontend.md §5.4） */
+.match-list {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+}
+
+.list-header {
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.list-skeleton {
+  padding: var(--spacing-md) 0;
+}
+
+.filter-bar {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  overflow-x: auto;
+
+  .filter-tag {
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-small);
+    background: var(--color-card);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+
+    &.active {
+      background: var(--color-primary);
+      color: var(--color-text-inverse);
+    }
+  }
+}
+
+.match-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm-md);
+}
+
+.match-card {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm-md);
+
+    .card-opponent {
+      font-size: var(--fs-body);
+      font-weight: bold;
+      color: var(--color-text-primary);
+    }
+
+    .card-status {
+      font-size: var(--fs-caption);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--radius-sm);
+    }
+
+    .status-in_progress {
+      background: var(--color-success);
+      color: var(--color-text-inverse);
+    }
+
+    .status-finished {
+      background: var(--color-secondary);
+      color: var(--color-text-inverse);
+    }
+
+    .status-setup {
+      background: var(--color-accent);
+      color: var(--color-text-inverse);
+    }
+
+    .status-abandoned {
+      background: var(--color-divider);
+      color: var(--color-text-secondary);
+    }
+  }
+
+  .card-bottom {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm-md);
+
+    .card-score {
+      font-size: var(--fs-h2);
+      font-weight: bold;
+      color: var(--color-primary);
+    }
+
+    .card-result {
+      font-size: var(--fs-caption);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--radius-sm);
+
+      &.win {
+        background: var(--color-success);
+        color: var(--color-text-inverse);
+      }
+
+      &.lose {
+        background: var(--color-warning);
+        color: var(--color-text-inverse);
+      }
+    }
+
+    .card-date {
+      margin-left: auto;
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+  }
+}
+
+.load-more {
+  text-align: center;
+  padding: var(--spacing-md);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}

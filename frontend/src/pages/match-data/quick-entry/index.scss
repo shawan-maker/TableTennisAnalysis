@@ -1,0 +1,95 @@
+/* 快速录入页样式（05-match_data/frontend.md §5.1） */
+.quick-entry {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: 0 var(--spacing-md);
+}
+
+.entry-header {
+  padding: var(--spacing-lg) 0 var(--spacing-md);
+
+  .entry-title {
+    display: block;
+    font-size: var(--fs-h2);
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+
+  .entry-desc {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+  }
+}
+
+/* Cell 右侧输入框 */
+.cell-input {
+  width: 180px;
+  text-align: right;
+}
+
+.picker-value {
+  color: var(--color-text-primary);
+  font-size: var(--fs-body);
+}
+
+/* 比分输入区 */
+.score-input-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg) var(--spacing-md);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  margin: var(--spacing-md) 0;
+}
+
+.score-input-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .score-input-label {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .score-input-number {
+    width: 80px;
+    height: 64px;
+    text-align: center;
+    font-size: var(--fs-h1);
+    font-weight: bold;
+    color: var(--color-primary);
+    border: 2px solid var(--color-divider);
+    border-radius: var(--radius-sm);
+  }
+}
+
+.score-input-colon {
+  font-size: var(--fs-h1);
+  font-weight: bold;
+  color: var(--color-text-secondary);
+}
+
+.entry-actions {
+  margin-top: var(--spacing-lg);
+  padding-bottom: var(--spacing-md);
+
+  :global(.nut-button.primary) {
+    background: var(--color-primary);
+    border-radius: var(--radius-md);
+    height: 48px;
+    font-size: var(--fs-title);
+  }
+}
+
+.entry-switch {
+  text-align: center;
+  padding: var(--spacing-md);
+  color: var(--color-secondary);
+  font-size: var(--fs-small);
+}

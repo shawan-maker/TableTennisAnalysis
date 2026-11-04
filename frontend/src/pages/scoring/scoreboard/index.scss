@@ -1,0 +1,148 @@
+/* 实时记分页样式（04-scoring/frontend.md §5.2，核心 — 大按钮单手操作） */
+.scoreboard {
+  min-height: 100vh;
+  background: var(--color-background);
+  display: flex;
+  flex-direction: column;
+}
+
+/* WS 断线横幅 */
+.ws-banner {
+  padding: var(--spacing-sm);
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
+  text-align: center;
+  font-size: var(--fs-caption);
+}
+
+/* 比分显示区 */
+.score-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg) var(--spacing-md);
+  background: var(--color-card);
+}
+
+.score-side {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+
+  .score-name {
+    font-size: var(--fs-body);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .score-number {
+    font-size: var(--fs-h1);
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+
+  .server-badge {
+    position: absolute;
+    top: 0;
+    font-size: var(--fs-title);
+  }
+}
+
+.score-user .score-number {
+  color: var(--color-primary);
+}
+
+.score-opp .score-number {
+  color: var(--color-secondary);
+}
+
+.score-vs {
+  .vs-text {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+    font-weight: bold;
+  }
+}
+
+/* 大按钮记分区 */
+.score-buttons {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm-md);
+  padding: var(--spacing-md);
+}
+
+/* P3-fix: accessibility requirement ≥120px for single-hand operation, not spacing */
+.btn-score {
+  height: 120px !important;
+  font-size: var(--fs-h2) !important;
+  font-weight: bold !important;
+  border-radius: var(--radius-md) !important;
+}
+
+.btn-user {
+  background: var(--color-primary) !important;
+  color: var(--color-text-inverse) !important;
+}
+
+.btn-opp {
+  background: var(--color-secondary) !important;
+  color: var(--color-text-inverse) !important;
+}
+
+/* 操作按钮区 */
+.action-bar {
+  display: flex;
+  gap: var(--spacing-sm-md);
+  padding: var(--spacing-md);
+  padding-bottom: var(--spacing-xl);
+}
+
+.btn-action {
+  flex: 1;
+  border-radius: var(--radius-md) !important;
+}
+
+.btn-finish {
+  background: var(--color-accent) !important;
+  color: var(--color-text-inverse) !important;
+}
+
+.btn-abandon {
+  background: var(--color-card) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+/* 得分方式弹窗 */
+.method-sheet {
+  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xl);
+
+  .method-title {
+    display: block;
+    font-size: var(--fs-body);
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-md);
+  }
+}
+
+.method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm-md);
+}
+
+.btn-method {
+  border-radius: var(--radius-sm) !important;
+}
+
+.dialog-desc {
+  display: block;
+  font-size: var(--fs-body);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  padding: var(--spacing-sm) 0;
+}

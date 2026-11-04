@@ -19,6 +19,23 @@
 
 ## 2. API Service 模块
 
+> **R-FS2-P3 端点口径同步**：本节及 §1 前置检查单所写「3 个端点」为 v0 口径。
+> 后端 `app/api/v1/match_data/router.py` 实际提供 **4 个端点**，多出更新端点（R12-MatchData-B1），
+> 前端 `services/matchData.ts` 已按 4 端点全量镜像：
+>
+> ```typescript
+> /**
+> * 更新记录（可改对手/比分/备注）。is_win 由服务端按新比分重算，禁止前端提交
+> （R12-MatchData-B1）。
+> */
+> export function updateRecord(id: number, params: MatchRecordUpdateParams) {
+>   return request.patch(`/match-data/records/${id}`, params)
+> }
+> ```
+>
+> 本 Sprint 交付的 4 个页面（快速录入/详细录入/记录列表/记录详情）暂不提供编辑入口，
+> updateRecord 供 FS5 训练报告修正与 FS6 数据管理编辑复用。
+
 ```typescript
 // frontend/src/services/matchData.ts
 import request from './request'

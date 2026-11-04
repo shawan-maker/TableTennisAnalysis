@@ -1,0 +1,39 @@
+/* 比赛设置页样式（04-scoring/frontend.md §5.1） */
+.match-setup {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: 0 var(--spacing-md);
+}
+
+.setup-header {
+  padding: var(--spacing-lg) 0 var(--spacing-md);
+
+  .setup-title {
+    font-size: var(--fs-h2);
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+}
+
+/* Cell 右侧输入框（NutUI 2.x Cell children 渲染于右侧槽位） */
+.cell-input {
+  width: 180px;
+  text-align: right;
+}
+
+.picker-value {
+  color: var(--color-text-primary);
+  font-size: var(--fs-body);
+}
+
+.setup-actions {
+  margin-top: var(--spacing-xl);
+  padding-bottom: var(--spacing-xl);
+
+  :global(.nut-button.primary) {
+    background: var(--color-primary);
+    border-radius: var(--radius-sm);
+    height: 48px;
+    font-size: var(--fs-title);
+  }
+}
