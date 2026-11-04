@@ -1,0 +1,55 @@
+// frontend/src/pages/onboarding/profile/index.scss（14-tab-pages/onboarding.md §4 StepProfile.scss）
+.step-profile {
+  padding: var(--spacing-md);
+  background: var(--color-background);
+  min-height: 100vh;
+}
+
+.form-section {
+  margin-bottom: var(--spacing-md);
+
+  .form-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .form-input {
+    width: 100%;
+    height: 44px;
+    padding: 0 var(--spacing-md);
+    background: var(--color-card);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    color: var(--color-text-primary);
+    box-sizing: border-box;
+  }
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+
+  .chip {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-card);
+    border: 2px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--color-text-primary);
+
+    &.active {
+      background: rgba(230, 57, 70, 0.1);
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+    }
+  }
+}
+
+.submit-btn {
+  margin-top: var(--spacing-lg);
+}

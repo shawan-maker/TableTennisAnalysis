@@ -1,0 +1,123 @@
+// frontend/src/pages/user/big-data/index.scss（02-user/frontend.md §5）
+.big-data-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm-md);
+
+  .stat-card {
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg) var(--spacing-md);
+    text-align: center;
+    box-shadow: var(--shadow-card);
+
+    .stat-value {
+      display: block;
+      font-size: 32px;
+      font-weight: bold;
+      color: var(--color-secondary);
+    }
+
+    .stat-label {
+      display: block;
+      margin-top: var(--spacing-xs);
+      font-size: 13px;
+      color: var(--color-text-secondary);
+    }
+
+    &.highlight .stat-value {
+      color: var(--color-primary);
+    }
+  }
+}
+
+.indirect-section {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm-md);
+
+    .title-icon {
+      font-size: 18px;
+    }
+  }
+
+  .indirect-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+
+    .indirect-chip {
+      padding: var(--spacing-xs) var(--spacing-sm-md);
+      background: var(--color-accent);
+      color: var(--color-text-inverse);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+    }
+  }
+
+  .indirect-desc {
+    display: block;
+    margin-top: var(--spacing-sm);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+}
+
+/* 最常用技术卡片（设计样式段未含，按设计系统规范补写） */
+.favorite-shot-section {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm-md);
+  }
+
+  .favorite-shot-card {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--color-background);
+    border-radius: var(--radius-sm);
+
+    .shot-icon {
+      font-size: 24px;
+    }
+
+    .shot-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--color-primary);
+    }
+  }
+}

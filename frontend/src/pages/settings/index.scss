@@ -1,0 +1,154 @@
+// frontend/src/pages/settings/index.scss（14-tab-pages/settings.md §3）
+.settings-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding-bottom: var(--spacing-lg);
+}
+
+.settings-section {
+  margin-top: var(--spacing-md);
+
+  .section-title {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    margin: 0 var(--spacing-md) var(--spacing-sm);
+  }
+
+  .settings-group {
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin: 0 var(--spacing-md);
+    box-shadow: var(--shadow-card);
+
+    .settings-cell {
+      &:active {
+        background: var(--color-press-overlay, rgba(0, 0, 0, 0.02));
+      }
+    }
+  }
+}
+
+/* 注销冷静期横幅 */
+.deletion-cooling-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+  background: rgba(230, 57, 70, 0.06);
+  border-bottom: 1px solid var(--color-divider);
+
+  .banner-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex: 1;
+
+    .banner-icon {
+      font-size: 18px;
+    }
+
+    .banner-text {
+      font-size: 13px;
+      color: var(--color-primary);
+      font-weight: 500;
+    }
+  }
+}
+
+/* 弹窗公共 */
+.popup-header {
+  text-align: center;
+  margin-bottom: var(--spacing-md);
+
+  .popup-title {
+    display: block;
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--color-text-primary);
+  }
+}
+
+.popup-actions {
+  padding: var(--spacing-sm) 0 var(--spacing-xs);
+}
+
+/* 注销确认弹窗内容 */
+.deletion-dialog-content {
+  padding: var(--spacing-xs) 0;
+
+  .deletion-warning {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .deletion-cooling-hint {
+    display: block;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .deletion-reason-section {
+    .reason-label {
+      display: block;
+      font-size: 13px;
+      color: var(--color-text-primary);
+      margin-bottom: var(--spacing-sm);
+    }
+
+    .reason-placeholder {
+      display: block;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      font-style: italic;
+    }
+  }
+}
+
+/* 数据导出弹窗内容 */
+.export-dialog-content {
+  padding: var(--spacing-xs) 0;
+
+  .export-desc {
+    display: block;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin-bottom: var(--spacing-sm-md);
+  }
+
+  .export-status {
+    display: block;
+    font-size: 13px;
+    color: var(--color-text-primary);
+  }
+
+  .export-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+
+    .export-status-text {
+      font-size: 13px;
+      color: var(--color-text-primary);
+    }
+
+    .export-ready {
+      font-size: 13px;
+      color: var(--color-success);
+      font-weight: 600;
+    }
+
+    .export-retry {
+      font-size: 13px;
+      color: var(--color-primary);
+    }
+  }
+}

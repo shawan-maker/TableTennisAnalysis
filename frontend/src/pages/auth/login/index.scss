@@ -1,0 +1,94 @@
+// frontend/src/pages/auth/login/index.scss（01-auth/frontend.md §5）
+.login-page {
+  min-height: 100vh;
+  padding: 0 var(--spacing-xl);
+  background: var(--color-background);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-header {
+  margin-top: var(--spacing-2xl); /* P3-fix: 120px→48px (--spacing-2xl) */
+  text-align: center;
+
+  .login-title {
+    display: block;
+    font-size: 32px;
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+
+  .login-subtitle {
+    display: block;
+    margin-top: var(--spacing-sm);
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.login-wechat {
+  margin-top: var(--spacing-2xl);
+  width: 100%;
+
+  .btn-wechat {
+    background: var(--color-success);
+    color: var(--color-text-inverse);
+    border-radius: var(--radius-sm);
+    height: 48px;
+    font-size: 15px;
+  }
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  margin: var(--spacing-xl) 0;
+  width: 100%;
+
+  .divider-line {
+    flex: 1;
+    height: 1px;
+    background: var(--color-divider);
+  }
+
+  .divider-text {
+    padding: 0 var(--spacing-md);
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.login-phone {
+  width: 100%;
+
+  .sms-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm-md);
+  }
+
+  .btn-phone {
+    margin-top: var(--spacing-lg);
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+    border-radius: var(--radius-sm);
+    height: 48px;
+    font-size: 15px;
+  }
+}
+
+.login-agreement {
+  margin-top: auto;
+  margin-bottom: var(--spacing-2xl);
+  text-align: center;
+  font-size: 12px;
+
+  .agreement-text {
+    color: var(--color-text-secondary);
+  }
+
+  .agreement-link {
+    color: var(--color-primary);
+  }
+}

@@ -1,0 +1,81 @@
+/**
+ * 全局样式入口 — 设计系统 CSS 变量唯一权威定义（总览 §3.2）
+ *
+ * 规则：
+ * - 所有模块 SCSS 禁止重复定义 :root 变量，仅通过 var(--*) 引用
+ * - weapp 端不存在 :root 选择器，使用 page 选择器兜底；H5 端 :root 生效
+ * - designWidth=375：编译时 1 设计 px = 2rpx = 1 逻辑 px，与 H5 视觉一致
+ */
+:root,
+page {
+  /* ===== 色彩（12）===== */
+  --color-primary: #E63946;        /* 主色（红色） */
+  --color-secondary: #1D3557;     /* 深蓝 */
+  --color-secondary-dark: #11243A; /* 深蓝暗色（渐变/悬停态） */
+  --color-accent: #F4A261;         /* 橙黄 */
+  --color-success: #2A9D8F;       /* 成功/绿色 */
+  --color-danger: #E63946;         /* 危险/红色，与 --color-primary 一致 */
+  --color-warning: #F4A261;       /* 警告/橙色，与 --color-accent 一致 */
+  --color-background: #F8F9FA;     /* 页面背景 */
+  --color-card: #FFFFFF;           /* 卡片背景 */
+  --color-text-primary: #1D3557;  /* 主要文字 */
+  --color-text-secondary: #6C757D;/* 次要文字 */
+  --color-text-inverse: #FFFFFF;  /* 反色文字（深色背景上的白色文字） */
+  --color-text-inverse-secondary: rgba(255, 255, 255, 0.6); /* 反色次要文字 */
+  --color-text-inverse-tertiary: rgba(255, 255, 255, 0.3); /* 反色装饰/边框 */
+  --color-divider: #E9ECEF;       /* 分割线 */
+  --color-press-overlay: rgba(0, 0, 0, 0.02); /* 按压态遮罩 */
+
+  /* ===== 圆角（3）===== */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* ===== 阴影（2）===== */
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06); /* 卡片阴影（DS-017） */
+  --shadow-card-top: 0 -2px 8px rgba(0, 0, 0, 0.06); /* 顶部反向阴影（R19-P3-1） */
+
+  /* ===== 字号（6，R19-P3-3；规范值集 {12,13,15,18,24,32}px）===== */
+  --fs-caption: 12px;   /* 辅助文字、标签 */
+  --fs-small: 13px;     /* 次要正文 */
+  --fs-body: 15px;      /* 主正文 */
+  --fs-title: 18px;     /* 小标题 */
+  --fs-h2: 24px;        /* 二级标题 */
+  --fs-h1: 32px;        /* 一级标题 */
+
+  /* ===== 间距（8px 网格）===== */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-sm-md: 12px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+}
+
+/* ===== NutUI 品牌色对齐（主色 #E63946，覆盖 NutUI 默认红梯度）===== */
+:root,
+page {
+  --nutui-brand-stop-1: #E63946;
+  --nutui-brand-stop-2: #D42F3B;
+  --nutui-color-primary: #E63946;
+  --nutui-color-primary-pressed: #C42D39;
+  --nutui-color-primary-disabled: #F0A9AE;
+  --nutui-color-primary-light: #FDEEEF;
+  --nutui-color-primary-text: #FFFFFF;
+}
+
+/* ===== 全局基础样式 ===== */
+page {
+  background: var(--color-background);
+  color: var(--color-text-primary);
+  font-size: var(--fs-body);
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  line-height: 1.5;
+}
+
+view,
+text {
+  box-sizing: border-box;
+}

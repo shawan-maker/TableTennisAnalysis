@@ -1,0 +1,55 @@
+// frontend/src/pages/onboarding/components/ActionGuideCard.scss（14-tab-pages/onboarding.md §4）
+.action-guide-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--spacing-lg);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  margin: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .guide-icon-row {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(230, 57, 70, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: var(--spacing-md);
+
+    .guide-icon {
+      font-size: 32px;
+    }
+  }
+
+  .guide-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm);
+    text-align: center;
+  }
+
+  .guide-desc {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    text-align: center;
+    line-height: 1.5;
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .guide-actions {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+
+    .guide-skip {
+      font-size: 13px;
+      color: var(--color-text-secondary);
+    }
+  }
+}

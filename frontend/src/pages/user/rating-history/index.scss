@@ -1,0 +1,121 @@
+// frontend/src/pages/user/rating-history/index.scss
+// （02-user/frontend.md §4.4 无独立样式段，按设计系统规范补写）
+.rating-history-page {
+  min-height: 100vh;
+  background: var(--color-background);
+}
+
+.chart-section {
+  margin: var(--spacing-sm-md) var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm-md);
+  }
+}
+
+.chart-container {
+  padding: var(--spacing-sm) 0;
+}
+
+.svg-wrapper {
+  display: flex;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+}
+
+.chart-axis-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: var(--spacing-xs) 0;
+
+  .axis-label {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.chart-plot {
+  position: relative;
+  flex: 1;
+  height: 180px;
+  background: var(--color-background);
+  border-radius: var(--radius-sm);
+
+  .chart-point {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    margin-left: -3px;
+    margin-top: -3px;
+    background: var(--color-primary);
+    border-radius: 50%;
+
+    .point-value {
+      position: absolute;
+      top: -16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      white-space: nowrap;
+    }
+  }
+}
+
+.history-list-section {
+  margin: var(--spacing-sm-md) var(--spacing-md) var(--spacing-xl);
+  padding: var(--spacing-md);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm-md);
+  }
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm-md) 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  .item-info {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-sm);
+
+    .item-rating {
+      font-size: 18px;
+      font-weight: bold;
+      color: var(--color-secondary);
+    }
+
+    .item-source {
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+  }
+
+  .item-date {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+}

@@ -1,0 +1,79 @@
+// frontend/src/pages/onboarding/components/HomeTourOverlay.scss（14-tab-pages/onboarding.md §4）
+.home-tour-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6); /* 蒙层遮罩，非交互元素专用 */
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: auto;
+}
+
+.tour-spot {
+  position: absolute;
+  display: flex;
+  align-items: center;
+
+  &.tour-top { top: 15%; left: 50%; transform: translateX(-50%); }
+  &.tour-center { top: 45%; left: 50%; transform: translateX(-50%); }
+  &.tour-bottom { top: 70%; left: 50%; transform: translateX(-50%); }
+
+  .tour-highlight {
+    width: 80vw;
+    height: 60px;
+    border: 2px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.6); /* 蒙层遮罩，非交互元素专用 */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .tour-tooltip {
+    position: relative;
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    width: 280px;
+    margin-top: var(--spacing-2xl); /* P3-fix: 70px→48px (--spacing-2xl) */
+    box-shadow: var(--shadow-card);
+
+    .tour-title {
+      display: block;
+      font-size: 15px;
+      font-weight: bold;
+      color: var(--color-primary);
+      margin-bottom: var(--spacing-xs);
+    }
+
+    .tour-desc {
+      display: block;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      line-height: 1.5;
+    }
+  }
+}
+
+.tour-actions {
+  position: absolute;
+  bottom: var(--spacing-lg);
+  right: var(--spacing-md);
+  display: flex;
+  gap: var(--spacing-md);
+
+  .tour-skip {
+    font-size: 13px;
+    color: var(--color-text-inverse-secondary);
+    padding: var(--spacing-sm);
+  }
+
+  .tour-next {
+    font-size: 13px;
+    color: var(--color-primary);
+    font-weight: 600;
+    padding: var(--spacing-sm);
+  }
+}

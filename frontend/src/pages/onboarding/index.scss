@@ -1,0 +1,64 @@
+// frontend/src/pages/onboarding/index.scss（14-tab-pages/onboarding.md §4）
+.onboarding-container {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.onboarding-popup {
+  padding: var(--spacing-lg) var(--spacing-md);
+
+  .popup-header {
+    text-align: center;
+    margin-bottom: var(--spacing-md);
+
+    .popup-title {
+      display: block;
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--color-primary);
+    }
+
+    .popup-subtitle {
+      display: block;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      margin-top: var(--spacing-xs);
+    }
+  }
+
+  .step-detail {
+    background: var(--color-background);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin: var(--spacing-md) 0;
+
+    .step-detail-title {
+      display: block;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: var(--spacing-xs);
+    }
+
+    .step-detail-desc {
+      display: block;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      line-height: 1.5;
+    }
+  }
+
+  .popup-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+
+    .skip-link {
+      font-size: 13px;
+      color: var(--color-text-secondary);
+    }
+  }
+}
