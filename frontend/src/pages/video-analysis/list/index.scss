@@ -1,0 +1,106 @@
+/* 报告列表页样式（03-video_analysis/frontend.md §5.4） */
+.report-list-page {
+  min-height: 100vh;
+  height: 100vh;
+  background: var(--color-background);
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+
+  .page-title {
+    font-size: var(--fs-title);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .page-count {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-xl) var(--spacing-md);
+
+  :global(.nut-button.primary) {
+    margin-top: var(--spacing-md);
+  }
+}
+
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm-md);
+  padding: 0 var(--spacing-md) var(--spacing-md);
+}
+
+.report-card {
+  display: flex;
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+
+  .report-cover {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+  }
+
+  .report-cover-placeholder {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--color-secondary) 10%, transparent);
+    font-size: 24px;
+  }
+
+  .report-info {
+    flex: 1;
+    padding: var(--spacing-sm-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+
+    .report-date {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+
+    /* P3 修正：numberOfLines（RN）→ CSS line-clamp 两行截断 */
+    .report-summary {
+      font-size: var(--fs-small);
+      color: var(--color-text-primary);
+      flex: 1;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ai-tag {
+      align-self: flex-start;
+      font-size: var(--fs-caption);
+      color: var(--color-accent);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+      border-radius: var(--radius-sm);
+    }
+  }
+}
+
+.load-more {
+  text-align: center;
+  padding: var(--spacing-md);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}

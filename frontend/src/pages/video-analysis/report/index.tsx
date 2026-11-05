@@ -1,9 +1,309 @@
 /**
- * 分析报告（video-analysis 域占位页）
- * 完整版将在 FS3 交付（04-前端实施计划.md §4.2 模块交付矩阵）
+ * 分析报告详情页（03-video_analysis/frontend.md §4.3）
+ * 指标卡 + 落点九宫格热图 + 技术动作环形图（CSS conic-gradient 实现）+ 球速 +
+ * 分析结论 + 视频回放 + is_correct 反馈（数据飞轮）+ 分享
+ *
+ * FS3-P3 契约修正：
+ * - 技术环形图以 conic-gradient 实现（设计样例 clipPath polygon 为同弧度模板，
+ *   多分段数学不正确）；中心挖洞用内层圆形 View
+ * - NutUI 2.7.14 文本域组件为 TextArea（设计样例 Textarea 为 1.x 命名）
+ * - is_readonly（会员到期降级，R15）展示分支归 FS6 会员 Sprint 消费
  */
-import PagePlaceholder from '@/components/PagePlaceholder'
+import { useEffect, useState } from 'react'
+import Taro, { useRouter } from '@tarojs/taro'
+import { View, Text, ScrollView, Video } from '@tarojs/components'
+import { Button, Toast, Popup, Skeleton, TextArea } from '@nutui/nutui-react'
+import { useVideoAnalysisStore } from '@/stores/videoAnalysisStore'
+import { useTranslation } from 'react-i18next'
+import './index.scss'
 
-export default function VideoReport() {
-  return <PagePlaceholder module="video-analysis" sprint="FS3" />
+export default function ReportPage() {
+  const { t } = useTranslation()
+  const router = useRouter()
+  const reportId = parseInt((router.params.report_id || '0') as string, 10)
+  const reportDetail = useVideoAnalysisStore((s) => s.reportDetail)
+  const feedbackSubmitted = useVideoAnalysisStore((s) => s.feedbackSubmitted)
+  const fetchReportDetail = useVideoAnalysisStore((s) => s.fetchReportDetail)
+  const submitFeedback = useVideoAnalysisStore((s) => s.submitFeedback)
+  const createShare = useVideoAnalysisStore((s) => s.createShare)
+
+  const [toastVisible, setToastVisible] = useState(false)
+  const [toastMsg, setToastMsg] = useState('')
+  const [feedbackPopupVisible, setFeedbackPopupVisible] = useState(false)
+  const [feedbackComment, setFeedbackComment] = useState('')
+
+  useEffect(() => {
+    if (reportId) fetchReportDetail(reportId)
+  }, [reportId, fetchReportDetail])
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg)
+    setToastVisible(true)
+  }
+
+  /** 提交反馈 */
+  const handleFeedback = async (isCorrect: boolean) => {
+    try {
+      await submitFeedback(reportId, isCorrect, feedbackComment || undefined)
+      setFeedbackPopupVisible(false)
+      showToast(isCorrect ? t('analysis.feedbackCorrect') : t('analysis.feedbackIncorrect'))
+    } catch (err: any) {
+      showToast(err?.message || t('common.operationFailed'))
+    }
+  }
+
+  /** 分享报告（share_url 复制到剪贴板） */
+  const handleShare = async () => {
+    try {
+      const { share_url } = await createShare(reportId)
+      Taro.setClipboardData({ data: share_url })
+      showToast(t('analysis.shareLinkCopied'))
+    } catch (err: any) {
+      showToast(err?.message || t('common.operationFailed'))
+    }
+  }
+
+  if (!reportDetail || reportDetail.id !== reportId) {
+    return (
+      <View className="report-loading">
+        <Skeleton rows={3} animated />
+      </View>
+    )
+  }
+
+  const result = reportDetail.result_data
+  const reportText = reportDetail.report_text
+  const landing = result?.landing_points
+  const techniques = result?.technique_stats
+  const ballSpeed = result?.ball_speed
+  const rally = result?.rally_analysis
+
+  // 九宫格热图颜色深浅（主色 #E63946 RGB，JS 无法读 CSS 变量）
+  const PRIMARY_RGB = '230, 57, 70'
+  const maxLanding = landing ? Math.max(...landing.nine_grid.flat()) : 1
+  const getHeatColor = (val: number) => {
+    const ratio = maxLanding > 0 ? val / maxLanding : 0
+    const alpha = 0.2 + ratio * 0.8
+    return `rgba(${PRIMARY_RGB}, ${alpha})`
+  }
+
+  // 技术统计环形图（conic-gradient 分段 + 内圆挖洞）
+  const techniqueTotal = techniques
+    ? Object.values(techniques).reduce((a, b) => a + b, 0)
+    : 1
+  const SEGMENT_COLORS = [
+    'var(--color-primary)',
+    'var(--color-secondary)',
+    'var(--color-accent)',
+    'var(--color-success)',
+  ]
+  const buildDonutGradient = (stats: Record<string, number>): string => {
+    let acc = 0
+    const stops: string[] = []
+    Object.values(stats).forEach((val, idx) => {
+      const pct = (val / techniqueTotal) * 100
+      // 显式色值百分比插值（conic-gradient 变量在 weapp WebView 支持不稳，改用固定色板）
+      const colorHex = ['#E63946', '#2A9D8F', '#F4A261', '#457B9D'][idx % 4]
+      stops.push(`${colorHex} ${acc}%, ${colorHex} ${acc + pct}%`)
+      acc += pct
+    })
+    return `conic-gradient(${stops.join(', ')})`
+  }
+
+  return (
+    <ScrollView scrollY className="report-page">
+      {/* 报告头部 */}
+      <View className="report-header">
+        <Text className="report-date">
+          {reportDetail.created_at ? new Date(reportDetail.created_at).toLocaleDateString() : ''}
+          {reportDetail.is_llm_generated && <Text className="llm-tag">{t('analysis.aiGenerated')}</Text>}
+        </Text>
+        {result?.video_info && (
+          <Text className="video-info">
+            {t('analysis.duration')}: {Math.floor(result.video_info.duration_sec / 60)}'
+            {result.video_info.duration_sec % 60}"
+          </Text>
+        )}
+      </View>
+
+      {/* 核心数据卡片 */}
+      <View className="core-data-section">
+        <View className="data-card">
+          <Text className="data-value">{rally?.total_rallies || 0}</Text>
+          <Text className="data-label">{t('analysis.totalRallies')}</Text>
+        </View>
+        <View className="data-card">
+          <Text className="data-value">{rally?.avg_rally_length?.toFixed(1) || '0'}</Text>
+          <Text className="data-label">{t('analysis.avgRallyLength')}</Text>
+        </View>
+        <View className="data-card">
+          <Text className="data-value">{rally?.max_rally_length || 0}</Text>
+          <Text className="data-label">{t('analysis.maxRallyLength')}</Text>
+        </View>
+      </View>
+
+      {/* 落点九宫格热图 */}
+      {landing && (
+        <View className="heatmap-section">
+          <View className="section-title">{t('analysis.landingDistribution')}</View>
+          <View className="heatmap-grid" role="img" aria-label={t('analysis.landingDistribution')}>
+            {landing.nine_grid.map((row, ri) =>
+              row.map((val, ci) => (
+                <View
+                  key={`${ri}-${ci}`}
+                  className="heatmap-cell"
+                  style={{ background: getHeatColor(val) }}
+                >
+                  <Text className="cell-value">{val}</Text>
+                </View>
+              ))
+            )}
+          </View>
+          {/* R23-P2-1：仅传入 forehand 参数（资源文件无 {{side}} 占位符） */}
+          <Text className="heatmap-hint">
+            {t('analysis.landingHint', {
+              forehand: ((landing.distribution.forehand || 0) * 100).toFixed(0),
+            })}
+          </Text>
+        </View>
+      )}
+
+      {/* 技术动作环形图 */}
+      {techniques && (
+        <View className="technique-section">
+          <View className="section-title">{t('analysis.techniqueDistribution')}</View>
+          <View className="technique-chart">
+            <View
+              className="donut-chart"
+              style={{ background: buildDonutGradient(techniques) }}
+              role="img"
+              aria-label={t('analysis.techniqueDistribution')}
+            >
+              <View className="donut-hole" />
+            </View>
+            <View className="technique-legend">
+              {Object.entries(techniques).map(([key, val], idx) => {
+                const pct = ((val / techniqueTotal) * 100).toFixed(0)
+                return (
+                  <View key={key} className="legend-item">
+                    <View
+                      className="legend-dot"
+                      style={{ background: SEGMENT_COLORS[idx % SEGMENT_COLORS.length] }}
+                    />
+                    <Text className="legend-label">{t(`technique.${key}`)}</Text>
+                    <Text className="legend-value">{pct}%</Text>
+                  </View>
+                )
+              })}
+            </View>
+          </View>
+          {reportText && reportText.issues.length > 0 && (
+            <Text className="technique-hint">{reportText.issues[0]}</Text>
+          )}
+        </View>
+      )}
+
+      {/* 球速数据（范围值） */}
+      {ballSpeed && (
+        <View className="ball-speed-section">
+          <View className="section-title">{t('analysis.ballSpeed')}</View>
+          <View className="speed-display">
+            <Text className="speed-range">
+              {ballSpeed.speed_range[0].toFixed(1)} - {ballSpeed.speed_range[1].toFixed(1)}
+            </Text>
+            <Text className="speed-unit">m/s</Text>
+          </View>
+          <Text className="speed-hint">{t('analysis.speedHint')}</Text>
+        </View>
+      )}
+
+      {/* 分析结论 */}
+      {reportText && (
+        <View className="conclusion-section">
+          <View className="section-title">{t('analysis.conclusion')}</View>
+          <View className="conclusion-content">
+            <Text className="conclusion-summary">{reportText.summary}</Text>
+            {reportText.issues.length > 0 && (
+              <View className="issues-list">
+                <Text className="issues-title">{t('analysis.issues')}</Text>
+                {reportText.issues.map((issue, idx) => (
+                  <Text key={idx} className="issue-item">• {issue}</Text>
+                ))}
+              </View>
+            )}
+          </View>
+          {reportText.suggestions.length > 0 && (
+            <View className="suggestions-list">
+              <Text className="suggestions-title">{t('analysis.suggestions')}</Text>
+              {reportText.suggestions.map((suggestion, idx) => (
+                <Text key={idx} className="suggestion-item">• {suggestion}</Text>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* 视频回放 */}
+      {reportDetail.annotated_video_url && (
+        <View className="video-section">
+          <View className="section-title">{t('analysis.videoPlayback')}</View>
+          <Video
+            src={reportDetail.annotated_video_url}
+            controls
+            autoplay={false}
+            className="annotated-video"
+          />
+        </View>
+      )}
+
+      {/* 反馈区域（is_correct 数据飞轮；is_readonly 展示分支归 FS6 会员 Sprint） */}
+      <View className="feedback-section">
+        {feedbackSubmitted ? (
+          <Text className="feedback-done">{t('analysis.feedbackSubmitted')}</Text>
+        ) : (
+          <>
+            <Text className="feedback-title">{t('analysis.feedbackPrompt')}</Text>
+            <View className="feedback-buttons">
+              <Button type="success" onClick={() => handleFeedback(true)}>
+                👍 {t('analysis.accurate')}
+              </Button>
+              <Button type="danger" onClick={() => setFeedbackPopupVisible(true)}>
+                👎 {t('analysis.inaccurate')}
+              </Button>
+            </View>
+          </>
+        )}
+      </View>
+
+      {/* 底部操作 */}
+      <View className="bottom-actions">
+        <Button type="primary" block onClick={handleShare}>
+          {t('analysis.shareReport')}
+        </Button>
+      </View>
+
+      {/* 反馈弹窗（部分不准 → 补充说明） */}
+      <Popup
+        visible={feedbackPopupVisible}
+        position="bottom"
+        onClose={() => setFeedbackPopupVisible(false)}
+      >
+        <View className="feedback-popup">
+          <Text className="popup-title">{t('analysis.feedbackDetail')}</Text>
+          <TextArea
+            placeholder={t('analysis.feedbackPlaceholder')}
+            value={feedbackComment}
+            onChange={(val: string) => setFeedbackComment(val)}
+            maxLength={500}
+            className="feedback-textarea"
+          />
+          <Button type="primary" block onClick={() => handleFeedback(false)}>
+            {t('common.submit')}
+          </Button>
+        </View>
+      </Popup>
+
+      <Toast visible={toastVisible} content={toastMsg} onClose={() => setToastVisible(false)} />
+    </ScrollView>
+  )
 }

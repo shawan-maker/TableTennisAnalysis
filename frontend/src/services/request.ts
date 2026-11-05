@@ -33,21 +33,32 @@ async function refreshAndRetry(): Promise<boolean> {
   return success
 }
 
+/** 统一响应封装（后端 app/core/response.py success()：{ code, message, data, timestamp }） */
+export interface ApiResponse<T = any> {
+  statusCode: number
+  data: {
+    code: number
+    message: string
+    data: T
+    timestamp: string
+  }
+}
+
 const request = {
-  async get(url: string, params?: Record<string, any>) {
-    return this._request('GET', url, null, params)
+  async get<T = any>(url: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
+    return this._request('GET', url, null, params) as Promise<ApiResponse<T>>
   },
 
-  async post(url: string, data?: any) {
-    return this._request('POST', url, data)
+  async post<T = any>(url: string, data?: any): Promise<ApiResponse<T>> {
+    return this._request('POST', url, data) as Promise<ApiResponse<T>>
   },
 
-  async patch(url: string, data?: any) {
-    return this._request('PATCH', url, data)
+  async patch<T = any>(url: string, data?: any): Promise<ApiResponse<T>> {
+    return this._request('PATCH', url, data) as Promise<ApiResponse<T>>
   },
 
-  async delete(url: string, data?: any) {
-    return this._request('DELETE', url, data)
+  async delete<T = any>(url: string, data?: any): Promise<ApiResponse<T>> {
+    return this._request('DELETE', url, data) as Promise<ApiResponse<T>>
   },
 
   async _request(method: string, url: string, data?: any, params?: any) {

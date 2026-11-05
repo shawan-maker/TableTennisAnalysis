@@ -1,0 +1,129 @@
+/* 视频上传页样式（03-video_analysis/frontend.md §5.1） */
+.upload-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+}
+
+.guide-section {
+  .guide-title {
+    font-size: var(--fs-title);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-md);
+  }
+
+  .guide-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm-md);
+  }
+
+  .guide-card {
+    padding: var(--spacing-md);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+
+    .guide-icon {
+      font-size: 24px;
+    }
+
+    .guide-text {
+      display: block;
+      font-size: var(--fs-body);
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin: var(--spacing-xs) 0;
+    }
+
+    .guide-detail {
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+    }
+  }
+}
+
+.notice-section {
+  margin: var(--spacing-lg) 0;
+  padding: var(--spacing-md);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  border-radius: var(--radius-sm);
+
+  .notice-title {
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: var(--color-accent);
+    display: block;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .notice-list {
+    .notice-item {
+      display: block;
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+      margin-top: var(--spacing-xs);
+    }
+  }
+}
+
+.quota-section {
+  text-align: center;
+  margin: var(--spacing-md) 0;
+
+  .quota-text {
+    display: block;
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+  }
+
+  .quota-remaining {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: var(--fs-small);
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .quota-bonus {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: var(--fs-caption);
+    color: var(--color-secondary);
+  }
+}
+
+.upload-btn {
+  background: var(--color-primary) !important;
+  color: var(--color-text-inverse) !important;
+  border-radius: var(--radius-sm) !important;
+  height: 48px;
+  font-size: var(--fs-body);
+}
+
+.uploading-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .uploading-content {
+    text-align: center;
+    width: 80%;
+
+    .uploading-icon {
+      font-size: 32px;
+      display: block;
+      margin-bottom: var(--spacing-md);
+    }
+
+    .uploading-text {
+      font-size: var(--fs-body);
+      color: var(--color-text-primary);
+      display: block;
+      margin-bottom: var(--spacing-md);
+    }
+  }
+}

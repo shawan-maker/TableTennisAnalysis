@@ -93,4 +93,41 @@ describe('FS2 域 key 存在性（scoring.* / matchData.*）', () => {
     expect((enUS.common as Record<string, string>).loadMore).toBeTruthy()
     expect((enUS.common as Record<string, string>).delete).toBeTruthy()
   })
+
+  it('analysis 域核心 key 齐备（上传引导/进度/报告/反馈/分享，FS3）', () => {
+    const analysisZh = zhCN.analysis as Record<string, any>
+    const expected = [
+      'shootingGuide', 'noticeFormat', 'freeQuotaHint', 'chooseVideo',
+      'uploading', 'uploadFailed', 'taskCreated', 'analyzing',
+      'estimatedRemaining', 'analysisComplete', 'viewReport', 'analysisFailed',
+      'totalRallies', 'landingDistribution', 'landingHint', 'techniqueDistribution',
+      'ballSpeed', 'conclusion', 'videoPlayback', 'feedbackPrompt',
+      'shareReport', 'myReports', 'noReports', 'startAnalysis',
+      // FS3 会员守卫（R15-VA-N1 bonus_remaining 展示）与上传 phase 文案
+      'quotaRemaining', 'bonusRemaining', 'confirming', 'creatingTask',
+    ]
+    const missing = expected.filter((k) => !(k in analysisZh))
+    expect(missing).toEqual([])
+  })
+
+  it('analysis.step.* 覆盖流水线 10 步全部文案', () => {
+    const stepZh = (zhCN.analysis as Record<string, any>).step
+    const expected = [
+      'videoUpload', 'transcode', 'ballDetect', 'speedEstimate', 'ballTrack',
+      'actionRecognize', 'landingAnalyze', 'rallySplit', 'statistics', 'report',
+    ]
+    expect(Object.keys(stepZh)).toEqual(expect.arrayContaining(expected))
+  })
+
+  it('technique 域 7 个技术动作名齐备（跨模块复用）', () => {
+    const techniqueZh = zhCN.technique as Record<string, string>
+    const expected = [
+      'forehand_drive', 'backhand_drive', 'forehand_loop',
+      'backhand_loop', 'serve', 'push', 'block',
+    ]
+    const missing = expected.filter((k) => !(k in techniqueZh))
+    expect(missing).toEqual([])
+    const techniqueEn = enUS.technique as Record<string, string>
+    expect(expected.filter((k) => !(k in techniqueEn))).toEqual([])
+  })
 })

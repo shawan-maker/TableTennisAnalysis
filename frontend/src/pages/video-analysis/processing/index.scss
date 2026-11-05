@@ -1,0 +1,125 @@
+/* 分析进度页样式（03-video_analysis/frontend.md §5.2） */
+.progress-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+}
+
+.progress-loading {
+  padding: var(--spacing-lg);
+}
+
+.animation-section {
+  text-align: center;
+  padding: var(--spacing-xl) 0;
+
+  .animation-icon {
+    font-size: 32px;
+    display: block;
+    animation: bounce 1.5s infinite;
+  }
+
+  .animation-text {
+    font-size: var(--fs-title);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    display: block;
+    margin-top: var(--spacing-md);
+  }
+
+  .ws-status {
+    font-size: var(--fs-caption);
+    color: var(--color-success);
+    margin-top: var(--spacing-sm);
+    display: block;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.progress-bar-section {
+  margin: 0 var(--spacing-md) var(--spacing-lg);
+
+  .progress-text {
+    text-align: center;
+    font-size: var(--fs-body);
+    color: var(--color-text-primary);
+    display: block;
+    margin-top: var(--spacing-sm);
+  }
+}
+
+.steps-section {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin: 0 var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .step-item {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-sm) 0;
+    gap: var(--spacing-sm-md);
+
+    .step-icon {
+      font-size: var(--fs-title);
+      width: 24px;
+    }
+
+    .step-label {
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+    }
+
+    &.completed .step-label {
+      color: var(--color-text-primary);
+    }
+
+    &.current .step-label {
+      color: var(--color-primary);
+      font-weight: 600;
+    }
+  }
+}
+
+.estimated-section {
+  text-align: center;
+  margin: var(--spacing-md);
+
+  .estimated-text {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+  }
+}
+
+.completed-section,
+.failed-section {
+  margin: var(--spacing-lg) var(--spacing-md);
+  text-align: center;
+
+  .completed-text {
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: var(--color-success);
+    display: block;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .failed-text {
+    font-size: var(--fs-body);
+    color: var(--color-warning);
+    display: block;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .failed-error {
+    display: block;
+    font-size: var(--fs-caption);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-md);
+  }
+}

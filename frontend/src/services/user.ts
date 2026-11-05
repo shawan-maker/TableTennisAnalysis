@@ -44,6 +44,16 @@ export function getRatingHistory(page: number = 1, pageSize: number = 20) {
 }
 
 /**
+ * 免费分析额度状态（R6-User-2：端点未记录于 API §3，代码实现先行）。
+ * 返回 { daily_limit, used_today, remaining, reset_at, bonus_remaining }。
+ * bonus_remaining（R15-VA-N1）：付费分析包剩余额度，免费日额度耗尽后回退消耗该池，
+ * 展示层须如实反映，否则购包用户看到 remaining=0 误判无法使用。
+ */
+export function getQuota() {
+  return request.get('/users/quota')
+}
+
+/**
  * 乒乓大数据（趣味统计，24h 缓存）。
  */
 export function getBigData() {

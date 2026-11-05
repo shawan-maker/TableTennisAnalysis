@@ -19,6 +19,12 @@
 
 ## 2. API Service 模块
 
+> **R-FS3-P3 契约同步**（实现以后端为准）：① `task_id` 为 **int**（router 路径参数 `task_id: int`，
+> `CreateTaskResult.task_id` 为自增主键；本节 `getTaskDetail(taskId: string)` 的 string 为 v0 口径）；
+> ② `createShare` 响应字段为 **`card_image_url`**（后端取报告封面），非下文 Store 样例的 `share_card_url`；
+> ③ `getUploadToken` 响应含 `expire_at` 与 `sts_credentials.expiration/bucket/endpoint`（Mock 环境指向
+> 本地 `mock-oss`，真实 OSS S6+ 接入）。已按后端契约落地 `frontend/src/services/videoAnalysis.ts`。
+
 ```typescript
 // frontend/src/services/videoAnalysis.ts
 import request from './request'
@@ -1991,6 +1997,13 @@ export default {
 > - **返回值**：`{ connected, retryCount }` 暴露连接状态和重连计数，供 §5.1 卡片显示"实时连接中/重连中/已断开"状态；`progress` 数值通过 `onProgress` 回调上抛父组件管理（设计选择：避免 Hook 内部状态与父组件状态双源）
 > - **轮询兜底**：`pollRef` 占位 `// import videoAnalysis API and call getTaskDetail` 为开发阶段实现提示，Phase 1 切片已通过 WS+重连覆盖，轮询兜底属 Phase 2 增强
 > - **结论**：接口设计一致，无需修改；轮询兜底注释在 Phase 2 实现时补齐 `getTaskDetail` 调用即可。
+
+> **R-FS3-P3 契约同步**（实现以后端为准，与下方样例的 4 处差异）：
+> 1. WS 认证按 API §14.1 以 `Sec-WebSocket-Protocol: jwt.{token}` 子协议传递（样例 `?token=` URL 为 v0 形态，FS2 已全站修正）；
+> 2. **无需 subscribe**：`analysis_*` 事件经用户频道 `ws:user:{uid}` 广播（后端 `push_ws_message`），ws.py 连接建立即订阅用户频道；`receive_loop` 仅支持 `{event:'subscribe', match_id}`（记分域），样例的 `{event:'subscribe', channel:'task:{id}'}` 为后端不解析的假想协议；
+> 3. `taskId` 为 **number**；`analysis_progress` 的 `payload.progress` 为 **0.0-1.0 浮点**（后端 `_calc_progress`），`onProgress` 对外统一 0-100 百分比（Hook 内换算）；
+> 4. 重连由统一 `useWebSocket` 管理（指数退避 1→16s + 30s 心跳 + pong token_expired 刷新），不单独透出 `retryCount`；轮询兜底已按上条结论补齐 `getTaskDetail` 调用（每 5s 对账）。
+> 已落地 `frontend/src/hooks/useAnalysisProgress.ts`（`isAnalysisWsEvent` 按 event + `data.task_id` 双匹配过滤多任务事件）。
 
 ```typescript
 // frontend/src/hooks/useAnalysisProgress.ts
