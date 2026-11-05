@@ -131,3 +131,73 @@ describe('FS2 域 key 存在性（scoring.* / matchData.*）', () => {
     expect(expected.filter((k) => !(k in techniqueEn))).toEqual([])
   })
 })
+
+describe('FS4 域 key 存在性（dashboard.* / progress.*）', () => {
+  it('dashboard 域核心 key 齐备（概览/趋势/技术统计/热图/比赛记录）', () => {
+    const dashboardZh = zhCN.dashboard as Record<string, any>
+    const expected = [
+      'title', 'winRate', 'wins', 'losses', 'analysisCount', 'trainingFreq',
+      'timesPerWeek', 'streakDays', 'days', 'times',
+      'winRateTrend', 'month', 'quarter', 'year',
+      'techniqueStats', 'landingHeatmap', 'matchRecords', 'totalMatches',
+      'allMatches', 'winsOnly', 'lossesOnly', 'win', 'lose', 'total',
+      'totalRallies', 'sourceReports', 'forehand', 'backhand', 'middle',
+      'hasIssues', 'noMatchData', 'noTechniqueData', 'noHeatmapData',
+      'noMatchRecords', 'unknownOpponent', 'rating',
+    ]
+    const missing = expected.filter((k) => !(k in dashboardZh))
+    expect(missing).toEqual([])
+  })
+
+  it('dashboard.cell.* 覆盖九宫格 9 个标签（GRID_CELL_LABELS 全量）', () => {
+    const cellZh = (zhCN.dashboard as Record<string, any>).cell
+    const expected = [
+      'leftShort', 'midShort', 'rightShort',
+      'leftMid', 'midMid', 'rightMid',
+      'leftLong', 'midLong', 'rightLong',
+    ]
+    expect(Object.keys(cellZh)).toEqual(expect.arrayContaining(expected))
+  })
+
+  it('progress 域核心 key 齐备（摘要/对比/趋势详情）', () => {
+    const progressZh = zhCN.progress as Record<string, any>
+    const expected = [
+      'summaryPeriod', 'totalAnalyses', 'overallProgress', 'metricTrends',
+      'problemChanges', 'forecast', 'predictedWeeks', 'currentValue', 'target',
+      'targetProgress', 'changeRate', 'persistenceCount', 'timeSeries', 'noData',
+      'newProblems', 'resolvedProblems', 'persistentProblems', 'none',
+      'reportA', 'reportB', 'selectReport', 'selectTwoReports', 'startComparison',
+      'techniqueStats', 'landing', 'rally', 'ballSpeed', 'scoreAnalysis',
+      'avgRallyLength', 'avgBallSpeed', 'winRate',
+    ]
+    const missing = expected.filter((k) => !(k in progressZh))
+    expect(missing).toEqual([])
+  })
+
+  it('progress.period.* 覆盖后端 summary_period 全部取值（含 no_data/recent/last_3_months）', () => {
+    const periodZh = (zhCN.progress as Record<string, any>).period
+    const expected = ['month', 'quarter', 'year', 'all', 'recent', 'last_3_months', 'no_data']
+    expect(Object.keys(periodZh)).toEqual(expect.arrayContaining(expected))
+  })
+
+  it('progress.trend.* 覆盖后端 trend 全部取值', () => {
+    const trendZh = (zhCN.progress as Record<string, any>).trend
+    const expected = ['improving', 'stagnant', 'declining', 'achieved', 'new', 'resolved']
+    expect(Object.keys(trendZh)).toEqual(expect.arrayContaining(expected))
+  })
+
+  it('progress.metric.* 覆盖 comparison 渲染所需 6 个指标键（technique_stats 3 + landing 3）', () => {
+    const metricZh = (zhCN.progress as Record<string, any>).metric
+    const expected = [
+      'forehand_ratio', 'backhand_ratio', 'serve_ratio',
+      'landing_forehand_pct', 'landing_backhand_pct', 'landing_middle_pct',
+    ]
+    const missing = expected.filter((k) => !(k in metricZh))
+    expect(missing).toEqual([])
+  })
+
+  it('common.back 存在（trend-detail 40415 错误分支返回按钮）', () => {
+    expect((zhCN.common as Record<string, string>).back).toBeTruthy()
+    expect((enUS.common as Record<string, string>).back).toBeTruthy()
+  })
+})

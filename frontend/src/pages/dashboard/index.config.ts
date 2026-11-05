@@ -1,3 +1,4 @@
 export default definePageConfig({
   navigationBarTitleText: '数据看板',
+  enablePullDownRefresh: true,
 })

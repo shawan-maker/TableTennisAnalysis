@@ -17,6 +17,14 @@
 ---
 
 ## 2. API Service 模块
+> **R-FS4-P3 契约同步**（实现以后端为准）：① `comparison.comparisons.landing` 键名为
+> **forehand_pct / backhand_pct / middle_pct**（R4-Progress-8，非 forehand_ratio），前端映射到
+> `progress.metric.landing_*` i18n 键；② `rally` 含 `max_length_a/b`、`ball_speed` 含 `max_a/b`；
+> ③ 错误契约：相同报告 422/42201、报告不存在 404/40412、无效指标 404/**40415**（R14-B4-1）；
+> ④ `problem-changes` 独立端点的 item 为结构化对象（problem_id/problem_name/first_seen/last_seen/
+> persistence_count），渲染用 `problem_name`；⑤ `summary` 另含 `training_plan_status`（R4-Progress-4，
+> 展示归 FS5 训练 Sprint）；⑥ NutUI 2.7.14 `Progress` 为 `percent` + `strokeWidth: '8px'`（样例
+> `percentage`/`size` 为旧口径）。已落地 `frontend/src/services/progress.ts`。
 
 ```typescript
 // frontend/src/services/progress.ts
@@ -653,6 +661,9 @@ export default function Comparison() {
 ```
 
 ### 4.3 趋势详情页
+> **R-FS4-P3 实现注记**：`trend-detail` 页已实现 404/40415 无效指标错误分支——Store 以
+> `trendDetailError` 承载（请求前置空，成功清空），页面渲染错误态 + 返回按钮（`common.back`）；
+> 折线图落地为 CSS 方案（点+旋转线段，`utils/chart.buildLineChart` 纯函数，含目标参考线）。
 
 ```tsx
 // frontend/src/pages/progress/trend-detail.tsx

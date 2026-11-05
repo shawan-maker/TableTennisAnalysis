@@ -1,0 +1,16 @@
+/* 数据看板首页样式（06-data_dashboard/frontend.md §5） */
+.dashboard-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding-bottom: var(--spacing-lg);
+}
+
+.dashboard-header {
+  padding: var(--spacing-md);
+
+  .dashboard-title {
+    font-size: var(--fs-title);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+}

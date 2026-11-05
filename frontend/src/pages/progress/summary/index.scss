@@ -1,0 +1,98 @@
+/* 进度摘要页样式（08-progress_analysis/frontend.md §5） */
+.progress-summary {
+  min-height: 100vh;
+  padding: var(--spacing-md);
+  background: var(--color-background);
+
+  &.loading,
+  &.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-secondary);
+  }
+}
+
+.summary-header {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .summary-period {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    display: block;
+    margin-bottom: var(--spacing-sm-md);
+  }
+
+  .summary-stats {
+    display: flex;
+    gap: var(--spacing-lg);
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--spacing-xs);
+
+      .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: var(--color-primary);
+      }
+
+      .stat-label {
+        font-size: 12px;
+        color: var(--color-text-secondary);
+      }
+    }
+  }
+}
+
+.section {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    font-size: 15px;
+    font-weight: bold;
+    color: var(--color-text-primary);
+    display: block;
+    margin-bottom: var(--spacing-sm-md);
+  }
+}
+
+.trend-extra {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+  max-width: 120px;
+}
+
+.problem-group {
+  margin-bottom: var(--spacing-sm-md);
+
+  .problem-label {
+    font-size: 13px;
+    font-weight: 500;
+    display: block;
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .problem-new { color: var(--color-primary); }
+  .problem-resolved { color: var(--color-success); }
+  .problem-persistent { color: var(--color-warning); }
+
+  .problem-item {
+    font-size: 13px;
+    color: var(--color-text-primary);
+    display: block;
+    padding: var(--spacing-xs) 0;
+  }
+}

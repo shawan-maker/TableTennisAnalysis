@@ -1,0 +1,101 @@
+/* 比赛记录列表样式（06-data_dashboard/frontend.md §5.6） */
+.match-record-list {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  margin: 0 var(--spacing-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-sm-md);
+
+    .section-title {
+      font-size: var(--fs-body);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    .section-count {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+  }
+}
+
+.record-list {
+  .record-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm-md);
+    border-bottom: 1px solid var(--color-divider);
+
+    &:last-of-type {
+      border-bottom: none;
+    }
+
+    .record-left {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-xs);
+
+      .record-date {
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+      }
+
+      .record-opponent {
+        font-size: var(--fs-body);
+        font-weight: 500;
+        color: var(--color-text-primary);
+      }
+
+      .record-rating {
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+      }
+    }
+
+    .record-right {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+
+      .record-score {
+        font-size: var(--fs-body);
+        font-weight: 600;
+        color: var(--color-text-primary);
+      }
+
+      .record-result {
+        font-size: var(--fs-caption);
+        padding: var(--spacing-xs) var(--spacing-sm);
+        border-radius: var(--radius-sm);
+
+        &.win {
+          color: var(--color-success);
+          background: color-mix(in srgb, var(--color-success) 12%, transparent);
+        }
+
+        &.lose {
+          color: var(--color-primary);
+          background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+        }
+      }
+    }
+
+    &.card-win .record-result.win {
+      /* 胜场卡片高亮由结果标签承担，无额外背景 */
+    }
+  }
+
+  .load-more {
+    text-align: center;
+    padding: var(--spacing-sm-md);
+    color: var(--color-text-secondary);
+    font-size: var(--fs-small);
+  }
+}

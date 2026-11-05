@@ -18,6 +18,11 @@
 ---
 
 ## 2. API Service 模块
+> **R-FS4-P3 契约同步**（实现以后端为准）：① `overview` 响应另含 `is_readonly?: boolean`
+> （R12-Dash-2 降级用户简化看板标记，降级时 `latest_advice_summary` 恒为 null）；
+> ② `win-rate-trend` 的 `series[0]` 固定为胜率（0-1）、`series[1]` 为比赛场次，且 `series.name` 为
+> 后端中文文案——前端按**固定索引**取数（`utils/chart.extractWinRates/extractMatchCounts`），
+> 不按 i18n name 匹配（英文环境下中文 name 匹配失效）。已落地 `frontend/src/services/dashboard.ts`。
 
 ```typescript
 // frontend/src/services/dashboard.ts
@@ -321,6 +326,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 ## 4. 页面组件
 
 ### 4.1 数据看板首页
+> **R-FS4-P3 实现注记**（weapp 端适配）：① 样例的 NutUI `PullRefresh` 在 weapp 与页面滚动嵌套易冲突，
+> 改用页面级下拉刷新（`enablePullDownRefresh` + `Taro.usePullDownRefresh`，FS3 报告列表页同先例）；
+> ② 样例图表均为 SVG（H5 端方案，样例自注"小程序端需替换"）——落地为零依赖 CSS 方案：折线图
+> 数据点+旋转线段（`utils/chart.buildLineChart` 纯函数）、环形图 conic-gradient、热图 grid+rgba，
+> 图表无障碍 `role="img"` + `aria-label` 三处齐备；`Skeleton` 无 width/height props，以 rows 代替。
 
 ```tsx
 // frontend/src/pages/dashboard/index.tsx

@@ -1,0 +1,75 @@
+/* 累计落点热图样式（06-data_dashboard/frontend.md §5.5） */
+.landing-heatmap {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  margin: 0 var(--spacing-md) var(--spacing-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    display: block;
+    margin-bottom: var(--spacing-sm-md);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: var(--spacing-lg) 0;
+    color: var(--color-text-secondary);
+    font-size: var(--fs-small);
+  }
+}
+
+.heatmap-content {
+  .nine-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-xs);
+    aspect-ratio: 3 / 2;
+    margin-bottom: var(--spacing-sm-md);
+
+    .grid-cell {
+      border-radius: var(--radius-sm);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+
+      .cell-value {
+        font-size: var(--fs-small);
+        font-weight: 600;
+        color: var(--color-text-inverse);
+      }
+
+      .cell-label {
+        font-size: 10px;
+        color: var(--color-text-inverse);
+        opacity: 0.85;
+      }
+    }
+  }
+
+  .distribution-row {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: var(--spacing-sm-md);
+
+    .distribution-item {
+      font-size: var(--fs-small);
+      color: var(--color-text-primary);
+    }
+  }
+
+  .heatmap-footer {
+    display: flex;
+    justify-content: space-between;
+
+    .footer-item {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+  }
+}

@@ -1,0 +1,92 @@
+/* 技术统计环形图样式（06-data_dashboard/frontend.md §5.4） */
+.technique-stats {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  margin: 0 var(--spacing-md) var(--spacing-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    display: block;
+    margin-bottom: var(--spacing-sm-md);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: var(--spacing-lg) 0;
+    color: var(--color-text-secondary);
+    font-size: var(--fs-small);
+  }
+
+  .technique-content {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+  }
+}
+
+/* conic-gradient 环形图 */
+.donut-chart {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .donut-hole {
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    background: var(--color-card);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    .hole-label {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+
+    .hole-value {
+      font-size: var(--fs-h2);
+      font-weight: bold;
+      color: var(--color-secondary);
+    }
+  }
+}
+
+.legend-list {
+  flex: 1;
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin: var(--spacing-xs) 0;
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .legend-name {
+      flex: 1;
+      font-size: var(--fs-small);
+      color: var(--color-text-primary);
+    }
+
+    .legend-value {
+      font-size: var(--fs-small);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+  }
+}

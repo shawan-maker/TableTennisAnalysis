@@ -1,0 +1,106 @@
+/* 报告对比页样式（08-progress_analysis/frontend.md §5） */
+.comparison-page {
+  min-height: 100vh;
+  padding: var(--spacing-md);
+  background: var(--color-background);
+}
+
+.report-selector {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm-md);
+  margin-bottom: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .picker-value {
+    font-size: var(--fs-small);
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  :global(.nut-button) {
+    margin-top: var(--spacing-sm-md);
+  }
+}
+
+.comparison-section {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-sm-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    display: block;
+    margin-bottom: var(--spacing-sm-md);
+  }
+}
+
+.comparison-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  .row-label {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+    flex-shrink: 0;
+    max-width: 40%;
+  }
+
+  .row-values {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+
+    .value-a {
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+    }
+
+    .value-arrow {
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+    }
+
+    .value-b {
+      font-size: var(--fs-small);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    /* 变化值（行内 style 控制） */
+  }
+}
+
+.problem-changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm-md);
+
+  .problem-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+
+    .problem-item {
+      font-size: var(--fs-small);
+      color: var(--color-text-primary);
+      padding-left: var(--spacing-xs);
+    }
+
+    .empty-item {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+  }
+}
