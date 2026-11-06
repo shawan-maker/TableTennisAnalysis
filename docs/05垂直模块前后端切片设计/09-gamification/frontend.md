@@ -19,6 +19,13 @@
 
 ## 2. API Service 模块（TypeScript）
 
+> **R-FS5-P3 实现注记（前端落地差异，以后端为准）**：
+> ① §8 WS badge_unlocked 的 data 为徽章数组（后端 newly_unlocked），弹层逐枚展示，非样例单对象；useWebSocket 真实 API 为 options 传参（`useWebSocket(buildWsUrl(), { onMessage })`），样例 `const { onMessage } = useWebSocket()` 解构形态不存在；
+> ② §4.2 打卡日历：todayStr 用本地 y/m/d 构造（toISOString 存在 UTC 跨日偏移，后端按 CST 计日）；409 分支按 request 封装走 err.message（无 err.response.status）；年月标题 i18n 改单 key `checkin.monthTitle`（'{{year}}年{{month}}月' / '{{year}}-{{month}}'，避免空串 key 触发 i18nKeys 守卫测试）；
+> ③ §4.1 PointsCard 本 Sprint 嵌入打卡日历页顶部（streak 上下文关联）；「嵌入首页 Dashboard」归 FS7 首页升级消费；
+> ④ badges 页省略 NavBar（weapp navigateTo 默认导航栏，config 已设标题）；Toast 样例改 Taro.showToast；
+> ⑤ doCheckin 失败向调用方抛出（Error.message 含 40901「今日已打卡」后端文案），成功联动刷新积分与日历。
+
 ```typescript
 // frontend/src/services/gamification.ts
 import request from './request'

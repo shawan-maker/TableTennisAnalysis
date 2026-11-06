@@ -75,6 +75,12 @@
   max-width: 120px;
 }
 
+/* 当前训练方案区块（FS5：R4-Progress-4 契约消费点） */
+.plan-link {
+  font-size: var(--fs-title);
+  color: var(--color-text-secondary);
+}
+
 .problem-group {
   margin-bottom: var(--spacing-sm-md);
 

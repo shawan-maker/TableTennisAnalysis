@@ -1,0 +1,49 @@
+/**
+ * 徽章解锁弹层样式（09-gamification/frontend.md §8）
+ */
+.badge-unlock-popup {
+  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-2xl);
+  text-align: center;
+
+  .badge-unlock-title {
+    display: block;
+    font-size: var(--fs-title);
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-md);
+  }
+
+  .badge-unlock-list {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+
+    .badge-unlock-item {
+      background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+      border-radius: var(--radius-md);
+      padding: var(--spacing-md);
+      min-width: 96px;
+
+      .badge-unlock-icon {
+        display: block;
+        font-size: var(--fs-h1);
+        margin-bottom: var(--spacing-xs);
+      }
+
+      .badge-unlock-name {
+        display: block;
+        font-size: var(--fs-caption);
+        font-weight: 500;
+        color: var(--color-text-primary);
+      }
+    }
+  }
+
+  .badge-unlock-hint {
+    display: block;
+    font-size: var(--fs-caption);
+    color: var(--color-text-secondary);
+    margin-top: var(--spacing-md);
+  }
+}

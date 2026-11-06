@@ -1,0 +1,36 @@
+/**
+ * 建议区域组件样式（07-training_advice/frontend.md §5）
+ */
+.suggestion-section {
+  .suggestion-card {
+    margin: 0 var(--spacing-md) var(--spacing-sm);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    border-left: 3px solid transparent;
+    box-shadow: var(--shadow-card);
+
+    .suggestion-header {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+
+      .suggestion-icon {
+        font-size: var(--fs-body);
+      }
+
+      .suggestion-type {
+        font-size: var(--fs-caption);
+        font-weight: 500;
+      }
+    }
+
+    .suggestion-text {
+      display: block;
+      font-size: var(--fs-small);
+      color: var(--color-text-primary);
+      margin-top: var(--spacing-sm);
+      line-height: 1.6;
+    }
+  }
+}

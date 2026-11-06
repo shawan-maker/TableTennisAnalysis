@@ -22,6 +22,9 @@
 
 ## 2. API Service 模块
 
+> **R-FS5-P3 实现注记**：本切片为纯导航聚合页（无 API/无 Store）已按 §4 落地；4 入口图标底色用
+> `color-mix(in srgb, var(--color-*) 8%, transparent)`（CSS 变量无法拼接 hex 透明度后缀，工程先例）。
+
 训练 Tab 入口页为纯导航聚合页，**不调用任何 API**。各入口的详细数据加载在目标页面中完成。
 
 > 如需显示入口最近一条数据预览（如最近分析报告状态），可复用 `services/home.ts` 中的 `getLatestReport()`。本切片默认不加载，保持页面轻量。

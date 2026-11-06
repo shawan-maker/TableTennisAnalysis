@@ -1,0 +1,60 @@
+/**
+ * 训练模板列表页样式（07-training_advice/frontend.md §5）
+ */
+.template-list-page {
+  min-height: 100vh;
+  background: var(--color-background);
+
+  .template-header {
+    padding: var(--spacing-md);
+
+    .page-title {
+      font-size: var(--fs-title);
+      font-weight: bold;
+      color: var(--color-text-primary);
+    }
+
+    .template-total {
+      display: block;
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      margin-top: var(--spacing-xs);
+    }
+  }
+
+  .template-scroll {
+    height: calc(100vh - 76px);
+  }
+
+  .template-list {
+    padding: 0 var(--spacing-md);
+  }
+
+  .template-item {
+    margin-bottom: var(--spacing-sm);
+    border-radius: var(--radius-md) !important;
+  }
+
+  .load-more {
+    text-align: center;
+    padding: var(--spacing-md);
+    color: var(--color-text-secondary);
+    font-size: var(--fs-small);
+  }
+
+  .template-skeleton-list {
+    padding: 0 var(--spacing-md);
+
+    .template-skeleton-item {
+      margin-bottom: var(--spacing-sm);
+      background: var(--color-card);
+      border-radius: var(--radius-md);
+      padding: var(--spacing-md);
+    }
+  }
+
+  .template-error,
+  .membership-guard {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+}

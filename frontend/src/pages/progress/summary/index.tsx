@@ -3,7 +3,8 @@
  * 概览 + 指标趋势列表（跳 trend-detail）+ 问题变化三组 + 线性回归预测
  *
  * FS4-P3：NutUI Progress 为 percent（样例 percentage 为 2.x 旧口径）+ strokeWidth '8px'；
- * summary 含 training_plan_status（R4-Progress-4）——展示归 FS5 训练 Sprint 消费。
+ * summary 含 training_plan_status（R4-Progress-4）——FS5 已消费：当前训练方案
+ * 区块展示版本/调整原因/目标达成度，点击跳训练方案详情（plans/detail?plan_id=）。
  */
 import { useEffect } from 'react'
 import Taro from '@tarojs/taro'
@@ -135,6 +136,30 @@ export default function ProgressSummary() {
           ))}
         </View>
       </View>
+
+      {/* 当前训练方案（R4-Progress-4 契约预留，FS5 消费点） */}
+      {summary.training_plan_status && (
+        <View className="section">
+          <Text className="section-title">{t('progress.currentPlan')}</Text>
+          <Cell
+            title={`${t('progress.planVersion')} v${summary.training_plan_status.plan_version}`}
+            description={
+              summary.training_plan_status.adjustment_reason ||
+              Object.entries(summary.training_plan_status.goal_completion)
+                .map(([metric, val]) => `${metric}: ${val}`)
+                .join(' · ') ||
+              t('progress.noData')
+            }
+            clickable
+            onClick={() => {
+              Taro.navigateTo({
+                url: `/pages/training/plans/detail/index?plan_id=${summary.training_plan_status!.current_plan_id}`,
+              })
+            }}
+            extra={<Text className="plan-link">›</Text>}
+          />
+        </View>
+      )}
 
       {/* 预测区（线性回归） */}
       {Object.keys(summary.forecast).length > 0 && (

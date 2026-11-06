@@ -19,6 +19,15 @@
 
 ## 2. API Service 模块
 
+> **R-FS5-P3 实现注记（前端落地差异，契约以后端为准）**：
+> ① §2 响应补后端实际返回字段：`TemplateDetail.created_at`、`TrainingSessionListData.plan_id`（顶层）、`CompleteSessionData.completed_at`；
+> ② §4.5 建议页跳转 `?code=` 与 §4.7 详情页读 `?id=` 两处样例自相矛盾，实现取并集：detail 页支持 id/code 双参（code 先查模板列表定位 id）；
+> ③ NutUI 2.7.14 真实 API：Empty 用 `title`+`actions[]`（无 renderBottom）、Skeleton 用 `rows`（无 width/height）、Cell 用 title/description/clickable、Tag 用 background/color，受控 Toast 样例改 store 内 Taro.showToast（FS4 同先例）；
+> ④ §4.6 PullRefresh 样例改页面级下拉刷新（enablePullDownRefresh + usePullDownRefresh，weapp 下与 ScrollView 嵌套冲突）；
+> ⑤ §4.8 方案页路由按 FS1 注册表落地为 `plans/detail/index`（plan_id 走 query，weapp 不支持路径参数段）；
+> ⑥ Store 层不 import `@/locales`（i18next CJS default 在 ts-jest 下 undefined，authStore 先例）：Toast 文案走 err?.message 硬编码回退；
+> ⑦ 会员守卫实现：request 层抛错附 code（40300），store isMembershipError 判定 → needsMembership 标志 → 页面 Empty 升级引导跳 /pages/membership/index。
+
 ```typescript
 // frontend/src/services/training.ts
 import request from './request'

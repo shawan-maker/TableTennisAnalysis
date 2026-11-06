@@ -1,0 +1,140 @@
+/**
+ * 打卡日历页样式（09-gamification/frontend.md §5）
+ */
+.checkin-calendar-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+
+  .calendar-scroll {
+    height: calc(100vh - 32px);
+  }
+
+  .points-card {
+    margin-bottom: var(--spacing-md);
+  }
+}
+
+.checkin-calendar {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .calendar-loading {
+    padding: var(--spacing-md) 0;
+  }
+
+  .calendar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-sm-md);
+
+    .month-nav {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--fs-title);
+      color: var(--color-text-secondary);
+    }
+
+    .month-title {
+      font-size: var(--fs-title);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+  }
+
+  .calendar-streak {
+    text-align: center;
+    margin-bottom: var(--spacing-md);
+
+    .streak-text {
+      font-size: var(--fs-small);
+      color: var(--color-text-primary);
+    }
+
+    .streak-flame {
+      margin-left: var(--spacing-sm);
+      font-size: var(--fs-title);
+    }
+  }
+
+  .calendar-weekdays {
+    display: flex;
+    margin-bottom: var(--spacing-sm);
+
+    .weekday-cell {
+      flex: 1;
+      text-align: center;
+
+      .weekday-text {
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+      }
+    }
+  }
+
+  .calendar-grid {
+    display: flex;
+    flex-wrap: wrap;
+
+    .calendar-cell {
+      flex: 0 0 calc(100% / 7);
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+
+      &.empty {
+        background: transparent;
+      }
+
+      &.checked {
+        .cell-dot {
+          color: var(--color-success);
+          font-size: var(--fs-caption);
+          margin-top: var(--spacing-xs);
+        }
+
+        .cell-date {
+          color: var(--color-text-primary);
+          font-weight: 600;
+        }
+      }
+
+      &.today {
+        .cell-date {
+          color: var(--color-primary);
+          font-weight: bold;
+        }
+      }
+
+      .cell-date {
+        font-size: var(--fs-small);
+        color: var(--color-text-secondary);
+      }
+    }
+  }
+
+  .calendar-summary {
+    text-align: center;
+    margin: var(--spacing-sm-md) 0 var(--spacing-md);
+
+    .summary-text {
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+    }
+  }
+
+  .checkin-btn {
+    border-radius: var(--radius-md);
+    height: 44px;
+    font-size: var(--fs-body);
+  }
+}

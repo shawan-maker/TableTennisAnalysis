@@ -1,0 +1,86 @@
+/**
+ * 训练 Tab 入口页样式（14-tab-pages/training-tab.md §5）
+ * CSS 变量已在全局 styles/app.scss 定义，模块级不重复定义。
+ */
+.training-tab-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+}
+
+.page-header {
+  padding: var(--spacing-lg) 0 var(--spacing-md);
+
+  .page-title {
+    display: block;
+    font-size: var(--fs-h2);
+    font-weight: bold;
+    color: var(--color-text-primary);
+  }
+
+  .page-subtitle {
+    display: block;
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+    margin-top: var(--spacing-xs);
+  }
+}
+
+.entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.entry-card {
+  display: flex;
+  align-items: center;
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.99);
+  }
+
+  .entry-icon-wrapper {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-right: var(--spacing-md);
+
+    .entry-icon {
+      font-size: var(--fs-h2);
+    }
+  }
+
+  .entry-content {
+    flex: 1;
+
+    .entry-title {
+      display: block;
+      font-size: var(--fs-title);
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: var(--spacing-xs);
+    }
+
+    .entry-desc {
+      display: block;
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+    }
+  }
+
+  .entry-arrow {
+    font-size: var(--fs-h2);
+    color: var(--color-text-secondary);
+    flex-shrink: 0;
+  }
+}

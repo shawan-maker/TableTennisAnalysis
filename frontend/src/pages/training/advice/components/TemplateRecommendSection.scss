@@ -1,0 +1,28 @@
+/**
+ * 模板推荐组件样式（07-training_advice/frontend.md §5）
+ */
+.template-recommend-section {
+  .recommend-card {
+    margin: 0 var(--spacing-md) var(--spacing-md);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    text-align: center;
+    box-shadow: var(--shadow-card);
+
+    .recommend-code {
+      display: block;
+      font-size: var(--fs-body);
+      font-weight: bold;
+      color: var(--color-primary);
+      margin-bottom: var(--spacing-sm);
+    }
+
+    .recommend-desc {
+      display: block;
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+      margin-bottom: var(--spacing-md);
+    }
+  }
+}

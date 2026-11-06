@@ -1,0 +1,118 @@
+/**
+ * 训练方案详情页样式（07-training_advice/frontend.md §4.8）
+ */
+.plan-detail-page {
+  min-height: 100vh;
+  background: var(--color-background);
+}
+
+.plan-header {
+  padding: var(--spacing-md);
+  background: var(--color-card);
+  border-bottom: 1px solid var(--color-divider);
+
+  .page-title {
+    display: block;
+    font-size: var(--fs-title);
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .plan-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+
+    .progress-text {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      flex-shrink: 0;
+    }
+  }
+
+  .plan-actions {
+    margin-top: var(--spacing-sm);
+    display: flex;
+    justify-content: flex-end;
+  }
+}
+
+.sessions-scroll {
+  height: calc(100vh - 140px);
+  padding: 0 var(--spacing-md);
+}
+
+.session-item {
+  margin-bottom: var(--spacing-sm);
+  border-radius: var(--radius-md) !important;
+
+  .session-card {
+    .session-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      .session-index {
+        font-size: var(--fs-small);
+        font-weight: bold;
+        color: var(--color-primary);
+        margin-right: var(--spacing-xs);
+      }
+
+      .session-name {
+        font-size: var(--fs-body);
+        font-weight: 500;
+        color: var(--color-text-primary);
+        flex: 1;
+      }
+    }
+
+    .session-info {
+      margin-top: var(--spacing-xs);
+
+      .session-date,
+      .session-completed-at,
+      .session-reps {
+        display: block;
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+      }
+
+      .session-reps {
+        color: var(--color-primary);
+        font-weight: 500;
+      }
+    }
+
+    .session-exercises {
+      margin-top: var(--spacing-sm);
+
+      .exercise-text {
+        display: block;
+        font-size: var(--fs-small);
+        color: var(--color-text-primary);
+        margin-top: var(--spacing-xs);
+      }
+    }
+
+    .btn-complete {
+      margin-top: var(--spacing-sm);
+    }
+  }
+}
+
+.plan-skeleton {
+  padding: 0 var(--spacing-md);
+
+  .skeleton-item {
+    margin-top: var(--spacing-sm);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+  }
+}
+
+.plan-error {
+  padding: var(--spacing-xl) var(--spacing-md);
+}

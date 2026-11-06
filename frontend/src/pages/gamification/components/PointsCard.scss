@@ -1,0 +1,91 @@
+/**
+ * 训练积分卡片样式（09-gamification/frontend.md §5）
+ */
+.points-card {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  &.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100px;
+    color: var(--color-text-secondary);
+  }
+
+  .points-header {
+    margin-bottom: var(--spacing-sm-md);
+
+    .points-title {
+      font-size: var(--fs-title);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+  }
+
+  .points-body {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+
+    .points-total {
+      text-align: center;
+
+      .points-number {
+        display: block;
+        font-size: var(--fs-h1);
+        font-weight: bold;
+        color: var(--color-primary);
+      }
+
+      .points-label {
+        display: block;
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+        margin-top: var(--spacing-xs);
+      }
+    }
+
+    .points-monthly {
+      text-align: center;
+
+      .points-monthly-number {
+        display: block;
+        font-size: var(--fs-h2);
+        font-weight: bold;
+        color: var(--color-accent);
+      }
+
+      .points-monthly-label {
+        display: block;
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+        margin-top: var(--spacing-xs);
+      }
+    }
+
+    .points-streak {
+      text-align: center;
+
+      .streak-flame {
+        font-size: var(--fs-title);
+      }
+
+      .streak-number {
+        display: block;
+        font-size: var(--fs-h2);
+        font-weight: bold;
+        color: var(--color-success);
+      }
+
+      .streak-label {
+        display: block;
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+        margin-top: var(--spacing-xs);
+      }
+    }
+  }
+}

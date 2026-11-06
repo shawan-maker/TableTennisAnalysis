@@ -1,0 +1,45 @@
+/**
+ * 训练方法组件样式（07-training_advice/frontend.md §5）
+ */
+.methods-section {
+  .method-card {
+    margin: 0 var(--spacing-md) var(--spacing-sm);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-card);
+
+    .method-header {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+
+      .method-index {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--color-primary);
+        color: var(--color-text-inverse);
+        font-size: var(--fs-caption);
+        text-align: center;
+        line-height: 24px;
+        flex-shrink: 0;
+      }
+
+      .method-name {
+        font-size: var(--fs-body);
+        font-weight: 500;
+        color: var(--color-text-primary);
+      }
+    }
+
+    .method-desc {
+      display: block;
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+      margin-top: var(--spacing-sm);
+      padding-left: var(--spacing-xl);
+      line-height: 1.5;
+    }
+  }
+}

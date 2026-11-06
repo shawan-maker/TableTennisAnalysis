@@ -1,0 +1,48 @@
+/**
+ * 诊断短板组件样式（07-training_advice/frontend.md §5）
+ */
+.diagnosis-section {
+  .diagnosis-card {
+    margin: 0 var(--spacing-md) var(--spacing-sm);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-card);
+
+    .diagnosis-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      .diagnosis-name {
+        font-size: var(--fs-body);
+        font-weight: 500;
+        color: var(--color-text-primary);
+      }
+    }
+
+    .diagnosis-trend {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+      margin-top: var(--spacing-sm);
+
+      .trend-icon {
+        font-size: var(--fs-body);
+        font-weight: bold;
+      }
+
+      .trend-label {
+        font-size: var(--fs-small);
+      }
+    }
+
+    .diagnosis-desc {
+      display: block;
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+      margin-top: var(--spacing-sm);
+      line-height: 1.5;
+    }
+  }
+}

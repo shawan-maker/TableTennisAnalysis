@@ -44,6 +44,18 @@ export interface ApiResponse<T = any> {
   }
 }
 
+/**
+ * 构造带状态码与业务 code 的请求错误（FS5）。
+ * err.code = 后端业务错误码（如 40300 会员守卫、40901 已打卡）；
+ * err.statusCode = HTTP 状态码。仅附加属性，不改变抛错控制流。
+ */
+export function createRequestError(message: string, statusCode: number, code?: number) {
+  const err = new Error(message) as Error & { statusCode: number; code?: number }
+  err.statusCode = statusCode
+  if (code !== undefined) err.code = code
+  return err
+}
+
 const request = {
   async get<T = any>(url: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
     return this._request('GET', url, null, params) as Promise<ApiResponse<T>>
@@ -88,13 +100,13 @@ const request = {
       throw new Error('Login expired')
     }
 
-    // 权限不足
+    // 权限不足（403 + code 40300 会员守卫等）：抛错附 code，供调用方分支判断
     if (res.statusCode === 403) {
-      throw new Error(res.data?.message || 'Permission denied')
+      throw createRequestError(res.data?.message || 'Permission denied', res.statusCode, res.data?.code)
     }
 
     if (res.statusCode >= 400) {
-      throw new Error(res.data?.message || 'Request failed')
+      throw createRequestError(res.data?.message || 'Request failed', res.statusCode, res.data?.code)
     }
 
     return res
