@@ -1,0 +1,32 @@
+.notif-bell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px; /* icon dimension, not 8px grid spacing */
+  height: 40px; /* icon dimension, not 8px grid spacing */
+
+  &-icon {
+    font-size: 18px;
+  }
+
+  &-badge {
+    position: absolute;
+    top: var(--spacing-xs);
+    right: var(--spacing-xs);
+    min-width: 16px;
+    height: 16px;
+    padding: 0 var(--spacing-xs);
+    background: var(--color-primary); /* #E63946 */
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &-text {
+      font-size: 12px;
+      color: var(--color-text-inverse);
+      line-height: 1;
+    }
+  }
+}

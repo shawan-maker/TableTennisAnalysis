@@ -8,6 +8,7 @@ import { View, Text, Image, ScrollView } from '@tarojs/components'
 import { Cell, Button, Toast, Progress, Dialog, Popup, Tag, Skeleton, TextArea } from '@nutui/nutui-react'
 import { useUserStore } from '@/stores/userStore'
 import { useTranslation } from 'react-i18next'
+import NotificationBell from '@/components/NotificationBell'
 import './index.scss'
 
 export default function ProfilePage() {
@@ -198,6 +199,10 @@ export default function ProfilePage() {
             </Text>
           </View>
         </View>
+        {/* FS6: 通知铃铛（挂「我的」Tab 页头，设计挂首页归 FS7） */}
+        <View className="header-bell">
+          <NotificationBell />
+        </View>
       </View>
 
       {/* 档案完整度 */}
@@ -274,6 +279,14 @@ export default function ProfilePage() {
         <View className="action-card" onClick={handleRatingHistory}>
           <Text className="action-icon">📈</Text>
           <Text className="action-text">{t('user.ratingHistory')}</Text>
+        </View>
+        {/* FS6: 会员中心入口（membership/frontend.md §6「我的 Tab → 会员中心」） */}
+        <View
+          className="action-card"
+          onClick={() => Taro.navigateTo({ url: '/pages/membership/index' })}
+        >
+          <Text className="action-icon">👑</Text>
+          <Text className="action-text">{t('membership.title')}</Text>
         </View>
       </View>
 

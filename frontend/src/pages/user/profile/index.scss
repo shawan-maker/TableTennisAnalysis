@@ -14,10 +14,17 @@
 }
 
 .profile-header {
+  position: relative; /* FS6: 铃铛绝对定位锚点 */
   display: flex;
   align-items: center;
   padding: var(--spacing-lg) var(--spacing-md);
   background: var(--color-card);
+
+  .header-bell {
+    position: absolute;
+    top: var(--spacing-sm);
+    right: var(--spacing-md);
+  }
 
   .avatar {
     width: 64px;

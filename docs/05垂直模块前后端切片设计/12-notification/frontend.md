@@ -18,6 +18,11 @@
 
 ## 2. API Service 模块
 
+> **R-FS6-P3 实现注记（契约以后端 app/schemas/notification.py 为准）**：
+> ① `NotificationItem.content` 为 `string | null`（后端可空，设计样例为非空 string）；
+> ② 补响应类型定义：`NotificationListData`（Paginated 包装）、`MarkReadData.updated_count`、`SubscribeData.subscribed_templates`、`UnreadCountData.unread_count`；
+> ③ 4 端点与设计一致（list/read/subscribe/unread-count），markRead 批量 1-100 条。
+
 ```typescript
 // frontend/src/services/notification.ts
 import request from './request'
@@ -207,6 +212,13 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 
 ## 4. WebSocket Hook
 
+> **R-FS6-P3 实现注记（样例保留原形态，实现按下述为准）**：
+> ① **Token 传递**：样例 `?token=` query 参数 → 实现为 `Sec-WebSocket-Protocol` 子协议 `jwt.{access_token}`（API §14.1 P2 安全合规：Token 不进 URL，避免日志/代理/Referer 泄露；后端 ws.py Step 0 一致）；
+> ② **事件分发**：样例 `Taro.eventCenter.trigger` → 实现为 `sharedListeners` Set 分发（本工程无 eventCenter 分发层，领域 Hook 经 options.onMessage 直回调）；
+> ③ **单例结构**：模块级 sharedSocketTask + connectionCount 引用计数 + connectedSubscribers 连接状态广播（设计 §4 connectionCount 形态落地）；首个消费者挂载建立连接，最后一个卸载才关闭；scheduleReconnect 有 connectionCount===0 守卫（无消费者不重连）；
+> ④ **内置事件五件**（handleBuiltinEvent，连接级单次执行，防多页共存重复 addNotification 未读翻倍）：connected → setWsConnected(true)；notification → 合成完整 item（id=-Date.now() 负时间戳防 DB 主键冲突，is_read=false，created_at=now）头插；sync → data.unread_count 直取（缺失回退 fetchUnreadCount）；export_completed → fetchUnreadCount()（后端 tasks/user.py 直推不落库）；membership_downgrade → membershipStore.refreshAll()（10-membership §9）；
+> ⑤ 心跳 pong `token_expired=true` → authStore.refreshAccessToken 后重建连接（API §14.2）。
+
 ```typescript
 // frontend/src/hooks/useWebSocket.ts
 import { useEffect, useRef, useCallback, useState } from 'react'
@@ -389,6 +401,11 @@ export function useWebSocket() {
 
 ## 5. 通知中心铃铛组件
 
+> **R-FS6-P3 实现注记**：
+> ① **挂载点**：设计定位「显示在首页顶部」→ FS6 落地为 user/profile 头部挂载（首页聚合归 FS7，届时迁回；实施计划同步）；
+> ② 新增 tabBar 角标联动：unreadCount 变化时 `Taro.setTabBarBadge({ index: USER_TAB_INDEX=4 })`（`removeTabBarBadge` 清零；调用 `.catch(()=>{})` 防真机环境差异抛错）；
+> ③ 铃铛内 useWebSocket() 即可（单例幂等，连接共享）。
+
 ```tsx
 // frontend/src/components/NotificationBell.tsx
 import { FC, useEffect } from 'react'
@@ -480,6 +497,11 @@ export default NotificationBell
 ---
 
 ## 6. 通知列表页
+
+> **R-FS6-P3 实现注记**：
+> ① 新增 all/unread/read 筛选 Tabs（NutUI Tabs value+onChange）——实施计划要求未读/已读筛选而设计 §6 无此交互，后端 is_read 参数支持（unread→is_read:false / read→is_read:true），切换时 fetchNotifications(true) 重置分页；
+> ② 空状态 Empty 用 title+actions（NutUI 2.7.14 真实 API，无 renderBottom/description 属性，FS5 先例）；
+> ③ 标记已读/全部已读逻辑与设计 §3 store 一致（本地更新 + unreadCount 扣减）。
 
 ```tsx
 // frontend/src/pages/notification/list/index.tsx

@@ -19,6 +19,11 @@
 
 ## 2. API Service 模块
 
+> **R-FS6-P3 实现注记（前端落地差异，契约以后端 app/api/v1/payment/router.py 为准）**：
+> ① 准备清单「§12.1-12.4，4 个端点」中用户态实际暴露 2 个（POST /payment/orders、GET /payment/orders）：/payment/notify 为微信回调、POST /payment/orders/{id}/refund 为 `get_current_admin` 管理员专用端点，均不对前端小程序暴露；
+> ② 用户订单页**无退款操作入口**——实施计划「退款入口」以订单状态 `refunded` 展示形态落地（§4.2 注记）；
+> ③ 补 `OrderListData`（Paginated 包装：total/page/page_size/items）类型定义。
+
 ```typescript
 // frontend/src/services/payment.ts
 import request from './request'
@@ -87,6 +92,11 @@ export function listOrders(params?: {
 ---
 
 ## 3. 状态管理（Zustand Store）
+
+> **R-FS6-P3 实现注记**：新增 `pollOrderStatus(orderId, maxAttempts=6, intervalMs=2000)` action——
+> 支付回调降级轮询（实施计划 FS6「降级路径」）：requestPayment 成功后轮询 listOrders 确认 order_id 转 paid。
+> 后端无单订单 GET 端点、WS payment_success 由异步回调驱动可能延迟，轮询为 WS 之外的兜底通道而非主通道
+> （反幻觉约束「禁止轮询」指不得以轮询代替 WS 的整体支付状态管理，降级兜底为实施计划明文要求）。
 
 ```typescript
 // frontend/src/stores/paymentStore.ts
@@ -179,6 +189,12 @@ export const usePaymentStore = create<PaymentState>((set, get) => ({
 ## 4. 页面组件
 
 ### 4.1 订单创建页（会员等级选择 + 微信支付）
+
+> **R-FS6-P3 实现注记**：
+> ① 样例 `MEMBERSHIP_TIERS` 硬编码定价**不落盘**——运行时从 GET /membership/tiers 取（price_*_cents 分单位），页面按 query `?tier=` 预选等级（与设计样例差异同 10-membership §7 注记）；
+> ② NutUI 受控 Toast 样例改 `Taro.showToast`（FS5 先例）；
+> ③ 支付成功后新增 `pollOrderStatus` 轮询确认订单转 paid 再 navigateBack（§3 注记），订单页停留期间 Toast 为支付回调唯一出口（§4.3 注记）；
+> ④ 周期节省金额按 price_*_cents 后端值计算（与样例常量同构，数据源换后端）。
 
 ```tsx
 // frontend/src/pages/payment/create.tsx
@@ -386,6 +402,11 @@ export default function CreateOrder() {
 
 ### 4.2 订单列表页
 
+> **R-FS6-P3 实现注记**：
+> ① 页面挂 usePaymentNotify()——WS payment_success 后列表即时刷新；
+> ② 无用户退款操作：refund 为管理员端点（§2 注记①），仅 pending/paid/refunded/cancelled 四态 Tab 筛选与状态展示；样例 STATUS_MAP 保留四态映射同构；
+> ③ 「继续支付」以 pending 状态展示（暂无重复拉起支付流程，后续 Sprint 视需求补）。
+
 ```tsx
 // frontend/src/pages/payment/orders.tsx
 import { useEffect, useState } from 'react'
@@ -522,6 +543,11 @@ export default function OrderList() {
 ```
 
 ### 4.3 WS 支付成功通知监听 Hook
+
+> **R-FS6-P3 实现注记（按工程现实落地）**：
+> ① 样例经 `Taro.eventCenter.on('ws:message')` 订阅——本工程 useWebSocket 为 `options.onMessage` 直回调（FS1 API），无 eventCenter 分发层，改经 useBadgeUnlock 同构模式消费；
+> ② 样例在此 Toast 支付成功——Toast 移至 create 页支付回调**唯一出口**，避免会员中心→支付页页面栈共存时双 Toast；本 Hook 只做数据刷新（fetchOrders 幂等）+ 挂载方 onSuccess 回调；
+> ③ 挂载点：membership 页传 refreshAll（权益即时刷新）、orders 页仅刷新列表；create 页**不挂**本 Hook（pollOrderStatus 轮询兜底，见 §4.1 注记③）。
 
 ```tsx
 // frontend/src/hooks/usePaymentNotify.ts
@@ -1020,5 +1046,5 @@ cd frontend && npm run build:h5
 - **禁止** 硬编码颜色值，使用 CSS 变量（`--color-primary` 等）
 - **禁止** 安装新的 npm 包
 - 订单列表 **必须** 按状态筛选，**禁止** 在前端做权限过滤（后端已过滤 user_id）
-- 支付成功通知 **必须** 通过 WS 事件监听，**禁止** 轮询
-- 会员定价 **必须** 与后端 `MEMBERSHIP_PRICING` 一致，**禁止** 前端随意修改价格
+- 支付成功通知 **必须** 通过 WS 事件监听（usePaymentNotify），**禁止** 以轮询代替 WS 作为支付状态主通道 —— R-FS6-P3 澄清：create 页 requestPayment 成功后的 pollOrderStatus 为实施计划「降级路径」兜底轮询（§3 注记），非主通道
+- 会员定价 **必须** 与后端 `MEMBERSHIP_PRICING` 一致，**禁止** 前端随意修改价格 —— R-FS6-P3 澄清：以 GET /membership/tiers 运行时取值为唯一权威源（前端零定价常量，§4.1 注记①）

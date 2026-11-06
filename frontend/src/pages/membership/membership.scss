@@ -1,0 +1,311 @@
+.membership-page {
+  min-height: 100vh;
+  background: var(--color-background); // #F8F9FA
+
+  .membership-scroll {
+    height: calc(100vh - 44px);
+    padding: var(--spacing-md);
+  }
+}
+
+// === 当前会员状态卡 ===
+.current-card {
+  background: linear-gradient(135deg, var(--color-secondary) 0%, var(--color-secondary-dark, var(--color-secondary)) 100%);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  color: var(--color-text-inverse);
+  position: relative;
+
+  .current-tier-badge {
+    display: inline-block;
+    background: var(--color-accent); // #F4A261
+    color: var(--color-secondary);
+    padding: var(--spacing-xs) var(--spacing-sm-md);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-sm-md);
+
+    .tier-badge-text {
+      font-size: 13px;
+      font-weight: bold;
+    }
+  }
+
+  .current-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm-md);
+    margin-bottom: var(--spacing-sm-md);
+
+    .current-tier-name {
+      font-size: 24px;
+      font-weight: bold;
+    }
+
+    .current-status {
+      padding: var(--spacing-xs) 10px;
+      border-radius: var(--radius-md);
+
+      .status-text {
+        font-size: 12px;
+      }
+
+      &.status-active {
+        background: color-mix(in srgb, var(--color-success) 30%, transparent);
+        .status-text { color: var(--color-success); }
+      }
+
+      &.status-warning {
+        background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+        .status-text { color: var(--color-accent); }
+      }
+
+      &.status-danger {
+        background: color-mix(in srgb, var(--color-primary) 30%, transparent);
+        .status-text { color: var(--color-primary); }
+      }
+
+      &.status-default {
+        background: color-mix(in srgb, var(--color-text-secondary) 20%, transparent);
+        .status-text { color: var(--color-text-secondary); }
+      }
+    }
+  }
+
+  .current-expire {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 13px;
+    opacity: 0.9;
+
+    .expire-label {
+      opacity: 0.7;
+    }
+
+    .expire-date {
+      font-weight: 500;
+    }
+
+    .expire-remaining {
+      margin-left: var(--spacing-sm);
+      color: var(--color-accent);
+      font-weight: bold;
+    }
+  }
+
+  .expire-banner {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-sm-md);
+    background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    .banner-text {
+      font-size: 13px;
+      color: var(--color-accent);
+    }
+  }
+}
+
+// === 今日额度卡 ===
+.quota-card {
+  background: var(--color-card); // #FFFFFF
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .quota-header {
+    margin-bottom: var(--spacing-sm-md);
+
+    .quota-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+  }
+
+  .quota-body {
+    text-align: center;
+
+    .quota-remaining {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: var(--spacing-xs);
+
+      .quota-number {
+        font-size: 32px;
+        font-weight: bold;
+        color: var(--color-primary); // #E63946
+      }
+
+      .quota-divider {
+        font-size: 18px;
+        color: var(--color-text-secondary);
+      }
+
+      .quota-limit {
+        font-size: 18px;
+        color: var(--color-text-secondary);
+      }
+    }
+
+    .quota-label {
+      display: block;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      margin-top: var(--spacing-xs);
+    }
+
+    .quota-progress {
+      width: 100%;
+      height: 8px;
+      background: var(--color-divider); // #DEE2E6
+      border-radius: var(--radius-sm);
+      margin: var(--spacing-md) 0 var(--spacing-sm);
+      overflow: hidden;
+
+      .quota-progress-bar {
+        height: 100%;
+        background: var(--color-primary); // #E63946
+        border-radius: var(--radius-sm);
+        transition: width 0.3s;
+      }
+    }
+
+    .quota-used {
+      display: block;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+
+    .quota-reset {
+      display: block;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      margin-top: var(--spacing-xs);
+      opacity: 0.7;
+    }
+  }
+}
+
+// === 等级权益对比表 ===
+.tiers-section {
+  background: var(--color-card); // #FFFFFF
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .section-title {
+    margin-bottom: var(--spacing-sm-md);
+
+    Text {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+  }
+
+  .tier-table {
+    width: 100%;
+    overflow-x: auto;
+
+    .table-header,
+    .table-row {
+      display: flex;
+      flex-direction: row;
+    }
+
+    .table-header {
+      border-bottom: 2px solid var(--color-divider);
+      padding-bottom: var(--spacing-sm);
+      margin-bottom: var(--spacing-sm);
+    }
+
+    .table-row {
+      border-bottom: 1px solid var(--color-divider);
+      padding: var(--spacing-sm) 0;
+
+      &.action-row {
+        padding-top: var(--spacing-md);
+        border-bottom: none;
+      }
+    }
+
+    .table-cell {
+      flex: 1;
+      text-align: center;
+      padding: var(--spacing-xs) var(--spacing-xs);
+
+      &.label-cell {
+        flex: 0 0 30%;
+        text-align: left;
+
+        .header-text,
+        .row-label {
+          font-size: 12px;
+          color: var(--color-text-secondary);
+        }
+      }
+
+      &.tier-cell {
+        &.current {
+          .tier-name {
+            color: var(--color-primary); // #E63946
+            font-weight: bold;
+          }
+        }
+
+        .tier-name {
+          display: block;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--color-text-primary);
+        }
+
+        .tier-price {
+          display: block;
+          font-size: 12px;
+          color: var(--color-text-secondary);
+          margin-top: var(--spacing-xs);
+        }
+
+        .benefit-icon {
+          font-size: 13px;
+
+          &.has {
+            color: var(--color-success); // #2A9D8F
+          }
+
+          &.no {
+            color: var(--color-text-secondary);
+            opacity: 0.4;
+          }
+        }
+
+        .subscribe-btn {
+          min-width: 60px;
+          font-size: 12px;
+          padding: 0 var(--spacing-sm);
+        }
+      }
+    }
+  }
+}
+
+// === 年付优惠提示 ===
+.yearly-promo {
+  text-align: center;
+  padding: var(--spacing-md);
+
+  .promo-text {
+    font-size: 12px;
+    color: var(--color-accent); // #F4A261
+    font-weight: 500;
+  }
+}

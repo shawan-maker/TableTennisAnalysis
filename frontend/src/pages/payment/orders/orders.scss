@@ -1,0 +1,96 @@
+.orders-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  display: flex;
+  flex-direction: column;
+}
+
+.orders-scroll {
+  flex: 1;
+  height: calc(100vh - 44px);
+}
+
+.orders-loading,
+.orders-end {
+  padding: var(--spacing-lg) var(--spacing-md);
+}
+
+.orders-end-text {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.order-list {
+  padding: var(--spacing-sm-md) var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm-md);
+}
+
+.order-card {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+
+  .order-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-sm-md);
+
+    .order-product {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-secondary);
+    }
+  }
+
+  .order-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+
+    .order-info-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+
+      .info-label {
+        font-size: 13px;
+        color: var(--color-text-secondary);
+      }
+
+      .info-value {
+        font-size: 13px;
+        color: var(--color-text-primary);
+      }
+
+      .info-amount {
+        font-size: 15px;
+        font-weight: bold;
+        color: var(--color-primary);
+      }
+    }
+  }
+
+  .order-actions {
+    margin-top: var(--spacing-sm-md);
+    padding-top: var(--spacing-sm-md);
+    border-top: 1px solid var(--color-divider);
+    display: flex;
+    justify-content: flex-end;
+
+    .action-pay {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-accent);
+    }
+
+    .action-membership {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-success);
+    }
+  }
+}

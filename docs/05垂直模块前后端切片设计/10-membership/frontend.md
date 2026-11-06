@@ -19,6 +19,11 @@
 
 ## 2. API Service 模块（TypeScript）
 
+> **R-FS6-P3 实现注记（前端落地差异，契约以后端 app/schemas/membership.py 为准）**：
+> ① 定价字段为 `price_monthly_cents` / `price_quarterly_cents` / `price_yearly_cents`（分单位，设计样例 price_monthly 等缺 _cents 后缀）；页面金额展示按 `/100` 换算；
+> ② `TierInfo.quota` 实际为 `quota_config: Record<string, unknown>`（TierBrief.quota_config dict，设计样例为 quota.daily_analysis_limit 单字段）；
+> ③ `QuotaData` 补 `bonus_remaining`（R15-VA-N1 付费分析包剩余额度，会员态信息性展示）。
+
 ```typescript
 // frontend/src/services/membership.ts
 import request from './request'
@@ -172,6 +177,12 @@ export const useMembershipStore = create<MembershipState>((set) => ({
 ## 4. 页面组件（React + TSX + NutUI）
 
 ### 4.1 会员中心页
+
+> **R-FS6-P3 实现注记**：
+> ① NavBar 未采用——工程先例为原生导航栏（index.config.ts 静态标题，FS1-FS5 同构）；
+> ② 权益对比表行直接渲染后端 `tiers[].benefits` 中文字符串（后端种子数据，en 布局下保持原文，与设计 §4.1 allBenefits 并集算法一致）；
+> ③ 状态文案/颜色映射走 constants/membership.ts `MEMBERSHIP_STATUS_MAP`（§7 常量，含双语 labelKey）；
+> ④ 页面挂 usePaymentNotify → 收到 WS payment_success 后 refreshAll() 权益即时刷新（Toast 出口在 payment/create 页唯一，见 11-payment §4.3 注记）。
 
 ```tsx
 // frontend/src/pages/membership/index.tsx
@@ -786,6 +797,11 @@ Taro.navigateTo({ url: '/pages/payment/create/index?tier=member' })
 
 ### 常量
 
+> **R-FS6-P3 实现注记**：
+> ① 设计样例 `TIER_PRICING` 硬编码（元级定价）**不落盘**——定价唯一权威源为后端 GET /membership/tiers（MembershipTierConfig 表，分单位 price_*_cents），避免与后端种子数据双源漂移（反幻觉约束「定价必须与后端一致」的落地方式）；
+> ② 新增 `USER_TAB_INDEX = 4`（「我的」Tab 在 app.config.ts tabBar 中的索引，通知角标 Taro.setTabBarBadge 挂载点）；
+> ③ 新增 `MembershipFeature` / `ExpiredAccessLevel` 类型导出（useMembershipGate 判定函数签名用）。
+
 ```typescript
 // frontend/src/constants/membership.ts
 
@@ -912,6 +928,11 @@ export const EXPIRED_ACCESS_MAP = {
 ---
 
 ## 8. 权益降级 UI 处理（Hook）
+
+> **R-FS6-P3 实现注记**：
+> ① 判定核心提取为 `computeMembershipAccess(tier, status, feature)` 纯函数导出（供 Hook 与 jest 契约测试共用，useMatchSync 先例）；
+> ② 升级弹层（Popup position="bottom"）由消费页面渲染——Hook 只管 upgradeVisible 与 handlers；
+> ③ WS `membership_downgrade` 事件由 useWebSocket 内置 handleBuiltinEvent 消费（连接级单次，见 12-notification §4 注记）：触发 membershipStore.refreshAll() 静默刷新，满足 §9 验证项「收到 membership_downgrade 后刷新状态」。
 
 ```typescript
 // frontend/src/hooks/useMembershipGate.ts

@@ -21,6 +21,13 @@ const Taro = {
   showModal: jest.fn(),
   getSystemInfoSync: jest.fn(() => ({ language: 'zh_CN' })),
   connectSocket: jest.fn(() => Promise.resolve({ close: jest.fn(), send: jest.fn() })),
+  // FS6: JSAPI 支付 / tabBar 角标 / 下拉刷新（Taro API 均返回 Promise）
+  requestPayment: jest.fn(() => Promise.resolve({})),
+  setTabBarBadge: jest.fn(() => Promise.resolve({})),
+  removeTabBarBadge: jest.fn(() => Promise.resolve({})),
+  stopPullDownRefresh: jest.fn(() => Promise.resolve({})),
+  usePullDownRefresh: jest.fn(),
+  useReachBottom: jest.fn(),
   request: jest.fn(),
 }
 

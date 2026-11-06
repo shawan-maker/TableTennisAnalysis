@@ -1,0 +1,158 @@
+.payment-create {
+  min-height: 100vh;
+  padding: var(--spacing-md) var(--spacing-md) 80px;
+  background: var(--color-background);
+}
+
+.page-header {
+  text-align: center;
+  padding: var(--spacing-lg) 0;
+
+  .page-title {
+    display: block;
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+
+  .page-subtitle {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm-md);
+}
+
+.tier-card {
+  position: relative;
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+
+  &.selected {
+    border-color: var(--color-primary);
+  }
+
+  .recommend-tag {
+    position: absolute;
+    top: 0;
+    right: 12px;
+    transform: translateY(-50%);
+  }
+
+  .tier-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm-md);
+
+    .tier-name {
+      font-size: 18px;
+      font-weight: bold;
+    }
+  }
+
+  .tier-features {
+    .feature-item {
+      display: block;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      padding: var(--spacing-xs) 0;
+    }
+  }
+}
+
+.period-section {
+  margin-top: var(--spacing-lg);
+
+  .section-title {
+    font-size: 15px;
+    font-weight: bold;
+    color: var(--color-text-primary);
+    display: block;
+    margin-bottom: var(--spacing-sm-md);
+  }
+}
+
+.period-list {
+  display: flex;
+  gap: var(--spacing-sm-md);
+
+  .period-card {
+    flex: 1;
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm-md) var(--spacing-sm);
+    text-align: center;
+    border: 2px solid transparent;
+    transition: border-color 0.2s;
+
+    &.selected {
+      border-color: var(--color-primary);
+      background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+    }
+
+    .period-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+    }
+
+    .period-price {
+      display: block;
+      font-size: 18px;
+      font-weight: bold;
+      color: var(--color-primary);
+      margin-top: var(--spacing-xs);
+    }
+
+    .period-savings {
+      display: block;
+      font-size: 12px;
+      color: var(--color-success);
+      margin-top: var(--spacing-xs);
+    }
+  }
+}
+
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: var(--color-card);
+  border-top: 1px solid var(--color-divider);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--spacing-md);
+  z-index: 100;
+
+  .amount-area {
+    .amount-label {
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      display: block;
+    }
+
+    .amount-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--color-primary);
+    }
+  }
+
+  .pay-button {
+    min-width: 140px;
+  }
+}
