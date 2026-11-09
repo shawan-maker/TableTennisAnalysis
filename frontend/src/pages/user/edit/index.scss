@@ -18,6 +18,12 @@
     color: var(--color-text-primary);
     margin-bottom: var(--spacing-sm-md);
   }
+
+  /* Cell 右侧输入框（NutUI 2.x：children 会吞掉 title，表单值走 extra 右槽位） */
+  .cell-input {
+    width: 180px;
+    text-align: right;
+  }
 }
 
 .style-grid,

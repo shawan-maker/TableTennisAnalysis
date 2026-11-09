@@ -71,50 +71,62 @@ export default function QuickEntry() {
       </View>
 
       {/* 对手信息 */}
-      <Cell title={t('matchData.opponentName')}>
-        <Input
-          className="cell-input"
-          placeholder={t('matchData.opponentNamePlaceholder')}
-          value={opponentName}
-          maxLength={64}
-          onChange={(val: string) => setOpponentName(val)}
-        />
-      </Cell>
+      <Cell
+        title={t('matchData.opponentName')}
+        extra={
+          <Input
+            className="cell-input"
+            placeholder={t('matchData.opponentNamePlaceholder')}
+            value={opponentName}
+            maxLength={64}
+            onChange={(val: string) => setOpponentName(val)}
+          />
+        }
+      />
 
-      <Cell title={t('matchData.opponentRating')}>
-        <Input
-          className="cell-input"
-          type="number"
-          placeholder={t('matchData.opponentRatingPlaceholder')}
-          value={opponentRating}
-          maxLength={4}
-          onChange={(val: string) => setOpponentRating(val)}
-        />
-      </Cell>
+      <Cell
+        title={t('matchData.opponentRating')}
+        extra={
+          <Input
+            className="cell-input"
+            type="number"
+            placeholder={t('matchData.opponentRatingPlaceholder')}
+            value={opponentRating}
+            maxLength={4}
+            onChange={(val: string) => setOpponentRating(val)}
+          />
+        }
+      />
 
       {/* 赛制选择 */}
-      <Cell title={t('matchData.format')}>
-        <Picker
-          mode="selector"
-          range={FORMAT_OPTIONS.map((o) => t(o.labelKey))}
-          value={formatIdx}
-          onChange={(e: any) => setFormatIdx(parseInt(e.detail.value, 10))}
-        >
-          <View className="picker-value">{t(FORMAT_OPTIONS[formatIdx].labelKey)}</View>
-        </Picker>
-      </Cell>
+      <Cell
+        title={t('matchData.format')}
+        extra={
+          <Picker
+            mode="selector"
+            range={FORMAT_OPTIONS.map((o) => t(o.labelKey))}
+            value={formatIdx}
+            onChange={(e: any) => setFormatIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">{t(FORMAT_OPTIONS[formatIdx].labelKey)}</View>
+          </Picker>
+        }
+      />
 
       {/* 比赛类型 */}
-      <Cell title={t('matchData.matchType')}>
-        <Picker
-          mode="selector"
-          range={MATCH_TYPE_OPTIONS.map((o) => t(o.labelKey))}
-          value={typeIdx}
-          onChange={(e: any) => setTypeIdx(parseInt(e.detail.value, 10))}
-        >
-          <View className="picker-value">{t(MATCH_TYPE_OPTIONS[typeIdx].labelKey)}</View>
-        </Picker>
-      </Cell>
+      <Cell
+        title={t('matchData.matchType')}
+        extra={
+          <Picker
+            mode="selector"
+            range={MATCH_TYPE_OPTIONS.map((o) => t(o.labelKey))}
+            value={typeIdx}
+            onChange={(e: any) => setTypeIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">{t(MATCH_TYPE_OPTIONS[typeIdx].labelKey)}</View>
+          </Picker>
+        }
+      />
 
       {/* 比分输入（数字键盘，双列居中） */}
       <View className="score-input-section">

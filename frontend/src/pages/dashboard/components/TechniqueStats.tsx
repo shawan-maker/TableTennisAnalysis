@@ -26,7 +26,8 @@ export default function TechniqueStats({ data, loading }: Props) {
     )
   }
 
-  const items = data.technique_distribution
+  // 防御缺字段（E2E-02 实证：形状漂移时 undefined.reduce 会崩掉整页渲染树）
+  const items = data.technique_distribution ?? []
   const total = items.reduce((sum, item) => sum + item.value, 0)
 
   if (total === 0) {

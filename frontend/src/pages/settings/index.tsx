@@ -134,12 +134,13 @@ export default function SettingsPage() {
               key={item.storageKey}
               title={t(item.labelKey)}
               className="settings-cell"
-            >
-              <Switch
-                checked={notifStates[item.storageKey] ?? item.defaultOn}
-                onChange={(val) => handleNotifChange(item.storageKey, val)}
-              />
-            </Cell>
+              extra={
+                <Switch
+                  checked={notifStates[item.storageKey] ?? item.defaultOn}
+                  onChange={(val) => handleNotifChange(item.storageKey, val)}
+                />
+              }
+            />
           ))}
         </View>
       </View>

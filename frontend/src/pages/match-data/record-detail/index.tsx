@@ -51,20 +51,21 @@ export default function RecordDetail() {
       </View>
 
       {/* 比赛信息 */}
-      <Cell title={t('matchData.format')}>
-        <Text className="cell-text">{format}</Text>
-      </Cell>
-      <Cell title={t('matchData.matchType')}>
-        <Text className="cell-text">{t(`scoring.matchType_${match_type}`)}</Text>
-      </Cell>
+      <Cell title={t('matchData.format')} extra={<Text className="cell-text">{format}</Text>} />
+      <Cell
+        title={t('matchData.matchType')}
+        extra={<Text className="cell-text">{t(`scoring.matchType_${match_type}`)}</Text>}
+      />
       {opponent_rating != null && (
-        <Cell title={t('matchData.opponentRating')}>
-          <Text className="cell-text">{opponent_rating}</Text>
-        </Cell>
+        <Cell
+          title={t('matchData.opponentRating')}
+          extra={<Text className="cell-text">{opponent_rating}</Text>}
+        />
       )}
-      <Cell title={t('matchData.matchDate')}>
-        <Text className="cell-text">{(match_date || '').slice(0, 10)}</Text>
-      </Cell>
+      <Cell
+        title={t('matchData.matchDate')}
+        extra={<Text className="cell-text">{(match_date || '').slice(0, 10)}</Text>}
+      />
 
       {/* 逐分明细 */}
       {details && details.length > 0 && (

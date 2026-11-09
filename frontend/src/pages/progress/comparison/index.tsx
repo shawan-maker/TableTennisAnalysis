@@ -71,18 +71,22 @@ export default function ComparisonPage() {
           range={snapshotLabels}
           onChange={(e) => setReportA(snapshots[Number(e.detail.value)]?.report_id)}
         >
-          <Cell title={t('progress.reportA')} clickable>
-            <Text className="picker-value">{reportA ? `#${reportA}` : t('progress.selectReport')}</Text>
-          </Cell>
+          <Cell
+            title={t('progress.reportA')}
+            clickable
+            extra={<Text className="picker-value">{reportA ? `#${reportA}` : t('progress.selectReport')}</Text>}
+          />
         </Picker>
         <Picker
           mode="selector"
           range={snapshotLabels}
           onChange={(e) => setReportB(snapshots[Number(e.detail.value)]?.report_id)}
         >
-          <Cell title={t('progress.reportB')} clickable>
-            <Text className="picker-value">{reportB ? `#${reportB}` : t('progress.selectReport')}</Text>
-          </Cell>
+          <Cell
+            title={t('progress.reportB')}
+            clickable
+            extra={<Text className="picker-value">{reportB ? `#${reportB}` : t('progress.selectReport')}</Text>}
+          />
         </Picker>
         <Button
           type="primary"

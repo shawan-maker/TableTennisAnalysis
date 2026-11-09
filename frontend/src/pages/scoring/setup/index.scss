@@ -15,7 +15,8 @@
   }
 }
 
-/* Cell 右侧输入框（NutUI 2.x Cell children 渲染于右侧槽位） */
+/* Cell 右侧输入框（NutUI 2.x Cell 的 extra 渲染于右侧槽位；
+   注意：children 会整体替换 Cell 内容、吞掉 title，表单值必须走 extra） */
 .cell-input {
   width: 180px;
   text-align: right;

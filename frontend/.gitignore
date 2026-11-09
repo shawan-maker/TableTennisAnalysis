@@ -6,3 +6,5 @@ node_modules/
 .swc
 *.local
 deploy_versions/
+test-results/
+playwright-report/

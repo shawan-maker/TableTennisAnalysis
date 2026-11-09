@@ -28,8 +28,11 @@ export async function setup(
     (a) => {
       localStorage.setItem('app_language', 'zh-CN')
       if (a) {
-        localStorage.setItem('access_token', 'e2e-access-token')
-        localStorage.setItem('refresh_token', 'e2e-refresh-token')
+        // Taro H5 storage 格式：setStorageSync 存 JSON.stringify({data})，
+        // getStorageSync 须解析出 {data} 才返回（裸字符串解析失败 → 恒空 →
+        // authStore.accessToken 为空、useWebSocket 无 Token 不连接）
+        localStorage.setItem('access_token', JSON.stringify({ data: 'e2e-access-token' }))
+        localStorage.setItem('refresh_token', JSON.stringify({ data: 'e2e-refresh-token' }))
       }
     },
     auth
@@ -54,10 +57,10 @@ export async function gotoPage(page: Page, path: string) {
   await page.waitForLoadState('networkidle')
 }
 
-/** 预置已登录态（免 UI，用于非登录主线的路径） */
+/** 预置已登录态（免 UI，用于非登录主线的路径；Taro H5 storage 格式同 setup） */
 export async function withAuth(page: Page) {
   await page.addInitScript(() => {
-    localStorage.setItem('access_token', 'e2e-access-token')
-    localStorage.setItem('refresh_token', 'e2e-refresh-token')
+    localStorage.setItem('access_token', JSON.stringify({ data: 'e2e-access-token' }))
+    localStorage.setItem('refresh_token', JSON.stringify({ data: 'e2e-refresh-token' }))
   })
 }

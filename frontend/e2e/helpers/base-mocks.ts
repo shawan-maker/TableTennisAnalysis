@@ -175,8 +175,20 @@ export function baseMocks(opts: { requiresConsent?: boolean } = {}): MockRoute[]
     { method: 'GET', pattern: '/users/quota', data: makeQuota(2) },
     { method: 'GET', pattern: '/dashboard/overview', data: OVERVIEW },
     { method: 'GET', pattern: '/dashboard/win-rate-trend', data: { labels: ['10/01', '11/01'], series: [{ name: '胜率', data: [0.4, 0.56] }] } },
-    { method: 'GET', pattern: '/dashboard/technique-stats', data: { items: [] } },
-    { method: 'GET', pattern: '/dashboard/landing-heatmap', data: { zones: [] } },
+    // 形状镜像 services/dashboard.ts TechniqueStatsData（technique_distribution）；
+    // E2E-02 曾因误写 { items: [] } 导致 TechniqueStats 组件 undefined.reduce 崩掉整页
+    { method: 'GET', pattern: '/dashboard/technique-stats', data: { technique_distribution: [] } },
+    // 形状镜像 LandingHeatmapData（nine_grid 9×9 + distribution + 计数）
+    {
+      method: 'GET',
+      pattern: '/dashboard/landing-heatmap',
+      data: {
+        nine_grid: Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => 0)),
+        distribution: { forehand: 0, backhand: 0, middle: 0 },
+        total_rallies: 0,
+        source_reports_count: 0,
+      },
+    },
     { method: 'GET', pattern: '/dashboard/match-records', data: { items: [], total: 0, page: 1, page_size: 20 } },
     { method: 'GET', pattern: '/gamification/points', data: POINTS },
     { method: 'GET', pattern: '/gamification/checkin-calendar', data: makeCalendar() },

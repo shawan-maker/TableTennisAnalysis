@@ -52,9 +52,11 @@ export default function MatchStatisticsPage() {
         <Text className="section-title">{t('scoring.scoreDistribution')}</Text>
         <View className="distribution-list">
           {Object.entries(score_distribution).map(([method, count]) => (
-            <Cell key={method} title={t(`scoring.method.${method}`)}>
-              <Text className="dist-count">{count}</Text>
-            </Cell>
+            <Cell
+              key={method}
+              title={t(`scoring.method.${method}`)}
+              extra={<Text className="dist-count">{count}</Text>}
+            />
           ))}
         </View>
       </View>
@@ -64,9 +66,11 @@ export default function MatchStatisticsPage() {
         <Text className="section-title">{t('scoring.techniqueBreakdown')}</Text>
         <View className="technique-list">
           {Object.entries(technique_breakdown).map(([tech, count]) => (
-            <Cell key={tech} title={t(`scoring.technique.${tech}`)}>
-              <Text className="dist-count">{count}</Text>
-            </Cell>
+            <Cell
+              key={tech}
+              title={t(`scoring.technique.${tech}`)}
+              extra={<Text className="dist-count">{count}</Text>}
+            />
           ))}
         </View>
       </View>

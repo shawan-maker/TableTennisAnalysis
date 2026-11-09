@@ -133,48 +133,72 @@ export default function ProfileEditPage() {
       {/* 装备配置 */}
       <View className="form-section">
         <View className="section-title">{t('user.equipment')}</View>
-        <Cell title={t('user.bladeBrand')}>
-          <Input
-            placeholder={t('user.brandPlaceholder')}
-            value={bladeBrand}
-            onChange={(val) => setBladeBrand(val)}
-          />
-        </Cell>
-        <Cell title={t('user.bladeModel')}>
-          <Input
-            placeholder={t('user.modelPlaceholder')}
-            value={bladeModel}
-            onChange={(val) => setBladeModel(val)}
-          />
-        </Cell>
-        <Cell title={t('user.rubberFHBrand')}>
-          <Input
-            placeholder={t('user.brandPlaceholder')}
-            value={rubberFhBrand}
-            onChange={(val) => setRubberFhBrand(val)}
-          />
-        </Cell>
-        <Cell title={t('user.rubberFHModel')}>
-          <Input
-            placeholder={t('user.modelPlaceholder')}
-            value={rubberFhModel}
-            onChange={(val) => setRubberFhModel(val)}
-          />
-        </Cell>
-        <Cell title={t('user.rubberBHBrand')}>
-          <Input
-            placeholder={t('user.brandPlaceholder')}
-            value={rubberBhBrand}
-            onChange={(val) => setRubberBhBrand(val)}
-          />
-        </Cell>
-        <Cell title={t('user.rubberBHModel')}>
-          <Input
-            placeholder={t('user.modelPlaceholder')}
-            value={rubberBhModel}
-            onChange={(val) => setRubberBhModel(val)}
-          />
-        </Cell>
+        <Cell
+          title={t('user.bladeBrand')}
+          extra={
+            <Input
+              className="cell-input"
+              placeholder={t('user.brandPlaceholder')}
+              value={bladeBrand}
+              onChange={(val) => setBladeBrand(val)}
+            />
+          }
+        />
+        <Cell
+          title={t('user.bladeModel')}
+          extra={
+            <Input
+              className="cell-input"
+              placeholder={t('user.modelPlaceholder')}
+              value={bladeModel}
+              onChange={(val) => setBladeModel(val)}
+            />
+          }
+        />
+        <Cell
+          title={t('user.rubberFHBrand')}
+          extra={
+            <Input
+              className="cell-input"
+              placeholder={t('user.brandPlaceholder')}
+              value={rubberFhBrand}
+              onChange={(val) => setRubberFhBrand(val)}
+            />
+          }
+        />
+        <Cell
+          title={t('user.rubberFHModel')}
+          extra={
+            <Input
+              className="cell-input"
+              placeholder={t('user.modelPlaceholder')}
+              value={rubberFhModel}
+              onChange={(val) => setRubberFhModel(val)}
+            />
+          }
+        />
+        <Cell
+          title={t('user.rubberBHBrand')}
+          extra={
+            <Input
+              className="cell-input"
+              placeholder={t('user.brandPlaceholder')}
+              value={rubberBhBrand}
+              onChange={(val) => setRubberBhBrand(val)}
+            />
+          }
+        />
+        <Cell
+          title={t('user.rubberBHModel')}
+          extra={
+            <Input
+              className="cell-input"
+              placeholder={t('user.modelPlaceholder')}
+              value={rubberBhModel}
+              onChange={(val) => setRubberBhModel(val)}
+            />
+          }
+        />
       </View>
 
       <Button
