@@ -8,7 +8,6 @@ import { View, Text, Image, ScrollView } from '@tarojs/components'
 import { Cell, Button, Toast, Progress, Dialog, Popup, Tag, Skeleton, TextArea } from '@nutui/nutui-react'
 import { useUserStore } from '@/stores/userStore'
 import { useTranslation } from 'react-i18next'
-import NotificationBell from '@/components/NotificationBell'
 import './index.scss'
 
 export default function ProfilePage() {
@@ -199,10 +198,7 @@ export default function ProfilePage() {
             </Text>
           </View>
         </View>
-        {/* FS6: 通知铃铛（挂「我的」Tab 页头，设计挂首页归 FS7） */}
-        <View className="header-bell">
-          <NotificationBell />
-        </View>
+        {/* FS7: 通知铃铛迁回首页 TopBar（12-notification §5 设计意图，单一挂载点） */}
       </View>
 
       {/* 档案完整度 */}

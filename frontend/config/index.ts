@@ -88,6 +88,18 @@ export default defineConfig<'webpack5'>(async (merge, _ctx) => {
       },
       webpackChain(chain) {
         chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin)
+        // FS7-P3: H5 生产构建 OOM 缓解（本机 FreeGB<5；Taro BaseConfig.setMinimizer 硬编码
+        // TerserPlugin parallel:true，多 worker 各占独立堆 → Fatal process out of memory: Zone）。
+        // webpackChain 回调在 setMinimizer 之后执行，此处将注册名 terserPlugin 的 minimizer
+        // 改为单进程压缩；同时关闭 devtool（source map）降低 sealing 阶段峰值内存。
+        chain.devtool(false)
+        const terser = (chain.optimization as any).minimizers.get('terserPlugin')
+        if (terser) {
+          terser.tap((args: any[]) => {
+            if (args[0]) args[0].parallel = false
+            return args
+          })
+        }
       }
     }
   }

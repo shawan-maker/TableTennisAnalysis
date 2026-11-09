@@ -1,0 +1,79 @@
+// 最近分析报告卡片（00-home/frontend.md §5 LatestReportCard.scss）
+.latest-report {
+  padding: 0 var(--spacing-md) var(--spacing-md);
+
+  .section-title {
+    display: block;
+    font-size: 15px;
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .card-placeholder,
+  .empty-report {
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    text-align: center;
+    box-shadow: var(--shadow-card);
+  }
+
+  .report-card {
+    display: flex;
+    align-items: center;
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-card);
+
+    &:active {
+      opacity: 0.9;
+    }
+
+    .report-thumbnail {
+      width: 64px;
+      height: 64px;
+      border-radius: var(--radius-sm);
+      margin-right: var(--spacing-md);
+      flex-shrink: 0;
+    }
+
+    .report-info {
+      flex: 1;
+
+      .report-title {
+        display: block;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        margin-bottom: var(--spacing-xs);
+        /* 摘要两行截断 */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+
+      .report-date {
+        display: block;
+        font-size: 12px;
+        color: var(--color-text-secondary);
+      }
+    }
+
+    .report-arrow {
+      font-size: 24px;
+      color: var(--color-text-secondary);
+      flex-shrink: 0;
+    }
+  }
+
+  .upload-hint {
+    display: block;
+    margin-top: var(--spacing-sm);
+    font-size: 13px;
+    color: var(--color-primary);
+  }
+}

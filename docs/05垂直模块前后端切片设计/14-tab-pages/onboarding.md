@@ -206,6 +206,11 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
 
 ### 3.1 引导主容器（Steps 弹窗）
 
+> **R-FS7-P3 实现注记（前端落地差异）**：
+> ① **分步分发**：Steps 弹窗内对 `first_match/first_upload/view_advice` 渲染 `ActionGuideCard`（§3.4 行为引导卡：goNow 跳目标页 / doLater nextStep）；`profile` →「开始此步骤」navigateTo 档案填写页（提交后 nextStep+switchTab 首页）；`home_tour` → 关弹窗 navigateBack 回首页 + `setShowHomeTour(true)` 开启 HomeTourOverlay（遮罩「知道了」nextStep）；
+> ② **触发链**：首页 onShow 检测新用户（user.created_at + profile_completeness 经 `initOnboarding` 判定，注册<24h 或完整度<30%）→ navigateTo 引导页；中途退出经 Storage 恢复进度（onboardingStore §2）；
+> ③ **挂载**：HomeTourOverlay 由首页（00-home §4.1）挂载而非引导页自身（遮罩需覆盖首页功能区）。
+
 ```tsx
 // frontend/src/pages/onboarding/index.tsx
 import { useEffect, useState } from 'react'

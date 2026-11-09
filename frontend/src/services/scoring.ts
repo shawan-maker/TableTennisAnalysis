@@ -33,6 +33,27 @@ export interface ScoreParams {
   technique_action?: string
 }
 
+/** 比赛简要信息（镜像后端 app/schemas/scoring.py MatchBrief，FS7 首页/赛事 Tab 消费） */
+export interface MatchBrief {
+  id: number
+  opponent_name: string | null
+  format: string
+  match_type: string
+  status: string // setup / in_progress / finished / abandoned（X-21 状态机）
+  current_score_user: number
+  current_score_opp: number
+  is_win: boolean | null
+  created_at: string | null
+}
+
+/** 分页响应（后端统一形态 Paginated） */
+export interface MatchListData {
+  total: number
+  page: number
+  page_size: number
+  items: MatchBrief[]
+}
+
 /**
  * 创建比赛。
  */
@@ -47,7 +68,7 @@ export function createMatch(params: MatchCreateParams) {
  * @param page_size - 每页条数
  */
 export function listMatches(status?: string, page = 1, pageSize = 20) {
-  return request.get('/scoring/matches', { status, page, page_size: pageSize })
+  return request.get<MatchListData>('/scoring/matches', { status, page, page_size: pageSize })
 }
 
 /**

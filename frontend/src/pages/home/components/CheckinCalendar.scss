@@ -1,0 +1,112 @@
+// 打卡日历周视图（00-home/frontend.md §5 CheckinCalendar.scss）
+.checkin-calendar {
+  padding: 0 var(--spacing-md) var(--spacing-md);
+
+  .section-title {
+    display: block;
+    font-size: 15px;
+    font-weight: bold;
+    color: var(--color-text-primary);
+  }
+
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+
+    .streak-badge {
+      font-size: 12px;
+      color: var(--color-accent);
+      background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--radius-md);
+    }
+  }
+
+  .week-row {
+    display: flex;
+    gap: var(--spacing-xs);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-card);
+  }
+
+  .day-cell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-xs) 0;
+    border-radius: var(--radius-sm);
+
+    &.checked {
+      background: color-mix(in srgb, var(--color-success) 10%, transparent);
+
+      .check-icon {
+        color: var(--color-success);
+        font-size: 15px;
+        font-weight: bold;
+      }
+    }
+
+    &.today {
+      border: 1px solid var(--color-primary);
+
+      .day-date {
+        color: var(--color-primary);
+        font-weight: bold;
+      }
+    }
+
+    .day-weekday {
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+
+    .day-date {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      margin: var(--spacing-xs) 0;
+    }
+
+    .day-status {
+      height: 16px;
+      display: flex;
+      align-items: center;
+
+      .check-placeholder {
+        color: var(--color-divider);
+        font-size: 15px;
+      }
+    }
+  }
+
+  .checkin-btn {
+    margin-top: var(--spacing-sm);
+    text-align: center;
+    padding: var(--spacing-sm);
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 600;
+
+    &.done {
+      background: var(--color-success);
+      opacity: 0.7;
+    }
+
+    &:active {
+      opacity: 0.85;
+    }
+  }
+
+  .loading-placeholder {
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) 0;
+  }
+}

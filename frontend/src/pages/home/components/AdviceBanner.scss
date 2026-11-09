@@ -1,0 +1,59 @@
+// 训练提醒横幅（00-home/frontend.md §5 AdviceBanner.scss）
+.advice-banner {
+  margin: 0 var(--spacing-md) var(--spacing-lg);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-card);
+  border-left: 3px solid var(--color-accent);
+
+  &:active {
+    opacity: 0.9;
+  }
+
+  .banner-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-sm);
+
+    .banner-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    .issue-tag {
+      background: var(--color-primary);
+      color: var(--color-text-inverse);
+      font-size: 12px;
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--radius-md);
+    }
+  }
+
+  .banner-summary {
+    display: block;
+    font-size: 13px;
+    color: var(--color-text-primary);
+    line-height: 1.5;
+  }
+
+  .banner-time {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  .banner-empty {
+    display: block;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-top: var(--spacing-xs);
+  }
+
+  .banner-placeholder {
+    padding: var(--spacing-sm) 0;
+  }
+}

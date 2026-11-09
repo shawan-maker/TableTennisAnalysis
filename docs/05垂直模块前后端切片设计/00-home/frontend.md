@@ -25,6 +25,11 @@
 
 ## 2. API Service 模块
 
+> **R-FS7-P3 实现注记（前端落地差异，契约以后端 app/api/v1 与 app/schemas 为准）**：
+> ① **最近报告**：设计样例 `getLatestReport()` 误调 `GET /scoring/matches` 且 `ReportSummary` 字段（title/status/thumbnail_url/overall_score）为臆造——实现走 `GET /video-analysis/reports`（page 1/page_size 1），条目类型复用 `videoAnalysis.ReportListItem`（id/task_id/created_at/is_llm_generated/cover_image_url/report_summary）；设计"取 3 条"实现取 1 条（首页仅展示最近 1 条）；
+> ② **打卡日历**：后端 `GET /gamification/checkin-calendar` 为**月历**结构（year/month/days[整月]/monthly_checkin_count/streak_days；CheckInDay={date,checked_in,type}，无 exp_earned）——周视图由 `utils/weekView.ts buildWeekView` 纯函数从月历派生（weekStart/days[7]/todayCheckedIn），组件经 homeStore.weekView 消费；
+> ③ **未读数与铃铛**：homeStore 不重复持有 unreadCount——refreshAll 委托 `notificationStore.fetchUnreadCount()`（FS6 单例），铃铛复用 `components/NotificationBell` 挂 TopBar（12-notification §5）；TopBar 的 KQS 积分取 `userStore.profile.profile.kqs_rating`（authStore.user 无 profile 嵌套）。
+
 首页聚合多个后端模块的 API，统一封装在 `services/home.ts` 中，内部调用各模块的 service 函数。
 
 ```typescript

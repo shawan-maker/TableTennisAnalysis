@@ -1,0 +1,10 @@
+// 首页聚合页（00-home/frontend.md §5）
+.home-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding-bottom: var(--spacing-xl);
+
+  .home-scroll {
+    padding-top: var(--spacing-sm);
+  }
+}

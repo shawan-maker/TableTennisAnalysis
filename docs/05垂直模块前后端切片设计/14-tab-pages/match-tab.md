@@ -23,6 +23,11 @@
 
 ## 2. API Service 模块
 
+> **R-FS7-P3 实现注记（前端落地差异，契约以后端 app/api/v1/scoring/router.py 为准）**：
+> ① **进行中记分牌**：设计样例 `GET /scoring/current` 端点**后端不存在**（scoring router 仅 14 个 `/scoring/matches*` 端点）——`getCurrentScoring()` 改走 `GET /scoring/matches?status=in_progress`（page 1/page_size 1）取首条，无进行中比赛时为空态；
+> ② **预览字段**：样例 `my_score/opponent_score/ongoing` 为臆造——MatchBrief 实际为 `current_score_user/current_score_opp/status='in_progress'`；「进行中」徽标由 status==='in_progress' 恒真渲染（列表已按状态筛选）；
+> ③ **Skeleton**：NutUI 2.7.14 真实 API 为 `rows/animated`（无 width/height 参数）；入口 icon 背景用 `color-mix` 替代样例 `var(--color-primary)15`（非法 CSS 写法）。
+
 ```typescript
 // frontend/src/services/matchTab.ts
 import request from './request'

@@ -402,7 +402,7 @@ export function useWebSocket() {
 ## 5. 通知中心铃铛组件
 
 > **R-FS6-P3 实现注记**：
-> ① **挂载点**：设计定位「显示在首页顶部」→ FS6 落地为 user/profile 头部挂载（首页聚合归 FS7，届时迁回；实施计划同步）；
+> ① **挂载点**：设计定位「显示在首页顶部」→ FS6 落地为 user/profile 头部挂载 → **R-FS7 已迁回首页 TopBar**（00-home §4.2，单一挂载点，user/profile 头部挂载已移除）；
 > ② 新增 tabBar 角标联动：unreadCount 变化时 `Taro.setTabBarBadge({ index: USER_TAB_INDEX=4 })`（`removeTabBarBadge` 清零；调用 `.catch(()=>{})` 防真机环境差异抛错）；
 > ③ 铃铛内 useWebSocket() 即可（单例幂等，连接共享）。
 
