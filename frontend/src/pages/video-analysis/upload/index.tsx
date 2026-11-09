@@ -122,18 +122,28 @@ export default function UploadPage() {
       maxDuration: 300, // 5 分钟（chooseVideo 秒级上限）
       camera: 'back',
       success: (res) => {
-        // 校验文件类型（Mock/真实 OSS 均仅收 mp4/mov）
-        if (!res.tempFilePath.toLowerCase().match(/\.(mp4|mov)$/)) {
-          showToast(t('analysis.invalidFormat'))
-          return
+        // FS8-P0 修复：Taro H5 chooseVideo 的 tempFilePath 为 createObjectURL 的 blob URL
+        // （无扩展名，res 无 name 字段），扩展名校验在 H5 恒失败导致上传入口不可用——
+        // H5 端跳过扩展名校验（后端 upload-token/oss 422 校验兜底），filename 用固定参考名。
+        // （weapp 端 tempFilePath 带真实扩展名，保留原校验逻辑）
+        if (process.env.TARO_ENV !== 'h5') {
+          // 校验文件类型（Mock/真实 OSS 均仅收 mp4/mov）
+          if (!res.tempFilePath.toLowerCase().match(/\.(mp4|mov)$/)) {
+            showToast(t('analysis.invalidFormat'))
+            return
+          }
         }
         // 校验文件大小（≤500MB；后端另有 <1MB 422 校验）
         if (res.size > 500 * 1024 * 1024) {
           showToast(t('analysis.fileTooLarge'))
           return
         }
-        // Taro.chooseVideo 返回无 name 字段（weapp 类型契约），从临时路径提取文件名
-        const filename = res.tempFilePath.split('/').pop() || 'video.mp4'
+        // weapp：Taro.chooseVideo 返回无 name 字段（weapp 类型契约），从临时路径提取文件名
+        // h5：blob URL 无文件名语义，用固定参考名（oss_key 由后端生成，filename 仅参考）
+        const filename =
+          process.env.TARO_ENV === 'h5'
+            ? 'video.mp4'
+            : res.tempFilePath.split('/').pop() || 'video.mp4'
         startUpload(res.tempFilePath, res.size, filename)
       },
       fail: (err) => {

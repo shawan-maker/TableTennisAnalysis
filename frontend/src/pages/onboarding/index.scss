@@ -3,10 +3,13 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  pointer-events: none;
+  pointer-events: none; // 容器透传下层页面，不拦截点击
 }
 
 .onboarding-popup {
+  // FS8-P1-3（E2E-01 抓获）：容器 pointer-events:none 会穿透整棵子树，
+  // 弹窗内容必须显式重开 auto——修复前「开始此步骤/跳过引导」全部不可点
+  pointer-events: auto;
   padding: var(--spacing-lg) var(--spacing-md);
 
   .popup-header {

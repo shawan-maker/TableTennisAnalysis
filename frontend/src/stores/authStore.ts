@@ -33,8 +33,11 @@ interface AuthState {
   isLoading: boolean
 
   // Actions
-  wechatLogin: (code: string, nickname?: string, avatarUrl?: string) => Promise<void>
-  phoneLogin: (phone: string, code: string) => Promise<void>
+  // FS8-P1-1（E2E-01 抓获）：login action 返回 needsConsent，页面据此决定是否
+  // switchTab 首页——修复前页面在 phoneLogin/wechatLogin resolve 后无条件
+  // switchTab home，将 store 内 navigateTo 的 consent 页立即切走（PIPL 同意链路断裂）。
+  wechatLogin: (code: string, nickname?: string, avatarUrl?: string) => Promise<boolean>
+  phoneLogin: (phone: string, code: string) => Promise<boolean>
   refreshAccessToken: () => Promise<boolean>
   fetchMe: () => Promise<void>
   logout: () => Promise<void>
@@ -69,8 +72,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // R21-P1-1: requires_consent=true 时跳转同意页，不进入首页
       if (requires_consent) {
         Taro.navigateTo({ url: '/pages/auth/consent/index' })
-        return
+        return true // FS8-P1-1: 告知调用方需走同意页，勿再 switchTab
       }
+      return false
     } finally {
       set({ isLoading: false })
     }
@@ -94,8 +98,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // R21-P1-1: requires_consent=true 时跳转同意页，不进入首页
       if (requires_consent) {
         Taro.navigateTo({ url: '/pages/auth/consent/index' })
-        return
+        return true // FS8-P1-1: 告知调用方需走同意页，勿再 switchTab
       }
+      return false
     } finally {
       set({ isLoading: false })
     }

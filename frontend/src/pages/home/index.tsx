@@ -66,10 +66,12 @@ export default function HomePage() {
   })
 
   const triggerOnboarding = (createdAt: string, completeness: number) => {
-    const onboarding = useOnboardingStore.getState()
-    onboarding.initOnboarding(createdAt, completeness)
+    useOnboardingStore.getState().initOnboarding(createdAt, completeness)
+    // FS8-P1-2（E2E-01 抓获）：initOnboarding 内部 set() 后须重读快照——
+    // 修复前 getState() 取的是 init 前旧值（isNewUser 恒 false），引导页永不触发
+    const { isNewUser, completed } = useOnboardingStore.getState()
     // 新用户且未完成 → 进入引导页（引导页内含 Steps 弹窗与分步跳转）
-    if (onboarding.isNewUser && !onboarding.completed) {
+    if (isNewUser && !completed) {
       Taro.navigateTo({ url: '/pages/onboarding/index' })
     }
   }

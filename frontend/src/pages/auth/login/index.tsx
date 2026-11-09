@@ -29,8 +29,12 @@ export default function Login() {
   const handleWechatLogin = useCallback(async () => {
     try {
       const { code } = await Taro.login()
-      await wechatLogin(code)
-      Taro.switchTab({ url: '/pages/home/index' })
+      // FS8-P1-1: needsConsent=true 时 store 已 navigateTo 同意页，
+      // 页面不得再 switchTab home（否则同意页被立即切走，PIPL 链路断裂）
+      const needsConsent = await wechatLogin(code)
+      if (!needsConsent) {
+        Taro.switchTab({ url: '/pages/home/index' })
+      }
     } catch (err: any) {
       showToast(err?.message || t('auth.loginFailed'))
     }
@@ -68,8 +72,11 @@ export default function Login() {
       return
     }
     try {
-      await phoneLogin(phone, smsCode)
-      Taro.switchTab({ url: '/pages/home/index' })
+      // FS8-P1-1: needsConsent=true 时 store 已 navigateTo 同意页，勿再 switchTab
+      const needsConsent = await phoneLogin(phone, smsCode)
+      if (!needsConsent) {
+        Taro.switchTab({ url: '/pages/home/index' })
+      }
     } catch (err: any) {
       showToast(err?.message || t('auth.loginFailed'))
     }
