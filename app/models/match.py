@@ -6,7 +6,7 @@ app/models/match.py — Match + ScoreRecord + MatchStatistic + MatchRecord + Man
       切片 04-scoring/backend.md §3 + 05-match_data/backend.md §3
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -40,9 +40,11 @@ class Match(Base):
     opponent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     opponent_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     format: Mapped[str] = mapped_column(String(20), default="bo5", nullable=False)  # bo1/bo3/bo5/bo7/custom
-    match_type: Mapped[str] = mapped_column(String(20), default="friendly", nullable=False)  # friendly/tournament/training
+    # friendly/tournament/training
+    match_type: Mapped[str] = mapped_column(String(20), default="friendly", nullable=False)
     target_score: Mapped[int] = mapped_column(Integer, default=11, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="setup", nullable=False)  # setup/in_progress/finished/abandoned
+    # setup/in_progress/finished/abandoned
+    status: Mapped[str] = mapped_column(String(20), default="setup", nullable=False)
     current_score_user: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_score_opp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_server: Mapped[str | None] = mapped_column(String(10), nullable=True)  # user/opponent
@@ -78,7 +80,10 @@ class Match(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Match(id={self.id}, status={self.status!r}, score={self.current_score_user}:{self.current_score_opp})>"
+        return (
+            f"<Match(id={self.id}, status={self.status!r}, "
+            f"score={self.current_score_user}:{self.current_score_opp})>"
+        )
 
 
 class ScoreRecord(Base):
@@ -92,7 +97,8 @@ class ScoreRecord(Base):
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)  # Redis INCR
     scorer: Mapped[str] = mapped_column(String(10), nullable=False)  # user/opponent
-    score_method: Mapped[str | None] = mapped_column(String(32), nullable=True)  # serve_point/rally_point/opponent_error
+    # serve_point/rally_point/opponent_error
+    score_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     technique_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
     game_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_key_point: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -121,7 +127,8 @@ class MatchStatistic(Base):
     match_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("match.id", ondelete="CASCADE"), unique=True, nullable=False
     )
-    stats_data: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {score_distribution, key_points, technique_breakdown, total_points}
+    # {score_distribution, key_points, technique_breakdown, total_points}
+    stats_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

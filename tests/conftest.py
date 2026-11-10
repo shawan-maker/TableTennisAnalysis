@@ -14,6 +14,7 @@ tests/conftest.py — 共享测试 Fixture
   以便及早暴露环境问题。
 """
 
+import logging as _logging
 import os
 from typing import AsyncGenerator
 
@@ -29,11 +30,12 @@ os.environ.setdefault("DB_NULLPOOL", "1")
 
 from app.core.config import settings
 from app.core.database import Base, async_session_factory, engine
+from app.core.limiter import limiter
 from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, generate_jti
 from app.models.user import User
 
-# 测试环境强制 Celery eager 模式 — pipeline 同步执行，确保任务状态在测试内完成
+# 测试环境强制 Celery eager 模式 — pipeline 同步执行，确保任务在测试内完成
 from app.core.celery import celery_app
 celery_app.conf.task_always_eager = True
 celery_app.conf.task_eager_propagates = True
@@ -42,12 +44,10 @@ celery_app.conf.task_eager_propagates = True
 # 装饰器顺序修复（router 在上/limiter 在下）后限流真实生效，
 # 大量测试请求（同一 client IP）会触发 429 污染测试断言。
 # 限流专项测试（test_gamification TestRateLimit*）临时 limiter.enabled = True。
-from app.core.limiter import limiter
 limiter.enabled = False
 
 # 测试环境禁用 SQL echo（减少输出噪音，DEBUG=True 用于保持 eager 模式）
 engine.echo = False
-import logging as _logging
 _logging.getLogger("sqlalchemy.engine.Engine").setLevel(_logging.WARNING)
 
 
@@ -200,7 +200,6 @@ async def auth_headers(auth_user) -> dict:
 @pytest_asyncio.fixture(scope="function")
 async def admin_user(db_session) -> User:
     """创建管理员测试用户"""
-    from app.core.config import settings
     user = User(
         openid="test_admin_openid",
         nickname="管理员",

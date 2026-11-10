@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import async_session_factory
-from app.core.exceptions import AppException
 from app.core.redis import get_redis
 from app.models.membership import MembershipTierConfig, Subscription
 from app.schemas.membership import (
@@ -441,7 +440,6 @@ class MembershipService:
     @staticmethod
     async def _send_wechat_subscribe(subscription: Subscription) -> None:
         """发送会员到期提醒微信订阅消息"""
-        from app.core.config import settings
 
         days_remaining = max(0, (subscription.expire_at - datetime.now(timezone.utc)).days)
         if settings.SMS_MOCK or settings.WECHAT_PAY_MOCK:

@@ -7,7 +7,7 @@ app/core/limiter.py — 全局 API 限流配置
 """
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+from slowapi.errors import RateLimitExceeded  # noqa: F401 — re-export，app.main 依赖
 from slowapi.util import get_remote_address
 
 from app.core.config import settings

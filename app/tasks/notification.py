@@ -131,4 +131,3 @@ def training_reminder():
     except Exception as e:
         logger.exception("training_reminder failed: %s", e)
         return {"status": "error", "error": str(e)}
-

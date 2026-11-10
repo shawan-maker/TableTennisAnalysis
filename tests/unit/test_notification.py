@@ -6,8 +6,6 @@ tests/unit/test_notification.py — 通知模块单元测试
 """
 
 import pytest
-import pytest_asyncio
-from datetime import datetime, timezone
 
 from app.services.notification_service import NotificationService
 

@@ -6,11 +6,7 @@ tests/unit/test_auth.py — auth 模块单元测试
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
 
-from app.core.exceptions import AppException
-from app.core.security import create_access_token, decode_token, generate_jti
-from app.models.user import User
 
 
 # =================================================================

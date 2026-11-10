@@ -73,7 +73,11 @@ class UserProfileResponse(BaseModel):
     id: int
     nickname: str
     avatar_url: Optional[str] = None
-    profile: dict = Field(default_factory=dict, description="kqs_rating/kqs_username/playing_style/self_assessed_level/equipment_config/profile_completeness")
+    profile: dict = Field(
+        default_factory=dict,
+        description="kqs_rating/kqs_username/playing_style/self_assessed_level/"
+                    "equipment_config/profile_completeness",
+    )
 
     model_config = {"from_attributes": True}
 

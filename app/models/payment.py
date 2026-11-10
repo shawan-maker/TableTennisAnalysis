@@ -5,7 +5,8 @@ app/models/payment.py — 订单 + 支付记录 + 退款记录
       切片 11-payment/backend.md §3
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -19,6 +20,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    # 仅供 "Subscription | None" 字符串注解静态解析（运行时经 SQLAlchemy registry 解析，
+    # 实际类定义于 app/models/membership.py，models/__init__ 统一注册）
+    from app.models.membership import Subscription
 
 from app.core.database import Base
 

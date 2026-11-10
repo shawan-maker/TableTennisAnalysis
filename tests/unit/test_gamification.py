@@ -9,7 +9,6 @@ from datetime import date, timedelta
 
 from app.core.database import async_session_factory
 from app.models.gamification import BadgeDefinition, CheckInRecord, UserPoints
-from app.models.user import User
 
 
 async def _seed_badges(db):
@@ -244,7 +243,6 @@ async def test_add_points_nonexistent_event(client, auth_headers, auth_user):
 @pytest.mark.asyncio
 async def test_streak_after_two_checkins(client, auth_headers, auth_user, db_session):
     """模拟两天打卡验证连续天数"""
-    from app.services.gamification_service import GamificationService
 
     # 今日打卡
     today = date.today()

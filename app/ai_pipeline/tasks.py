@@ -330,7 +330,10 @@ def _mock_step_2(oss_key: str = "", **kw):
 
 def _mock_step_3(oss_key: str = "", **kw):
     return {
-        "frames": [{"frame_id": i, "boxes": [{"x": 960, "y": 540, "w": 10, "h": 10, "conf": 0.95}]} for i in range(0, 1800, 30)],
+        "frames": [
+            {"frame_id": i, "boxes": [{"x": 960, "y": 540, "w": 10, "h": 10, "conf": 0.95}]}
+            for i in range(0, 1800, 30)
+        ],
     }
 
 

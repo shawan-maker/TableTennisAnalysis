@@ -16,7 +16,9 @@ from celery import Celery
 # 生产 Web 进程（uvicorn app.main）不导入本模块，保留队列池连接复用。
 os.environ.setdefault("DB_NULLPOOL", "1")
 
-from app.core.config import settings
+# noqa: E402 — 时序约束：DB_NULLPOOL 必须先于 app.core.* 导入链生效（见上注释），
+# flake8 无 os.environ 前置豁免（ruff E402 同位已有豁免），故本行显式豁免
+from app.core.config import settings  # noqa: E402
 
 celery_app = Celery(
     "pingpong_ai",

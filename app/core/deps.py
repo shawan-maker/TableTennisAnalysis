@@ -5,6 +5,8 @@ app/core/deps.py — FastAPI 依赖注入
 功能：get_db / get_redis / get_current_user / get_admin_user
 """
 
+from typing import TYPE_CHECKING
+
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -15,7 +17,10 @@ from app.core.redis import get_redis
 from app.core.security import decode_access_token
 from app.core.exceptions import AppException, ERR_FORBIDDEN, ERR_UNAUTHORIZED
 
-import redis.asyncio as aioredis
+if TYPE_CHECKING:
+    # 仅用于字符串注解（get_current_admin/require_membership 的 "User" 前向引用）；
+    # 运行时 User 由各函数内部延迟导入，避免 core ← models 循环依赖
+    from app.models.user import User
 
 # Bearer Token 认证方案
 # auto_error=False 手动处理缺失 token，返回 401 而非 FastAPI 默认的 403

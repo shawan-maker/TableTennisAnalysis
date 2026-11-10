@@ -8,7 +8,6 @@ import json
 import asyncio
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone
 
 from app.core.security import create_access_token, generate_jti
 from app.core.database import async_session_factory
@@ -117,7 +116,6 @@ class TestWSMessagePush:
         redis = await get_redis()
         # R5-Infra-5: 频道命名统一为 ws:relay:ws:user:{user_id}
         channel_a = f"ws:relay:ws:user:{user_a.id}"
-        channel_b = f"ws:relay:ws:user:{user_b.id}"
 
         pubsub_a = redis.pubsub()
         await pubsub_a.subscribe(channel_a)
@@ -243,7 +241,7 @@ class TestWSReconnectCompensation:
             result = await db.execute(
                 select(NotificationRecord).where(
                     NotificationRecord.user_id == ws_user.id,
-                    NotificationRecord.is_read == False,
+                    NotificationRecord.is_read.is_(False),
                 )
             )
             unread = result.scalars().all()
@@ -318,7 +316,7 @@ class TestWSSendNotificationChannel:
             if msg is None:
                 break
 
-        result = await NotificationService.send_notification(
+        await NotificationService.send_notification(
             user.id, "test_online", "在线测试标题", "在线测试内容"
         )
 

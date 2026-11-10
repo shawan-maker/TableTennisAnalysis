@@ -8,7 +8,6 @@ tests/unit/test_payment.py — 支付模块测试
 import json
 import uuid
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, patch
 
 import pytest
 

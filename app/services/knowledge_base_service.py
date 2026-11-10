@@ -116,7 +116,7 @@ class KnowledgeBaseService:
         rows = await db.execute(
             select(RuleDefinition)
             .where(
-                RuleDefinition.is_active == True,
+                RuleDefinition.is_active.is_(True),
                 RuleDefinition.diagnosis["problem_id"].astext == problem_id,
             )
             .order_by(RuleDefinition.id)
@@ -180,7 +180,7 @@ class KnowledgeBaseService:
         """
         rows = await db.execute(
             select(RuleDefinition)
-            .where(RuleDefinition.is_active == True)
+            .where(RuleDefinition.is_active.is_(True))
             .order_by(RuleDefinition.id)
         )
         all_rules = rows.scalars().all()
@@ -196,7 +196,11 @@ class KnowledgeBaseService:
                     diag = rule.diagnosis or {}
                     # 用 suggestion_params 填充建议模板
                     suggestion_template = diag.get("suggestion_template", "")
-                    suggestion = KnowledgeBaseService._fill_placeholders(suggestion_template, match_result.get("suggestion_params", {})) if suggestion_template else ""
+                    suggestion = (
+                        KnowledgeBaseService._fill_placeholders(
+                            suggestion_template, match_result.get("suggestion_params", {})
+                        ) if suggestion_template else ""
+                    )
                     results.append({
                         "rule_id": rule.rule_id,
                         "rule_name": rule.rule_name,
@@ -241,7 +245,10 @@ class KnowledgeBaseService:
             if KnowledgeBaseService._compare(value, operator, threshold):
                 # R2-KB-2: 使用 {current_value} 占位符（而非 {value}）
                 suggestion_params.update({"metric": metric, "current_value": value, "threshold": threshold})
-                return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
+                return {
+                    "matched": True, "severity": cond.get("severity", "medium"),
+                    "suggestion_params": suggestion_params,
+                }
             return None
 
         elif rule_type in ("trend_persistent", "trend_improving"):
@@ -275,7 +282,10 @@ class KnowledgeBaseService:
             trend_info = trends.get(metric, {})
             if trend_info.get("persistence", 0) >= min_persistence and trend_info.get("direction") == "stagnant":
                 suggestion_params.update({"metric": metric, "persistence": trend_info.get("persistence", 0)})
-                return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
+                return {
+                    "matched": True, "severity": cond.get("severity", "medium"),
+                    "suggestion_params": suggestion_params,
+                }
             return None
 
         elif rule_type == "plan_effectiveness":
@@ -288,7 +298,10 @@ class KnowledgeBaseService:
             value = goal_completion.get(metric, 0)
             if value >= threshold:
                 suggestion_params.update({"metric": metric, "completion": value, "threshold": threshold})
-                return {"matched": True, "severity": cond.get("severity", "medium"), "suggestion_params": suggestion_params}
+                return {
+                    "matched": True, "severity": cond.get("severity", "medium"),
+                    "suggestion_params": suggestion_params,
+                }
             return None
 
         return None

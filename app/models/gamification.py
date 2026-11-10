@@ -5,7 +5,7 @@ app/models/gamification.py - 游戏化 ORM 模型
 表：user_points, checkin_record, badge_definition, user_badge, badge_progress
 """
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     BigInteger,

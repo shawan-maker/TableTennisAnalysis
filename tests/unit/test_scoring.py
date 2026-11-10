@@ -396,7 +396,7 @@ async def test_finish_without_scores(client, auth_headers):
 async def test_list_matches_filter_by_status(client, auth_headers):
     """按状态过滤比赛列表"""
     # 创建 setup 状态的比赛
-    resp1 = await client.post(
+    await client.post(
         "/api/v1/scoring/matches",
         headers=auth_headers,
         json={"opponent_name": "setup_match"},
@@ -666,7 +666,6 @@ async def test_multi_game_progression_bo3_auto_finish(client, auth_headers, auth
 @pytest.mark.asyncio
 async def test_multi_game_cross_game_undo_protection(client, auth_headers):
     """R12-SC-1: 跨局撤销保护 — 撤销已结束上一局的致胜球返回 400"""
-    from app.models.match import Match
 
     # 创建 bo3 比赛（db_session 用于直查 Match 的局分/局号）
     resp = await client.post(

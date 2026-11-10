@@ -46,7 +46,11 @@ class FileRecord(Base):
     actual_size = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     uploaded_at = Column(DateTime(timezone=True), nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     tasks = relationship("VideoTask", back_populates="file_record")
@@ -83,7 +87,10 @@ class VideoTask(Base):
 
     # Relationships
     file_record = relationship("FileRecord", back_populates="tasks")
-    pipeline_steps = relationship("PipelineStep", backref="task", cascade="all, delete-orphan", order_by="PipelineStep.step_number")
+    pipeline_steps = relationship(
+        "PipelineStep", backref="task", cascade="all, delete-orphan",
+        order_by="PipelineStep.step_number",
+    )
     report = relationship("AnalysisReport", backref="task", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -155,7 +162,11 @@ class FeedbackRecord(Base):
     comment = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default="pending")  # pending/archived/manual_review
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     __table_args__ = (
         UniqueConstraint("report_id", "user_id", name="uq_feedback_user_report"),

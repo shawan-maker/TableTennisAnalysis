@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.database import async_session_factory
 from app.models.match import MatchRecord
-from app.models.user import User
 from app.models.video_analysis import AnalysisReport, VideoTask, FileRecord
 
 

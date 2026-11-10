@@ -11,10 +11,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import bcrypt as _bcrypt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from jose import JWTError, jwt
 
 from app.core.config import settings
-from app.core.exceptions import AppException, ERR_TOKEN_EXPIRED, ERR_UNAUTHORIZED
+from app.core.exceptions import AppException, ERR_UNAUTHORIZED
 
 
 # 密码哈希工具（bcrypt — 设计要求 §12 安全）
@@ -137,9 +139,6 @@ def generate_jti() -> str:
 # ============================================================================
 # RSA 加密工具（密码等敏感数据传输加密）
 # ============================================================================
-
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import padding
 
 
 def rsa_encrypt(plaintext: str, public_key_pem: str) -> str:

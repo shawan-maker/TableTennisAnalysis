@@ -8,7 +8,7 @@ app/api/v1/dashboard/router.py — 数据看板 API 路由
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.deps import get_current_user
-from app.core.limiter import RateLimits, limiter
+from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
 from app.services.dashboard_service import DashboardService

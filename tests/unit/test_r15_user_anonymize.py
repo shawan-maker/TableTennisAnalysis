@@ -18,7 +18,6 @@ R15 修复（app/tasks/user.py 匿名化块）：五字段全部置 None。
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
 
 from app.core.database import async_session_factory

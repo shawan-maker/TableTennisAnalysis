@@ -312,7 +312,10 @@ class ProgressService:
         return {"trend": "stagnant", "persistence_count": 1}
 
     @staticmethod
-    async def list_snapshots(user_id: int, period: str = "all", status: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
+    async def list_snapshots(
+        user_id: int, period: str = "all", status: Optional[str] = None,
+        page: int = 1, page_size: int = 20,
+    ) -> dict:
         async with async_session_factory() as db:
             qs = select(ProgressSnapshot).where(ProgressSnapshot.user_id == user_id)
             count_qs = select(func.count()).select_from(ProgressSnapshot).where(
@@ -375,7 +378,10 @@ class ProgressService:
             else:
                 current = t.current_value
                 if direction == "down":
-                    target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                    target_progress = (
+                        100 if current == 0
+                        else (min(100, int(target / current * 100)) if current > 0 else None)
+                    )
                 else:
                     target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
 
@@ -429,7 +435,10 @@ class ProgressService:
                 else:
                     current = t.current_value
                     if direction == "down":
-                        target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                        target_progress = (
+                            100 if current == 0
+                            else (min(100, int(target / current * 100)) if current > 0 else None)
+                        )
                     else:
                         target_progress = min(100, int(current / target * 100)) if target > 0 else None
 
@@ -493,7 +502,11 @@ class ProgressService:
                         metric_key = output_key = k
                     va = metrics_a.get(metric_key, 0)
                     vb = metrics_b.get(metric_key, 0)
-                    change = round(vb - va, 4) if isinstance(va, (int, float)) and isinstance(vb, (int, float)) else None
+                    change = (
+                        round(vb - va, 4)
+                        if isinstance(va, (int, float)) and isinstance(vb, (int, float))
+                        else None
+                    )
                     result[output_key] = {"a": va, "b": vb, "change": change}
                 return result
 
@@ -513,9 +526,14 @@ class ProgressService:
                     "avg_length_b": metrics_b.get("avg_rally_length"),
                     "max_length_a": metrics_a.get("max_rally_length"),
                     "max_length_b": metrics_b.get("max_rally_length"),
-                    "change": round(
-                        (metrics_b.get("avg_rally_length", 0) - metrics_a.get("avg_rally_length", 0)), 2
-                    ) if metrics_a.get("avg_rally_length") is not None and metrics_b.get("avg_rally_length") is not None else None,
+                    "change": (
+                        round(
+                            (metrics_b.get("avg_rally_length", 0) - metrics_a.get("avg_rally_length", 0)), 2
+                        )
+                        if metrics_a.get("avg_rally_length") is not None
+                        and metrics_b.get("avg_rally_length") is not None
+                        else None
+                    ),
                 },
                 # 维度 4: 球速
                 "ball_speed": {
@@ -523,17 +541,27 @@ class ProgressService:
                     "avg_b": metrics_b.get("avg_ball_speed"),
                     "max_a": metrics_a.get("max_ball_speed"),
                     "max_b": metrics_b.get("max_ball_speed"),
-                    "change": round(
-                        (metrics_b.get("avg_ball_speed", 0) - metrics_a.get("avg_ball_speed", 0)), 2
-                    ) if metrics_a.get("avg_ball_speed") is not None and metrics_b.get("avg_ball_speed") is not None else None,
+                    "change": (
+                        round(
+                            (metrics_b.get("avg_ball_speed", 0) - metrics_a.get("avg_ball_speed", 0)), 2
+                        )
+                        if metrics_a.get("avg_ball_speed") is not None
+                        and metrics_b.get("avg_ball_speed") is not None
+                        else None
+                    ),
                 },
                 # 维度 5: 得分分析
                 "score_analysis": {
                     "win_rate_a": metrics_a.get("score_win_rate"),
                     "win_rate_b": metrics_b.get("score_win_rate"),
-                    "change": round(
-                        (metrics_b.get("score_win_rate", 0) - metrics_a.get("score_win_rate", 0)), 4
-                    ) if metrics_a.get("score_win_rate") is not None and metrics_b.get("score_win_rate") is not None else None,
+                    "change": (
+                        round(
+                            (metrics_b.get("score_win_rate", 0) - metrics_a.get("score_win_rate", 0)), 4
+                        )
+                        if metrics_a.get("score_win_rate") is not None
+                        and metrics_b.get("score_win_rate") is not None
+                        else None
+                    ),
                 },
                 # 维度 6: 问题变化
                 "problem_changes": await ProgressService._compute_problem_changes(db, user_id, ra, rb),
@@ -583,7 +611,10 @@ class ProgressService:
                 else:
                     current = t.current_value
                     if direction == "down":
-                        target_progress = 100 if current == 0 else (min(100, int(target / current * 100)) if current > 0 else None)
+                        target_progress = (
+                            100 if current == 0
+                            else (min(100, int(target / current * 100)) if current > 0 else None)
+                        )
                     else:
                         target_progress = min(100, int(current / target * 100)) if target and target > 0 else None
                 metric_trends.append({
@@ -650,9 +681,18 @@ class ProgressService:
             "overall_progress": overall,
             "metric_trends": metric_trends,
             "problem_changes": {
-                "new": [p.get("problem_name", str(p)) if isinstance(p, dict) else str(p) for p in problem_changes.get("new", [])],
-                "resolved": [p.get("problem_name", str(p)) if isinstance(p, dict) else str(p) for p in problem_changes.get("resolved", [])],
-                "persistent": [p.get("problem_name", str(p)) if isinstance(p, dict) else str(p) for p in problem_changes.get("persistent", [])],
+                "new": [
+                    p.get("problem_name", str(p)) if isinstance(p, dict) else str(p)
+                    for p in problem_changes.get("new", [])
+                ],
+                "resolved": [
+                    p.get("problem_name", str(p)) if isinstance(p, dict) else str(p)
+                    for p in problem_changes.get("resolved", [])
+                ],
+                "persistent": [
+                    p.get("problem_name", str(p)) if isinstance(p, dict) else str(p)
+                    for p in problem_changes.get("persistent", [])
+                ],
             },
             "training_plan_status": training_plan_status,
             "forecast": forecast,
@@ -721,7 +761,10 @@ class ProgressService:
                 {
                     "problem_id": f"PROBLEM_NEW_{i}",
                     "problem_name": item["name"],
-                    "first_seen": first_report["created_at"].strftime("%Y-%m-%d") if first_report["created_at"] else None,
+                    "first_seen": (
+                        first_report["created_at"].strftime("%Y-%m-%d")
+                        if first_report["created_at"] else None
+                    ),
                     "last_seen": None,
                     "persistence_count": None,
                 }
@@ -762,7 +805,10 @@ class ProgressService:
                 "problem_id": f"PROBLEM_RESOLVED_{i}",
                 "problem_name": id_to_name.get(pid, str(pid)),
                 "first_seen": None,
-                "last_seen": all_issues[1]["created_at"].strftime("%Y-%m-%d") if len(all_issues) > 1 and all_issues[1]["created_at"] else None,
+                "last_seen": (
+                    all_issues[1]["created_at"].strftime("%Y-%m-%d")
+                    if len(all_issues) > 1 and all_issues[1]["created_at"] else None
+                ),
                 "persistence_count": None,
             }
             for i, pid in enumerate(resolved_ids)

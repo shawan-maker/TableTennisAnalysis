@@ -10,7 +10,6 @@ app/core/middleware.py — 请求级中间件
 """
 
 import uuid
-from typing import Awaitable, Callable
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 

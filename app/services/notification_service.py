@@ -15,7 +15,6 @@ from sqlalchemy import select, desc, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
-from app.core.exceptions import AppException
 from app.core.redis import get_redis
 from app.core.pagination import paginate, PaginationParams
 from app.models.notification import NotificationRecord

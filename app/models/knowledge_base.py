@@ -15,7 +15,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     String,
     Text,
 )
@@ -71,7 +70,8 @@ class RuleDefinition(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     rule_id = Column(String(64), nullable=False, unique=True)
     rule_name = Column(String(128), nullable=False)
-    rule_type = Column(String(32), nullable=False)  # single/trend_persistent/trend_improving/stagnant/plan_effectiveness
+    # single/trend_persistent/trend_improving/stagnant/plan_effectiveness
+    rule_type = Column(String(32), nullable=False)
     condition = Column(JSONB, nullable=False)
     diagnosis = Column(JSONB, nullable=False)
     training_methods = Column(JSONB, nullable=True)

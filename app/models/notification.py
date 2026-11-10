@@ -14,7 +14,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     String,
     Text,
     func,
@@ -38,7 +37,8 @@ class NotificationRecord(Base):
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )
-    type: Mapped[str] = mapped_column(String(32), nullable=False)  # analysis_complete/payment_success/training_reminder/...
+    # analysis_complete/payment_success/training_reminder/...
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(128), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

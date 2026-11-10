@@ -8,13 +8,6 @@ app/services/gamification_service.py - 游戏化业务逻辑层
 
 import logging
 from datetime import date, datetime, timezone, timedelta
-
-CST = timezone(timedelta(hours=8))
-
-
-def _cst_today() -> date:
-    """获取 CST（UTC+8）当前日期，避免跨日打卡边界错误"""
-    return datetime.now(CST).date()
 from typing import Optional
 
 from sqlalchemy import and_, func, select
@@ -32,6 +25,14 @@ from app.models.gamification import (
 )
 
 logger = logging.getLogger(__name__)
+
+CST = timezone(timedelta(hours=8))
+
+
+def _cst_today() -> date:
+    """获取 CST（UTC+8）当前日期，避免跨日打卡边界错误"""
+    return datetime.now(CST).date()
+
 
 POINTS_RULES = {
     "analysis": 10,
@@ -320,7 +321,7 @@ class BadgeService:
     async def get_badges(db: AsyncSession, user_id: int) -> dict:
         all_defs = await db.execute(
             select(BadgeDefinition)
-            .where(BadgeDefinition.is_active == True)
+            .where(BadgeDefinition.is_active.is_(True))
             .order_by(BadgeDefinition.sort_order)
         )
         defs = all_defs.scalars().all()
@@ -329,11 +330,6 @@ class BadgeService:
             select(UserBadge).where(UserBadge.user_id == user_id)
         )
         earned_map = {r.badge_id: r for r in earned_rows.scalars().all()}
-
-        progress_rows = await db.execute(
-            select(BadgeProgress).where(BadgeProgress.user_id == user_id)
-        )
-        progress_map = {r.badge_id: r for r in progress_rows.scalars().all()}
 
         user_metrics = await BadgeService._get_user_metrics(db, user_id)
 
@@ -351,7 +347,6 @@ class BadgeService:
                 cond = d.condition or {}
                 current = BadgeService._evaluate_condition(cond, user_metrics)
                 target = cond.get("threshold", 1)
-                progress = min(100, int(current / target * 100)) if target > 0 else 0
                 locked.append({
                     "badge_id": d.id,
                     "name": d.name,
@@ -365,7 +360,7 @@ class BadgeService:
     @staticmethod
     async def check_badges(db: AsyncSession, user_id: int) -> None:
         all_defs = await db.execute(
-            select(BadgeDefinition).where(BadgeDefinition.is_active == True)
+            select(BadgeDefinition).where(BadgeDefinition.is_active.is_(True))
         )
         defs = all_defs.scalars().all()
 

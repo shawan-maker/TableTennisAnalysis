@@ -22,11 +22,11 @@ from app.schemas.admin import (
 from app.services.admin_service import AdminService
 
 router = APIRouter(prefix="/admin", tags=["管理后台"])
+
+
 def _client_ip(request: Request) -> str | None:
     """R13-Admin-1: 提取客户端 IP（敏感管理操作审计溯源用，PIPL）"""
     return request.client.host if request.client else None
-
-
 
 
 # ==================== Admin 登录/登出 ====================

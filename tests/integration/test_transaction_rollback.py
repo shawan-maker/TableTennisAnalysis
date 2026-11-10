@@ -14,8 +14,7 @@ from app.core.security import create_access_token, generate_jti
 from app.core.database import async_session_factory
 from app.models.user import User
 from app.models.payment import Order, PaymentRecord, RefundRecord
-from app.models.membership import Subscription, MembershipTierConfig
-from app.services.payment_service import PaymentService
+from app.models.membership import Subscription
 from sqlalchemy import select
 
 

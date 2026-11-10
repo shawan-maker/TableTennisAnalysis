@@ -28,7 +28,6 @@ from app.models.match import (
     ScoreRecord,
 )
 from app.schemas.match_data import (
-    ManualScoreDetailItem,
     MatchRecordCreateRequest,
     MatchRecordUpdate,
 )

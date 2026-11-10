@@ -206,7 +206,7 @@ class TestShareDailyLimit:
         await redis.set(key, 5)
 
         # 需要一份报告才能走到限流检查：file_record → video_task → analysis_report
-        from app.models.video_analysis import AnalysisReport, FileRecord, VideoTask
+        from app.models.video_analysis import FileRecord
         import uuid as _uuid
 
         file_record = FileRecord(

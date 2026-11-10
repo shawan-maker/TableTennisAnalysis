@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.deps import get_current_user
 from app.core.database import async_session_factory
-from app.core.exceptions import AppException
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User

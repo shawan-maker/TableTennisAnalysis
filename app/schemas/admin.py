@@ -57,7 +57,10 @@ class RuleCreateRequest(BaseModel):
     diagnosis: dict
     training_methods: Optional[list] = None
     training_plan_template: Optional[str] = None
-    adjustment_action: Optional[str] = Field(default=None, max_length=32, description="调整动作 maintain/adjust/escalate/new_goal")
+    adjustment_action: Optional[str] = Field(
+        default=None, max_length=32,
+        description="调整动作 maintain/adjust/escalate/new_goal",
+    )
 
 
 # --- 响应 Schema ---

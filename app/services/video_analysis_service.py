@@ -26,13 +26,11 @@ from app.core.exceptions import (
     ERR_VALIDATION,
 )
 from app.core.redis import get_redis
-from app.models.user import User
 from app.models.match import ShareRecord
 from app.models.video_analysis import (
     AnalysisReport,
     FeedbackRecord,
     FileRecord,
-    PipelineStep,
     VideoTask,
 )
 from app.schemas.video_analysis import (

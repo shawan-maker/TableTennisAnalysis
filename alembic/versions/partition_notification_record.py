@@ -45,6 +45,23 @@ def _month_range(offset: int = 0) -> tuple[str, str, str]:
     return start, end, suffix
 
 
+def _pg_cron_installable(conn) -> bool:
+    """检查 pg_cron 扩展是否可安装（未安装该扩展的环境如 GitHub Actions
+    postgres:15 服务容器 / 本地开发 VM 会跳过定时任务配置，不影响分区表本体）"""
+    result = conn.execute(sa.text(
+        "SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_cron'"
+    ))
+    return result.scalar() == 1
+
+
+def _pg_cron_installed(conn) -> bool:
+    """检查 pg_cron 扩展是否已安装（用于 downgrade 时安全反注册）"""
+    result = conn.execute(sa.text(
+        "SELECT count(*) FROM pg_extension WHERE extname = 'pg_cron'"
+    ))
+    return result.scalar() == 1
+
+
 def upgrade() -> None:
     # 检查 notification_record 是否已经是分区表
     conn = op.get_bind()
@@ -99,6 +116,14 @@ def upgrade() -> None:
     # 6. 删除备份表
     op.execute("DROP TABLE notification_record_backup")
 
+    # 7-9. pg_cron 定时分区维护任务（仅在环境支持 pg_cron 时配置；
+    #      未安装 pg_cron 的环境如 CI 容器/开发 VM 跳过，分区表本体不受影响，
+    #      生产环境须自行保证 pg_cron 可用或手动创建后续月分区）
+    if not _pg_cron_installable(conn):
+        print("警告: pg_cron 扩展不可安装，跳过分区自动维护任务 "
+              "（后续月分区需手动创建或安装 pg_cron 后重放本迁移）")
+        return
+
     # 7. 创建 pg_cron 扩展（如果不存在）
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_cron")
 
@@ -126,9 +151,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 取消 pg_cron jobs
-    op.execute("SELECT cron.unschedule('create_notification_partition_monthly')")
-    op.execute("SELECT cron.unschedule('drop_old_notification_partition')")
+    # 取消 pg_cron jobs（仅在扩展已安装时执行；job 不存在时容忍失败）
+    conn = op.get_bind()
+    if _pg_cron_installed(conn):
+        for job in ("create_notification_partition_monthly", "drop_old_notification_partition"):
+            try:
+                op.execute(sa.text(f"SELECT cron.unschedule('{job}')"))
+            except Exception as exc:  # noqa: BLE001 — job 不存在时容忍
+                print(f"警告: cron.unschedule('{job}') 失败（可忽略）: {exc}")
 
     # 备份分区数据
     op.execute("CREATE TABLE notification_record_backup AS SELECT * FROM notification_record")

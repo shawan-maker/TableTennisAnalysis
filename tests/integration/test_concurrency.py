@@ -15,8 +15,7 @@ from app.core.security import create_access_token, generate_jti
 from app.core.database import async_session_factory
 from app.models.user import User
 from app.models.payment import Order, PaymentRecord
-from app.models.membership import MembershipTierConfig, Subscription
-from app.services.payment_service import PaymentService
+from app.models.membership import Subscription
 from app.services.video_analysis_service import VideoAnalysisService
 from app.core.redis import get_redis
 from sqlalchemy import select

@@ -8,13 +8,10 @@ import pytest
 import pytest_asyncio
 from datetime import datetime, timezone, timedelta
 
-from app.core.database import async_session_factory
 from app.models.knowledge_base import KnowledgeCategory, KnowledgeEntry, RuleDefinition, TrainingTemplate
 from app.models.membership import Subscription
 from app.models.training import TrainingPlan
-from app.models.user import User
 from app.models.video_analysis import AnalysisReport, VideoTask, FileRecord
-from app.services.training_service import TrainingAdviceService
 
 
 @pytest_asyncio.fixture(scope="function")

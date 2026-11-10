@@ -27,7 +27,7 @@ from app.core.database import async_session_factory
 from app.core.redis import get_redis
 from app.models.gamification import UserPoints
 from app.models.notification import NotificationRecord
-from app.models.video_analysis import AnalysisReport, FileRecord, PipelineStep, VideoTask
+from app.models.video_analysis import FileRecord, PipelineStep, VideoTask
 
 
 # =====================================================================
@@ -203,7 +203,7 @@ class TestRetrySuccessCompletes:
         # 第二次执行（重试）：恢复 Step 1 → 全流程成功
         monkeypatch.setattr(tasks_mod, "_mock_step_1", lambda oss_key="", **kw: {
             "video_info": {"duration_sec": 60, "fps": 30, "resolution": "1920x1080"},
-            "cover_image_url": f"http://localhost:3000/mock-oss/covers/x.jpg",
+            "cover_image_url": "http://localhost:3000/mock-oss/covers/x.jpg",
         })
         await run_pipeline_async(task.id, task.oss_key)
 

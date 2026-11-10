@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from app.core.database import async_session_factory
 from app.core.security import create_access_token, generate_jti
 from app.models.user import User

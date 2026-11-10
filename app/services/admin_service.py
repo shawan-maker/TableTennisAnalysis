@@ -263,7 +263,10 @@ class AdminService:
             return brief
 
     @staticmethod
-    async def create_config(key: str, value: str, description: str | None, admin_id: int, ip_address: str | None = None) -> ConfigBrief:
+    async def create_config(
+        key: str, value: str, description: str | None,
+        admin_id: int, ip_address: str | None = None,
+    ) -> ConfigBrief:
         """创建配置"""
         async with async_session_factory() as db:
             # R4-Admin-16: SystemConfig.key → config_key
@@ -288,7 +291,10 @@ class AdminService:
             return ConfigBrief.model_validate(config)
 
     @staticmethod
-    async def update_config(key: str, value: str, description: str | None, admin_id: int, ip_address: str | None = None) -> ConfigBrief:
+    async def update_config(
+        key: str, value: str, description: str | None,
+        admin_id: int, ip_address: str | None = None,
+    ) -> ConfigBrief:
         """更新配置"""
         async with async_session_factory() as db:
             # R4-Admin-16: SystemConfig.key/value → config_key/config_value
@@ -414,7 +420,10 @@ class AdminService:
     # ==================== 知识库管理 ====================
 
     @staticmethod
-    async def create_category(name: str, code: str, admin_id: int, content: dict | None = None, ip_address: str | None = None) -> dict:
+    async def create_category(
+        name: str, code: str, admin_id: int,
+        content: dict | None = None, ip_address: str | None = None,
+    ) -> dict:
         """创建知识分类"""
         async with async_session_factory() as db:
             # R12-Admin-2: 重复 name/code 返回 409（原直接插入触发 IntegrityError 500）

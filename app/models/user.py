@@ -5,7 +5,7 @@ app/models/user.py — User + RatingHistory ORM Models
       切片 01-auth/backend.md §3 + 02-user/backend.md §3
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,

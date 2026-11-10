@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.database import async_session_factory
 from app.core.redis import get_redis
-from app.models.user import User
 from app.models.video_analysis import AnalysisReport, FileRecord, PipelineStep, VideoTask
 
 
@@ -49,7 +48,6 @@ async def _create_task(db, user_id, status="queued"):
 
 async def _preset_quota(user_id, count=1):
     """预置当日免费额度计数（模拟请求时预扣）"""
-    from app.services.video_analysis_service import VideoAnalysisService
 
     redis = await get_redis()
     tz_cst = timezone(timedelta(hours=8))
@@ -169,7 +167,7 @@ class TestTaskStateMachine:
     """transition_task_status 合法/非法转换矩阵"""
 
     async def test_valid_transitions(self, db_session, test_user):
-        from app.ai_pipeline.progress import TASK_TRANSITIONS, transition_task_status
+        from app.ai_pipeline.progress import transition_task_status
 
         task = await _create_task(db_session, test_user.id, status="queued")
 
@@ -239,7 +237,7 @@ class TestQuotaRefund:
         """预扣 1 次 → 退额度 → 回到 0"""
         from app.ai_pipeline.tasks import _refund_free_quota
 
-        key = await _preset_quota(test_user.id, count=1)
+        await _preset_quota(test_user.id, count=1)
         await _refund_free_quota(test_user.id)
         assert await _get_quota_count(test_user.id) == 0
 
@@ -449,7 +447,7 @@ class TestIsLLMGenerated:
             await transition_task_status(db, task.id, "processing")
             await db.commit()
 
-        report_data = await ReportGenerator.generate(task.id, {
+        await ReportGenerator.generate(task.id, {
             1: {"video_info": {"duration_sec": 60}},
         })
 

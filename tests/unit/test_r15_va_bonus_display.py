@@ -27,11 +27,8 @@ MembershipService._get_bonus_remaining 统一读取（Redis 异常降级 0、
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
 
-from app.core.database import async_session_factory
 from app.core.redis import get_redis
-from app.core.security import create_access_token
 
 
 def _today_cst() -> str:

@@ -8,9 +8,7 @@ app/core/websocket.py — WebSocket 连接管理器
 """
 
 import asyncio
-import json
 import logging
-from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 

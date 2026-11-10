@@ -6,7 +6,6 @@ tests/e2e/test_security.py — 安全扫描测试
 """
 
 import pytest
-import json
 
 from app.core.security import create_access_token, generate_jti
 

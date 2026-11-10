@@ -241,7 +241,8 @@ def _render_share_page(data: dict) -> str:
 <title>AI 乒乓分析报告分享</title>
 <style>
  body{{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f6f8;color:#182b32}}
- .card{{background:#fff;margin:16px auto;max-width:640px;padding:20px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}}
+  .card{{background:#fff;margin:16px auto;max-width:640px;padding:20px;
+  border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}}
  video,img{{width:100%;border-radius:8px;display:block}}
  h1{{font-size:20px;margin:0 0 8px}}
  .section{{margin-top:20px}}

@@ -12,24 +12,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import and_, func, select, case, cast, Integer
+from sqlalchemy import and_, func, select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
 from app.core.redis import get_redis
 from app.models.match import MatchRecord
 from app.models.video_analysis import AnalysisReport
-from app.schemas.dashboard import (
-    AdviceSummaryBrief,
-    LandingHeatmapResponse,
-    MatchRecordBrief,
-    MatchRecordsResponse,
-    OverviewResponse,
-    TechniqueItem,
-    TechniqueStatsResponse,
-    TrendSeries,
-    WinRateTrendResponse,
-)
 
 logger = logging.getLogger(__name__)
 

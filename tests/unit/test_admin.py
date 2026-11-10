@@ -7,7 +7,6 @@ tests/unit/test_admin.py — 管理后台单元测试
 
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone
 
 from app.core.security import pwd_context
 from app.services.admin_service import AdminService, ADMIN_SESSION_PREFIX

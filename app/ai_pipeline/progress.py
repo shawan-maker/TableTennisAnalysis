@@ -8,11 +8,10 @@ app/ai_pipeline/progress.py — 流水线进度追踪
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
-from app.core.redis import get_redis
 from app.models.video_analysis import PipelineStep, VideoTask
 from app.services.notification_service import NotificationService
 

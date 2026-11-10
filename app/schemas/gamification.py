@@ -2,7 +2,7 @@
 app/schemas/gamification.py - 游戏化 Schema
 """
 
-from datetime import date, datetime
+from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel

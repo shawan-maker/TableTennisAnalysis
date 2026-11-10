@@ -7,7 +7,6 @@ S1 范围：get_profile / update_profile / get_quota / update_rating
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession

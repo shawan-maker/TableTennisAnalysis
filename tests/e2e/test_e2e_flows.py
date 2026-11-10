@@ -10,14 +10,9 @@ E2E-04: 训练闭环全流程（分析→进度快照→趋势→训练方案→
 
 import json
 import pytest
-import pytest_asyncio
 from datetime import datetime, timezone
 
-from app.core.security import create_access_token, generate_jti, pwd_context
-from app.core.database import async_session_factory
-from app.models.user import User
-from app.models.admin import AdminUser
-from sqlalchemy import select
+from app.core.security import create_access_token, generate_jti
 
 
 def _auth_headers(user_id: int) -> dict:
@@ -241,7 +236,7 @@ class TestE2E04TrainingFlow:
         """训练闭环全流程（简化版：验证数据流可达性）"""
         # 训练端点需要会员权限，为测试用户创建会员订阅
         from app.models.membership import Subscription
-        from datetime import datetime, timezone, timedelta
+        from datetime import timedelta
         now = datetime.now(timezone.utc)
         sub = Subscription(
             user_id=test_user.id, tier="member", status="active",

@@ -14,10 +14,10 @@ import pytest
 import pytest_asyncio
 from datetime import datetime, timezone, timedelta
 
-from app.core.security import create_access_token, generate_jti, pwd_context
+from app.core.security import pwd_context
 from app.models.admin import AdminUser, AuditLog
 from app.models.user import User
-from app.models.membership import Subscription, MembershipTierConfig
+from app.models.membership import Subscription
 from app.models.payment import Order, PaymentRecord
 from app.models.gamification import UserPoints, CheckInRecord, BadgeDefinition
 
@@ -169,7 +169,7 @@ class TestMembershipStateMachine:
         await db_session.commit()
 
         result = await MembershipService.check_membership(db_session, user.id)
-        assert result.is_member == False, "expired 状态不应享受会员权益"
+        assert not result.is_member, "expired 状态不应享受会员权益"
         assert result.tier == "free", f"应为 free，实际为 {result.tier}"
 
     async def test_check_membership_closed_as_free(self, db_session, member_user_with_subscription):
@@ -181,7 +181,7 @@ class TestMembershipStateMachine:
         await db_session.commit()
 
         result = await MembershipService.check_membership(db_session, user.id)
-        assert result.is_member == False, "closed 状态不应享受会员权益"
+        assert not result.is_member, "closed 状态不应享受会员权益"
         assert result.tier == "free"
 
     async def test_realtime_expiry_grace_period(self, db_session, member_user_with_subscription):
@@ -244,7 +244,7 @@ class TestGamificationSavepoint:
         self, db_session, seed_badge_definitions
     ):
         """IntegrityError 时仅 SAVEPOINT 回滚，调用方事务保留"""
-        from app.services.gamification_service import GamificationService, BadgeService
+        from app.services.gamification_service import GamificationService
         from app.models.gamification import UserBadge
         from sqlalchemy import select
 
@@ -266,7 +266,7 @@ class TestGamificationSavepoint:
         # 测试 SAVEPOINT 隔离：即使 check_badges 内部出错，外层事务不受影响
 
         # 执行打卡（会触发 check_badges）
-        result = await GamificationService.checkin(db_session, user.id)
+        await GamificationService.checkin(db_session, user.id)
         await db_session.commit()
 
         # 验证打卡记录已提交保留
@@ -358,7 +358,6 @@ class TestPaymentRefundRules:
     async def test_refund_revokes_subscription(self, db_session, paid_order):
         """退款后撤销会员权益——订阅状态变 closed"""
         from app.services.payment_service import PaymentService
-        from app.services.membership_service import MembershipService
 
         user, order = paid_order
         # 创建关联订阅
@@ -376,7 +375,7 @@ class TestPaymentRefundRules:
         await db_session.refresh(sub)
         await db_session.refresh(order)
 
-        result = await PaymentService.refund(
+        await PaymentService.refund(
             order_id=order.id,
             refund_amount_cents=order.amount_cents,
             reason="P0测试全额退款撤销权益",

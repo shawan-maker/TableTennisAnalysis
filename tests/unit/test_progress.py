@@ -8,8 +8,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 from app.core.database import async_session_factory
-from app.models.progress import ProgressSnapshot, TechniqueTrend
-from app.models.user import User
+from app.models.progress import ProgressSnapshot
 from app.models.video_analysis import AnalysisReport, VideoTask, FileRecord
 from app.services.progress_service import ProgressService, METRIC_DEFINITIONS
 
@@ -290,7 +289,7 @@ async def test_problem_changes_empty(client, auth_headers):
 @pytest.mark.asyncio
 async def test_problem_changes_with_data(client, auth_headers, auth_user, db_session):
     """有报告的问题变化"""
-    report = await _create_report(db_session, auth_user["user_id"])
+    await _create_report(db_session, auth_user["user_id"])
     await db_session.commit()
 
     resp = await client.get("/api/v1/progress/problem-changes", headers=auth_headers)

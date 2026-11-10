@@ -85,7 +85,7 @@ async def _assert_bonus(user_id: int, expected: int | None):
     if expected is None:
         assert val is None, f"键应不存在，实际: {val}"
     else:
-        assert val is not None, f"键应存在，实际缺失"
+        assert val is not None, "键应存在，实际缺失"
         assert int(val) == expected, f"期望余额 {expected}，实际 {int(val)}"
 
 

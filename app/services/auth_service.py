@@ -6,26 +6,31 @@ app/services/auth_service.py — 认证业务逻辑层
 功能：微信登录/Token 刷新/登出/H5 降级/consent 链路
 """
 
-import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import AppException, ERR_BAD_REQUEST, ERR_RATE_LIMITED, ERR_THIRD_PARTY, ERR_UNAUTHORIZED, ERR_VALIDATION
+from app.core.exceptions import (
+    AppException,
+    ERR_BAD_REQUEST,
+    ERR_RATE_LIMITED,
+    ERR_THIRD_PARTY,
+    ERR_UNAUTHORIZED,
+    ERR_VALIDATION,
+)
 from app.core.redis import get_redis
-from app.core.security import create_access_token, create_refresh_token, decode_token, decode_refresh_token, generate_jti
+from app.core.security import (
+    create_access_token, create_refresh_token,
+    decode_token, decode_refresh_token, generate_jti,
+)
 from app.core.database import async_session_factory
 from app.models.user import ConsentLog, User
 from app.schemas.auth import (
-    ConsentRequest,
-    ConsentResponse,
-    H5ExchangeRequest,
     LoginResponse,
     PhoneLoginRequest,
     RefreshResponse,

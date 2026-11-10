@@ -16,7 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import async_session_factory
 from app.core.exceptions import AppException
-from app.models.knowledge_base import RuleDefinition, TrainingTemplate
+from app.models.knowledge_base import TrainingTemplate
 from app.models.progress import TechniqueTrend
 from app.models.training import PlanAdjustment, TrainingPlan
 from app.models.video_analysis import AnalysisReport

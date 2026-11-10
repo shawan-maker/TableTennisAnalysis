@@ -4,7 +4,6 @@ app/schemas/membership.py — 会员模块 Pydantic Schema
 依据：切片 10-membership/backend.md §4
 """
 
-from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel

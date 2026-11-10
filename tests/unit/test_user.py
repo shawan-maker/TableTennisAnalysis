@@ -8,7 +8,7 @@ tests/unit/test_user.py — user 模块单元测试
 import pytest
 
 from app.core.security import create_access_token, generate_jti
-from app.models.user import ExportTask, User
+from app.models.user import User
 
 
 # =================================================================

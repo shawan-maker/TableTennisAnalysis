@@ -5,7 +5,6 @@ tests/unit/test_match_data.py — 比赛数据模块单元测试
 覆盖：快速录入/详细录入/列表/详情/编辑 + 比分验证
 """
 
-from datetime import datetime, timezone
 
 import pytest
 

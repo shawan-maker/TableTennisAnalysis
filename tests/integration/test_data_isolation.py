@@ -7,18 +7,15 @@ tests/integration/test_data_isolation.py — 数据隔离补充测试
 import uuid
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone
 
 from app.core.security import create_access_token, generate_jti
-from app.core.database import async_session_factory
 from app.models.user import User
-from app.models.match import Match, MatchRecord
+from app.models.match import Match
 from app.models.video_analysis import AnalysisReport, VideoTask, FileRecord
 from app.models.training import TrainingPlan
 from app.models.progress import ProgressSnapshot
 from app.models.gamification import UserPoints, BadgeDefinition, UserBadge
 from app.models.notification import NotificationRecord
-from sqlalchemy import select
 
 
 def _auth_headers(user_id: int) -> dict:

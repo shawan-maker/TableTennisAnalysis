@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_current_user_allow_pending
 from app.core.database import get_db
 from app.core.limiter import RateLimits, limiter
-from app.core.pagination import PaginationParams
 from app.core.response import success
 from app.models.user import User
 from app.schemas.user import (
