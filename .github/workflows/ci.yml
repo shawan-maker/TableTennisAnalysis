@@ -149,7 +149,10 @@ jobs:
         run: alembic upgrade head
 
       - name: Run integration tests
-        run: pytest tests/integration/ -v --tb=short
+        run: pytest tests/integration/ -v --tb=short --no-cov
+        # --no-cov: pytest.ini addopts 静默注入 --cov-fail-under=70，
+        # 单独跑 integration 子集对 app/ 的覆盖率天然达不到 70%（实测 42%），
+        # 覆盖率门控仅属于 unit-tests job（其显式传参且单测集 76% 过门）
 
   e2e-tests:
     name: E2E + Smoke + Security Tests
@@ -209,4 +212,6 @@ jobs:
         run: alembic upgrade head
 
       - name: Run E2E + Smoke + Security tests
-        run: pytest tests/e2e/test_smoke.py tests/e2e/test_security.py tests/e2e/test_e2e_flows.py -v --tb=short
+        run: pytest tests/e2e/test_smoke.py tests/e2e/test_security.py tests/e2e/test_e2e_flows.py -v --tb=short --no-cov
+        # --no-cov: 同 integration job —— 避免 pytest.ini addopts 注入的
+        # --cov-fail-under=70 让 e2e 子集在测试全绿时仍 exit 1
