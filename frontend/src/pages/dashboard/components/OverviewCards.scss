@@ -59,10 +59,12 @@
   }
 
   .advice-tag {
+    /* FS8-7: 混合底改不透明（12% accent 混白）， translucent 混合在灰卡上
+     * 实际背景漂移至 #dad4d1（3.8:1），改混 --color-card 后恒为浅底 4.8:1+ */
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-card));
     font-size: var(--fs-caption);
     color: var(--color-accent);
     padding: var(--spacing-xs) var(--spacing-sm);
-    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
     border-radius: var(--radius-sm);
     flex-shrink: 0;
   }

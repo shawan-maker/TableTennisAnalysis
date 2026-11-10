@@ -7,6 +7,7 @@
  */
 import { create } from 'zustand'
 import Taro from '@tarojs/taro'
+import i18next from 'i18next'
 import * as trainingApi from '@/services/training'
 import type {
   TrainingAdviceData,
@@ -254,8 +255,9 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
     try {
       const res = await trainingApi.completeTrainingSession(planId, sessionId)
       const data: CompleteSessionData = res.data.data
+      // FS8-5：修复硬编码英文 Toast——training.sessionCompleted key（zh/en）此前已定义未使用
       Taro.showToast({
-        title: 'Session completed, +' + data.points_earned + ' points earned',
+        title: i18next.t('training.sessionCompleted', { points: data.points_earned }),
         icon: 'success',
       })
       // 完成后刷新训练单列表

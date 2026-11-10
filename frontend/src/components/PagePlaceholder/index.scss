@@ -26,6 +26,6 @@
   .placeholder-meta {
     font-size: 13px;
     color: var(--color-text-secondary);
-    opacity: 0.7;
+    /* FS8-7: 移除 opacity 0.7（降对比度致 axe 失败，新 text-secondary 已达标） */
   }
 }

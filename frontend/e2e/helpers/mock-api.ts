@@ -23,10 +23,21 @@ export interface MockRoute {
     query: URLSearchParams
     callCount: number
   }) => unknown
-  /** HTTP 状态（非 200 时 envelope code 同步） */
+  /** 动态 HTTP 状态（与 status 二选一；返回非 200 时走错误 envelope） */
+  statusFn?: (ctx: {
+    params: string[]
+    body: any
+    query: URLSearchParams
+    callCount: number
+  }) => number
+  /** HTTP 状态（非 200 时走错误 envelope：code=envelopeCode ?? status） */
   status?: number
-  /** HTTP 200 + 业务错误码（如 40300 会员守卫） */
+  /** 业务错误码（镜像后端 AppException.code，如 42910 额度尽 / 40300 会员守卫） */
   envelopeCode?: number
+  /** 错误文案（镜像后端 AppException.message；request.ts 以 message 抛错供 Toast 展示） */
+  errorMessage?: string
+  /** 成功 envelope message（后端 success() 携带业务文案，如 re-evaluate 操作提示） */
+  message?: string
 }
 
 /** 段级通配匹配；返回捕获段或 null */
@@ -73,22 +84,19 @@ export async function installApiMocks(page: Page, routes: MockRoute[]) {
         } catch {
           body = null
         }
-        if (r.status && r.status !== 200) {
+        const ctx = { params, body, query: url.searchParams, callCount }
+        const status = r.statusFn ? r.statusFn(ctx) : r.status
+        // 非 2xx 错误 envelope：镜像后端 AppException(status, code, message)——
+        // request.ts 仅按 statusCode 抛错并透传 envelope code/message，
+        // 「HTTP 200 + 业务错误码」不会进入前端任何错误分支，不支持。
+        if (status && status !== 200) {
           return route.fulfill({
-            status: r.status,
-            json: envelope(null, r.status, 'error'),
+            status,
+            json: envelope(null, r.envelopeCode ?? status, r.errorMessage ?? 'error'),
           })
         }
-        const data = r.dynamic
-          ? r.dynamic({ params, body, query: url.searchParams, callCount })
-          : r.data
-        if (r.envelopeCode) {
-          return route.fulfill({
-            status: 200,
-            json: envelope(null, r.envelopeCode, 'business error'),
-          })
-        }
-        return route.fulfill({ status: 200, json: envelope(data) })
+        const data = r.dynamic ? r.dynamic(ctx) : r.data
+        return route.fulfill({ status: 200, json: envelope(data, 0, r.message ?? 'ok') })
       }
     }
     return route.fulfill({

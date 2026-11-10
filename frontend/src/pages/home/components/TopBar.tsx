@@ -39,6 +39,7 @@ export default function TopBar() {
           className="user-avatar"
           src={profile?.avatar_url || DEFAULT_AVATAR}
           mode="aspectFill"
+          alt={nickname || t('home.guest')}
         />
         <View className="user-info">
           <Text className="user-nickname">{nickname || t('home.guest')}</Text>

@@ -9,7 +9,7 @@
  * - tabBar 角标：unreadCount 变化同步到「我的」Tab（USER_TAB_INDEX=4），
  *   >0 显示数字（>99 截断 99+），归零移除
  */
-import { FC, useEffect } from 'react'
+import { useEffect } from 'react'
 import Taro from '@tarojs/taro'
 import { View, Text } from '@tarojs/components'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -26,9 +26,7 @@ interface NotificationBellProps {
  * 通知铃铛——显示在页头。
  * 功能：未读计数红点、点击跳转通知列表、tabBar 角标同步。
  */
-const NotificationBell: FC<NotificationBellProps> = ({
-  redirectTo = '/pages/notification/list/index',
-}) => {
+function NotificationBell({ redirectTo = '/pages/notification/list/index' }: NotificationBellProps) {
   const unreadCount = useNotificationStore((s) => s.unreadCount)
   const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount)
 

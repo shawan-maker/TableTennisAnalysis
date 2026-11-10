@@ -15,7 +15,7 @@
  */
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import Taro, { useRouter } from '@tarojs/taro'
-import { View, Text, Radio, ScrollView } from '@tarojs/components'
+import { View, Text, Radio, Label, ScrollView } from '@tarojs/components'
 import { Button, Tag, Skeleton } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import { usePaymentStore } from '@/stores/paymentStore'
@@ -166,11 +166,17 @@ export default function CreateOrder() {
               </Tag>
             )}
             <View className="tier-header">
-              <Text className="tier-name" style={{ color: tier.color }}>{t(tier.nameKey)}</Text>
-              <Radio
-                checked={selectedTier === tier.tier}
-                onChange={() => setSelectedTier(tier.tier)}
-              />
+              {/* FS8-7 axe label 修复：Label 必须包含可访问文本（仅包 Radio 时
+                  implicitLabel/explicitLabel 为空字符串，label 规则仍判失败）；
+                  Label 包住等级名 + Radio，结构关联与语义文本同时成立 */}
+              <Label for={`tier-radio-${tier.tier}`} className="tier-name-label">
+                <Text className="tier-name" style={{ color: tier.color }}>{t(tier.nameKey)}</Text>
+                <Radio
+                  id={`tier-radio-${tier.tier}`}
+                  checked={selectedTier === tier.tier}
+                  onChange={() => setSelectedTier(tier.tier)}
+                />
+              </Label>
             </View>
             <View className="tier-features">
               {tier.featureKeys.map((f) => (

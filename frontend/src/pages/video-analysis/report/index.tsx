@@ -120,8 +120,7 @@ export default function ReportPage() {
         </Text>
         {result?.video_info && (
           <Text className="video-info">
-            {t('analysis.duration')}: {Math.floor(result.video_info.duration_sec / 60)}'
-            {result.video_info.duration_sec % 60}"
+            {t('analysis.duration')}: {`${Math.floor(result.video_info.duration_sec / 60)}'${result.video_info.duration_sec % 60}"`}
           </Text>
         )}
       </View>

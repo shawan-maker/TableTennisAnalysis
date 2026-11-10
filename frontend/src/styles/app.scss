@@ -8,18 +8,25 @@
  */
 :root,
 page {
-  /* ===== 色彩（12）===== */
-  --color-primary: #E63946;        /* 主色（红色） */
+  /* ===== 色彩（12）=====
+   * FS8-7 WCAG AA 无障碍调色：primary/accent/success/text-secondary 四 token
+   * 由 #E63946/#F4A261/#2A9D8F/#6C757D 深化至对比度 ≥4.5:1（axe color-contrast
+   * 全量修复，同时对"白字于彩色背景"与"彩字于浅背景"双向成立）。
+   * 设计文档 §3.2 调色板已同步（R-FS8-P3 注记）。
+   */
+  --color-primary: #C92738;        /* 主色（红色，FS8-7 由 #E63946 深化） */
   --color-secondary: #1D3557;     /* 深蓝 */
   --color-secondary-dark: #11243A; /* 深蓝暗色（渐变/悬停态） */
-  --color-accent: #F4A261;         /* 橙黄 */
-  --color-success: #2A9D8F;       /* 成功/绿色 */
-  --color-danger: #E63946;         /* 危险/红色，与 --color-primary 一致 */
-  --color-warning: #F4A261;       /* 警告/橙色，与 --color-accent 一致 */
+  --color-accent: #9C5618;         /* 橙黄（FS8-7 由 #F4A261 深化，浅背景文本用） */
+  --color-accent-inverse: #F4A261;/* 橙黄反色（FS8-7）：深色背景上的强调文本专用
+                                     ——原 #F4A261 亮橙在深底上 ≥5.3:1，保留原色 */
+  --color-success: #1F7A6D;       /* 成功/绿色（FS8-7 由 #2A9D8F 深化） */
+  --color-danger: #C92738;         /* 危险/红色，与 --color-primary 一致 */
+  --color-warning: #9C5618;       /* 警告/橙色，与 --color-accent 一致 */
   --color-background: #F8F9FA;     /* 页面背景 */
   --color-card: #FFFFFF;           /* 卡片背景 */
   --color-text-primary: #1D3557;  /* 主要文字 */
-  --color-text-secondary: #6C757D;/* 次要文字 */
+  --color-text-secondary: #5A636B;/* 次要文字（FS8-7 由 #6C757D 深化） */
   --color-text-inverse: #FFFFFF;  /* 反色文字（深色背景上的白色文字） */
   --color-text-inverse-secondary: rgba(255, 255, 255, 0.6); /* 反色次要文字 */
   --color-text-inverse-tertiary: rgba(255, 255, 255, 0.3); /* 反色装饰/边框 */
@@ -53,13 +60,13 @@ page {
   --spacing-2xl: 48px;
 }
 
-/* ===== NutUI 品牌色对齐（主色 #E63946，覆盖 NutUI 默认红梯度）===== */
+/* ===== NutUI 品牌色对齐（主色 #C92738，覆盖 NutUI 默认红梯度；FS8-7 AA 同步）===== */
 :root,
 page {
-  --nutui-brand-stop-1: #E63946;
-  --nutui-brand-stop-2: #D42F3B;
-  --nutui-color-primary: #E63946;
-  --nutui-color-primary-pressed: #C42D39;
+  --nutui-brand-stop-1: #C92738;
+  --nutui-brand-stop-2: #A81E29;
+  --nutui-color-primary: #C92738;
+  --nutui-color-primary-pressed: #A81E29;
   --nutui-color-primary-disabled: #F0A9AE;
   --nutui-color-primary-light: #FDEEEF;
   --nutui-color-primary-text: #FFFFFF;

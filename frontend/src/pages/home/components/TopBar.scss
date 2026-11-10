@@ -43,7 +43,8 @@
         .rating-value {
           font-size: 13px;
           font-weight: bold;
-          color: var(--color-accent);
+          /* FS8-7: 深色头部上用亮橙反色（深化后的 accent 在深底仅 2.2:1） */
+          color: var(--color-accent-inverse);
         }
       }
     }

@@ -67,8 +67,7 @@
         }
 
         &.locked {
-          opacity: 0.7;
-
+          /* FS8-7: 移除卡片级 opacity 0.7（拖累内文对比度），锁定感仅由图标灰度表达 */
           .locked-icon {
             filter: grayscale(100%);
           }

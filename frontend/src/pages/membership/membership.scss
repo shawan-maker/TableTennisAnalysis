@@ -19,8 +19,9 @@
 
   .current-tier-badge {
     display: inline-block;
-    background: var(--color-accent); // #F4A261
-    color: var(--color-secondary);
+    background: var(--color-accent);
+    /* FS8-7: 深化后 accent 为深色底，徽标文字改白色（原深蓝 2.2:1） */
+    color: var(--color-text-inverse);
     padding: var(--spacing-xs) var(--spacing-sm-md);
     border-radius: var(--radius-md);
     margin-bottom: var(--spacing-sm-md);
@@ -51,23 +52,25 @@
       }
 
       &.status-active {
-        background: color-mix(in srgb, var(--color-success) 30%, transparent);
-        .status-text { color: var(--color-success); }
+        /* FS8-7: 状态 chip 位于深色头部，透明混合底+彩色文本不达 4.5:1，
+         * 改纯色底+白字（white on success 5.2:1） */
+        background: var(--color-success);
+        .status-text { color: var(--color-text-inverse); }
       }
 
       &.status-warning {
-        background: color-mix(in srgb, var(--color-accent) 30%, transparent);
-        .status-text { color: var(--color-accent); }
+        background: var(--color-accent);
+        .status-text { color: var(--color-text-inverse); }
       }
 
       &.status-danger {
-        background: color-mix(in srgb, var(--color-primary) 30%, transparent);
-        .status-text { color: var(--color-primary); }
+        background: var(--color-primary);
+        .status-text { color: var(--color-text-inverse); }
       }
 
       &.status-default {
-        background: color-mix(in srgb, var(--color-text-secondary) 20%, transparent);
-        .status-text { color: var(--color-text-secondary); }
+        background: var(--color-text-secondary);
+        .status-text { color: var(--color-text-inverse); }
       }
     }
   }
@@ -89,7 +92,8 @@
 
     .expire-remaining {
       margin-left: var(--spacing-sm);
-      color: var(--color-accent);
+      /* FS8-7: 深色头部上的强调文本用亮橙反色 */
+      color: var(--color-accent-inverse);
       font-weight: bold;
     }
   }
@@ -105,7 +109,8 @@
 
     .banner-text {
       font-size: 13px;
-      color: var(--color-accent);
+      /* FS8-7: 半透明红在深底上的混合背景约 5:1 处承载白字，橙字仅 2.2:1 */
+      color: var(--color-text-inverse);
     }
   }
 }
@@ -188,7 +193,7 @@
       font-size: 12px;
       color: var(--color-text-secondary);
       margin-top: var(--spacing-xs);
-      opacity: 0.7;
+      /* FS8-7: 移除 opacity 0.7（降对比度致 axe 失败，新 text-secondary 已达标） */
     }
   }
 }
@@ -283,8 +288,9 @@
           }
 
           &.no {
+            /* FS8-7: 移除 opacity 0.4（✗ 13px 图标字符按文本计，0.4 仅 1.4:1）；
+             * 未含状态由灰/绿双色区分已足够 */
             color: var(--color-text-secondary);
-            opacity: 0.4;
           }
         }
 

@@ -1,0 +1,65 @@
+# 前端 CI 流水线（FS8-8 落地，04-前端实施计划 §6.3 六步）
+#
+# 触发：frontend/** 变更的 push/PR；支持手动触发（workflow_dispatch）。
+# 六步：① lint（eslint+jsx-a11y） ② typecheck ③ Jest 组件测试
+#       ④ i18n key 对仗守卫 ⑤ weapp+H5 双端构建 ⑥ bundle ≤8MB 门控。
+# E2E/axe 属本地质量基建（Playwright 浏览器依赖重），不入本流水线
+# （R-FS8-P3 ①：E2E 走 Taro H5 产物 + 本地 dist server）。
+
+name: Frontend CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**']
+  pull_request:
+    branches: [main]
+    paths: ['frontend/**']
+  workflow_dispatch:
+
+jobs:
+  frontend-qa:
+    name: 前端六步流水线（§6.3）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      # ① lint —— eslint + jsx-a11y（§2.3 红线 1/8 可自动化子集）
+      - name: Lint (eslint + jsx-a11y)
+        run: npm run lint
+
+      # ② type check —— tsc --noEmit
+      - name: Type check
+        run: npm run typecheck
+
+      # ③ 组件测试 —— Jest 30 套件（Store/Service/纯函数契约）
+      - name: Component tests (Jest)
+        run: npm test -- --maxWorkers=2
+
+      # ④ i18n key 对仗守卫 —— zh-CN vs en-US 零缺失/值非空/插值一致
+      - name: i18n key diff guard
+        run: npx jest src/locales/__tests__/i18nKeys.test.ts --maxWorkers=2
+
+      # ⑤ 双端构建 —— weapp + H5（H5 内存上调防 sealing OOM，R-FS7 ⑥）
+      - name: Build weapp
+        run: npm run build:weapp
+      - name: Build H5
+        run: npm run build:h5
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      # ⑥ bundle 体积门控 —— weapp 产物 ≤ 8MB（主包 2MB 由微信上传校验，FS8-9 实测）
+      - name: Bundle size gate (≤8MB)
+        run: node scripts/check-bundle-size.mjs dist

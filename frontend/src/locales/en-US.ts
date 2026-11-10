@@ -752,7 +752,8 @@ export default {
     suffixMonthly: '/mo',
     suffixQuarterly: '/qtr',
     suffixYearly: '/yr',
-    currencySymbol: '$',
+    // 货币符号与实际支付币种一致（微信支付人民币计价），非英语地区符号
+    currencySymbol: '¥',
   },
   notification: {
     title: 'Notifications',

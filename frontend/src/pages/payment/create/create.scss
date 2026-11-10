@@ -54,6 +54,14 @@
     align-items: center;
     margin-bottom: var(--spacing-sm-md);
 
+    /* FS8-7：Label 接管名称+Radio 行（保持 space-between 布局不变） */
+    .tier-name-label {
+      flex: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
     .tier-name {
       font-size: 18px;
       font-weight: bold;

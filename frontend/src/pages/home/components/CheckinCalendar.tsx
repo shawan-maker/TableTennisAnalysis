@@ -58,7 +58,7 @@ export default function CheckinCalendar({ data, loading }: Props) {
               {day.checked_in ? (
                 <Text className="check-icon">✓</Text>
               ) : (
-                <Text className="check-placeholder">·</Text>
+                <Text className="check-placeholder" aria-hidden="true">·</Text>
               )}
             </View>
           </View>

@@ -47,6 +47,7 @@ export default function LatestReportCard({ report, loading }: Props) {
             className="report-thumbnail"
             src={report.cover_image_url || DEFAULT_REPORT_THUMBNAIL}
             mode="aspectFill"
+            alt={t('home.latestReport')}
           />
           <View className="report-info">
             <Text className="report-title">

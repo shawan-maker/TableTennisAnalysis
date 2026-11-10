@@ -55,8 +55,9 @@ export default defineAppConfig({
     'pages/onboarding/profile/index', // 新用户资料填写页
   ],
   tabBar: {
-    color: '#999999',
-    selectedColor: '#E63946',
+    // FS8-7 WCAG AA：tabBar 文字色与全局 token 同步（H5 端 weui tabbar 同源）
+    color: '#5A636B',
+    selectedColor: '#C92738',
     backgroundColor: '#FFFFFF',
     borderStyle: 'white',
     list: [

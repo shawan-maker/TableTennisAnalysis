@@ -78,7 +78,8 @@
       align-items: center;
 
       .check-placeholder {
-        color: var(--color-divider);
+        /* FS8-7: divider 色对比度仅 1.2:1，装饰性 · 改用次级文本色 + aria-hidden */
+        color: var(--color-text-secondary);
         font-size: 15px;
       }
     }
@@ -96,7 +97,7 @@
 
     &.done {
       background: var(--color-success);
-      opacity: 0.7;
+      /* FS8-7: 移除 opacity 0.7（白色 13px 文本 0.7 透明度不达 4.5:1） */
     }
 
     &:active {

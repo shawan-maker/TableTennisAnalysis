@@ -83,7 +83,11 @@ export default function ProgressPage() {
           percent={progressPct}
           color="var(--color-primary)"
           strokeWidth="12px"
+          role="progressbar"
           aria-label={`${progressPct}%`}
+          aria-valuenow={progressPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
         />
         <Text className="progress-text">{progressPct}%</Text>
       </View>

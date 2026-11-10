@@ -185,6 +185,7 @@ export default function ProfilePage() {
           className="avatar"
           src={profile.avatar_url || 'https://cdn.pingpongai.com/images/default-avatar.png'}
           mode="aspectFill"
+          alt={profile.nickname}
         />
         <View className="header-info">
           <Text className="nickname">{profile.nickname}</Text>

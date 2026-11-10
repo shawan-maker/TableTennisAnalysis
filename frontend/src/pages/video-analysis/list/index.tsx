@@ -74,6 +74,7 @@ export default function ReportListPage() {
                   className="report-cover"
                   src={report.cover_image_url}
                   mode="aspectFill"
+                  alt={report.report_summary || t('home.reportDefaultTitle')}
                 />
               ) : (
                 <View className="report-cover-placeholder">

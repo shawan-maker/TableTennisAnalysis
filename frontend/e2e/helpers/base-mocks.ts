@@ -70,13 +70,13 @@ export function makeCalendar(checkedDates: string[] = []) {
   return { year: y, month: m, days, monthly_checkin_count: checkedDates.length, streak_days: 3 }
 }
 
-/** GET /membership/tiers（TierListData） */
+/** GET /membership/tiers（TierListData；quota_config 为 TierInfo 必填，模型默认 dict） */
 export const TIERS = {
   tiers: [
-    { tier: 'free', name: '免费版', price_monthly_cents: 0, price_quarterly_cents: 0, price_yearly_cents: 0, benefits: ['每日 3 次分析'] },
-    { tier: 'member', name: '会员版', price_monthly_cents: 1800, price_quarterly_cents: 4500, price_yearly_cents: 15800, benefits: ['无限分析', '训练方案'] },
-    { tier: 'pro', name: '专业版', price_monthly_cents: 4800, price_quarterly_cents: 12800, price_yearly_cents: 42800, benefits: ['无限分析', '训练方案', '专属客服'] },
-    { tier: 'coach', name: '教练版', price_monthly_cents: 9800, price_quarterly_cents: 25800, price_yearly_cents: 88000, benefits: ['无限分析', '训练方案', '数据大屏'] },
+    { tier: 'free', name: '免费版', price_monthly_cents: 0, price_quarterly_cents: 0, price_yearly_cents: 0, benefits: ['每日 3 次分析'], quota_config: { daily_analysis_limit: 3 } },
+    { tier: 'member', name: '会员版', price_monthly_cents: 1800, price_quarterly_cents: 4500, price_yearly_cents: 15800, benefits: ['无限分析', '训练方案'], quota_config: { daily_analysis_limit: -1 } },
+    { tier: 'pro', name: '专业版', price_monthly_cents: 4800, price_quarterly_cents: 12800, price_yearly_cents: 42800, benefits: ['无限分析', '训练方案', '专属客服'], quota_config: { daily_analysis_limit: -1 } },
+    { tier: 'coach', name: '教练版', price_monthly_cents: 9800, price_quarterly_cents: 25800, price_yearly_cents: 88000, benefits: ['无限分析', '训练方案', '数据大屏'], quota_config: { daily_analysis_limit: -1 } },
   ],
 }
 
