@@ -96,6 +96,9 @@ export default {
     completenessHint: 'Complete profile for better training advice',
     bigData: 'Big Data',
     ratingHistory: 'Rating History',
+    // R-FE-R1 Batch A: profile feature entries (FE-P0-1 settings / FE-P0-2 training reports)
+    settingsEntry: 'Settings',
+    progressEntry: 'Training Reports',
     style_loop: 'Loop',
     style_quick_attack: 'Quick Attack',
     style_chop: 'Chop',
@@ -441,6 +444,8 @@ export default {
     shareReport: 'Share Report',
     shareLinkCopied: 'Share link copied to clipboard',
     myReports: 'My Analyses',
+    // R-FE-R1 Batch A (FE-P1-7): report page -> training advice entry
+    viewAdvice: 'View Training Advice',
     noReports: 'No analyses yet',
     noSummary: 'No summary',
     startAnalysis: 'Start your first analysis',
@@ -567,6 +572,9 @@ export default {
     },
     currentPlan: 'Current Plan',
     planVersion: 'Plan Version',
+    // R-FE-R1 Batch B (FE-P1-10 ②): progress_analysis membership gate guide
+    membershipRequired: 'Progress analysis is a members-only feature',
+    upgradeMembership: 'Upgrade Membership',
   },
   // training_advice module (07-training_advice/frontend.md §7)
   training: {
@@ -702,9 +710,16 @@ export default {
     yearlyPromo: 'Save ~2 months with annual billing',
     priceMonthly: '¥{{price}}/mo',
     priceQuarterly: '¥{{price}}/qtr',
+    // R-FE-R1 Batch B (FE-P1-4/10): upgrade prompt popup (useMembershipGate)
+    upgradeTitle: 'Free Quota Used Up',
+    upgradeDesc: 'Upgrade to membership for unlimited video analysis, plus exclusive benefits like progress analysis and training plans',
+    upgradeConfirm: 'Upgrade Now',
+    upgradeCancel: 'Not Now',
   },
   payment: {
     openMembership: 'Open Membership',
+    // R-FE-R1 Batch A (FE-P1-11): profile feature entry "My Orders"
+    ordersEntry: 'My Orders',
     chooseTier: 'Choose your membership tier',
     recommended: 'Recommended',
     selectPeriod: 'Select Subscription Period',

@@ -12,7 +12,9 @@ test('首页在 mock 数据下正常渲染', async ({ page }) => {
   await page.waitForLoadState('networkidle')
   // TopBar 昵称 + KQS 积分（zh-CN 文本）
   await expect(page.getByText('E2E测试用户')).toBeVisible({ timeout: 15000 })
-  await expect(page.getByText('积分')).toBeVisible()
+  // R-FE-R1 批次A（FE-P1-9）：首页嵌入 PointsCard（训练积分/总积分/本月积分），
+  // 子串匹配会命中多元素触发 strict mode violation——改 exact 锁定 TopBar 独立文本节点
+  await expect(page.getByText('积分', { exact: true })).toBeVisible()
   // 概览卡（OverviewData.mock）
   await expect(page.getByText('胜率')).toBeVisible()
   await expect(page.getByText('快捷操作')).toBeVisible()

@@ -7,12 +7,16 @@
  *   i18n 映射到 progress.metric.landing_* 键
  * - rally 含 max_length_a/b、ball_speed 含 max_a/b（设计样例仅展示 avg，此处一并展示）
  * - 相同报告 422/42201、报告不存在 404/40412 由 request 层抛错（message 透出）
+ *
+ * R-FE-R1 批次B（FE-P1-10② + FE-P2-25）：progress_analysis 会员门控（同 summary 页）。
  */
 import { useEffect, useState } from 'react'
 import { useRouter } from '@tarojs/taro'
+import Taro from '@tarojs/taro'
 import { View, Text, Picker } from '@tarojs/components'
 import { Cell, Button, Tag, Empty } from '@nutui/nutui-react'
 import { useProgressStore } from '@/stores/progressStore'
+import { useMembershipGate } from '@/hooks/useMembershipGate'
 import { listSnapshots } from '@/services/progress'
 import { useTranslation } from 'react-i18next'
 import { formatPercent, formatChange } from '@/utils/chart'
@@ -31,6 +35,8 @@ export default function ComparisonPage() {
   const comparison = useProgressStore((s) => s.comparison)
   const loading = useProgressStore((s) => s.loading)
   const fetchComparison = useProgressStore((s) => s.fetchComparison)
+  // R-FE-R1 批次B（FE-P1-10②）：progress_analysis 会员门控
+  const { canAccess } = useMembershipGate('progress_analysis')
 
   const [snapshots, setSnapshots] = useState<Array<{ id: number; report_id: number; created_at: string }>>([])
   const [reportA, setReportA] = useState<number | undefined>(
@@ -61,6 +67,27 @@ export default function ComparisonPage() {
   }
 
   const snapshotLabels = snapshots.map((s) => `#${s.report_id} (${(s.created_at || '').slice(0, 10)})`)
+
+  // 会员门控：免费/到期/闭户 → 升级引导（R-FE-R1 批次B，同 summary 页先例）
+  if (!canAccess) {
+    return (
+      <View className="comparison-page">
+        <View className="membership-guard">
+          <Empty
+            title={t('progress.membershipRequired')}
+            actions={[
+              {
+                text: t('progress.upgradeMembership'),
+                type: 'primary',
+                size: 'small',
+                onClick: () => Taro.navigateTo({ url: '/pages/membership/index' }),
+              },
+            ]}
+          />
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View className="comparison-page">

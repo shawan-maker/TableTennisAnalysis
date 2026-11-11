@@ -14,8 +14,12 @@
  * - /progress/summary          SummaryData
  * - /progress/comparison       ComparisonData（report_a/report_b query）
  * - /progress/technique-trends(/:metric) MetricTrend 列表 / TrendDetail
+ * - /membership/current        member/active（R-FE-R1 批次B：progress 三页
+ *   useMembershipGate 门控下 free 态会渲染升级引导而非真实内容——
+ *   覆盖为会员态以保真扫描三页真实 UI；会员页 baseMocks free 态扫描让位）
  */
 import type { MockRoute } from './mock-api'
+import { makeCurrentMembership } from './base-mocks'
 
 const iso = () => new Date().toISOString()
 
@@ -221,6 +225,13 @@ export const a11yMocks: MockRoute[] = [
         total_points: 6,
       },
     },
+  },
+  // 会员当前态（R-FE-R1 批次B：extraMocks 优先级高于 baseMocks 的 free 态——
+  // progress 三页 progress_analysis 门控 hidden，member/active 才渲染真实内容）
+  {
+    method: 'GET',
+    pattern: '/membership/current',
+    data: makeCurrentMembership('member', 'active'),
   },
   // 进度综合摘要（SummaryData）
   {

@@ -23,6 +23,8 @@ import QuickGrid from './components/QuickGrid'
 import CheckinCalendar from './components/CheckinCalendar'
 import LatestReportCard from './components/LatestReportCard'
 import AdviceBanner from './components/AdviceBanner'
+// R-FE-R1 批次A（FE-P1-9）：训练积分卡嵌入首页 Dashboard（09-gamification §4.1 注记③后半句兑现）
+import PointsCard from '@/pages/gamification/components/PointsCard'
 import './index.scss'
 
 export default function HomePage() {
@@ -87,6 +89,9 @@ export default function HomePage() {
 
         {/* 快捷操作宫格 */}
         <QuickGrid />
+
+        {/* 训练积分卡（R-FE-R1 批次A FE-P1-9：09-gamification §4.1「嵌入首页 Dashboard」） */}
+        <PointsCard />
 
         {/* 训练打卡日历（周视图） */}
         <CheckinCalendar data={weekView} loading={checkinLoading} />

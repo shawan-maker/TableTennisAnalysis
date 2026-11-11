@@ -8,6 +8,9 @@
  * - 步骤 2「第 4 次尝试 429/42910」：POST /video-analysis/tasks 免费态返回
  *   HTTP 429 + code 42910（后端 AppException 消息逐字镜像），上传页 NutUI Toast
  *   展示 err.message（request.ts createRequestError 透传）
+ *   R-FE-R1 批次B（FE-P1-4/10）：429/42910 差异化交互落地后，上传页
+ *   弹升级引导弹层（useMembershipGate；免费态进入页面时额度耗尽亦主动弹），
+ *   「立即升级」直达会员中心——本 spec 经弹层走真实转化路径（取代手动 navigateTo 旁路）
  * - 步骤 5「微信支付（mock）」：H5 生产产物 taro-h5 requestPayment 为
  *   temporarilyNotSupport → NODE_ENV=production 下 resolve（requestWechatPay=true），
  *   真实 JSAPI 拉起归 FS8-11 真机联调
@@ -33,12 +36,15 @@ test('E2E-03 付费转化全流程：额度尽→429→会员对比→下单→J
   // WS mock：会员页/订单页 usePaymentNotify 共享连接（payment_success 消费断言）
   await installWsMock(page)
 
-  // ── 步骤 1：免费额度 3/3 用尽（upload 页额度提示）──
+  // ── 步骤 1：免费额度 3/3 用尽（upload 页额度提示 + 升级引导弹层）──
   await setup(page, routes, { auth: true, open: '/pages/video-analysis/upload/index' })
   await expect(page.getByText('拍摄引导')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('今日免费额度剩余 0 次')).toBeVisible()
+  // R-FE-R1 批次B（FE-P1-10①）：免费用户额度耗尽进入页面 → 主动弹升级提示
+  await expect(page.getByText('免费额度已用完')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: '暂不升级' }).click() // 关闭弹层继续验证 429 路径
 
-  // ── 步骤 2：第 4 次尝试 → 429/42910 Toast（后端消息逐字）──
+  // ── 步骤 2：第 4 次尝试 → 429/42910 Toast（后端消息逐字）+ 升级引导弹层 ──
   const sample = await recordSampleVideo(page)
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByRole('button', { name: '选择/拍摄视频' }).click()
@@ -49,9 +55,13 @@ test('E2E-03 付费转化全流程：额度尽→429→会员对比→下单→J
   ).toBeVisible({ timeout: 15_000 })
   // 失败后 resetUpload 回 idle：上传入口仍在（不卡在 uploading 态）
   await expect(page.getByRole('button', { name: '选择/拍摄视频' })).toBeVisible()
+  // R-FE-R1 批次B（FE-P1-4）：429/42910 差异化交互 → 升级引导弹层承接转化
+  await expect(page.getByText('免费额度已用完')).toBeVisible({ timeout: 10_000 })
 
-  // ── 步骤 3：会员中心四级对比（免费/会员/专业/教练 + 定价 + 免费额度卡）──
-  await gotoPage(page, '/pages/membership/index')
+  // ── 步骤 3：弹层「立即升级」→ 会员中心四级对比（免费/会员/专业/教练 + 定价 + 免费额度卡）──
+  // （R-FE-R1：取代手动 gotoPage 旁路——走 handleUpgradeConfirm 真实转化路径）
+  await page.getByRole('button', { name: '立即升级' }).click()
+  await page.waitForURL(/membership/, { timeout: 10_000 })
   await expect(page.getByText('会员等级权益对比')).toBeVisible({ timeout: 10_000 })
   // 四级表头（tier-name 节点收紧，防误中「会员等级权益对比」标题）
   for (const name of ['免费版', '会员版', '专业版', '教练版']) {
@@ -107,6 +117,11 @@ test('E2E-03 付费转化全流程：额度尽→429→会员对比→下单→J
   await expect(page.getByText('拍摄引导')).toBeVisible({ timeout: 10_000 })
   // /users/quota 为免费视图（后端 get_quota 不感知会员态）——展示 0 是后端契约
   await expect(page.getByText('今日免费额度剩余 0 次')).toBeVisible()
+  // R-FE-R1 批次B（FE-P1-10①）：会员态不弹升级引导（quota 免费视图防误弹判定）。
+  // gotoPage 为同文档 hash 导航——Taro 页栈复用原 upload 实例，其弹层历经
+  // 两开两关后按 NutUI unmountOnExit=false 以隐藏 DOM 留存（count 恒 ≥1），
+  // 故断言不可见（误弹为可见态时仍失败，守卫语义不变）而非 count=0
+  await expect(page.getByText('免费额度已用完')).toBeHidden()
   const sample2 = await recordSampleVideo(page)
   const chooserPromise2 = page.waitForEvent('filechooser')
   await page.getByRole('button', { name: '选择/拍摄视频' }).click()

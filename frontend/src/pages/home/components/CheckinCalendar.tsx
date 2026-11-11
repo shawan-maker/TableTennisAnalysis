@@ -73,6 +73,15 @@ export default function CheckinCalendar({ data, loading }: Props) {
           {data.todayCheckedIn ? t('home.todayCheckedIn') : t('home.checkinNow')}
         </Text>
       </View>
+
+      {/* R-FE-R1 批次A（FE-P0-3）：徽章墙入口（09-gamification §6 首页 → 徽章列表） */}
+      <View
+        className="badges-link"
+        onClick={() => Taro.navigateTo({ url: '/pages/gamification/badges/index' })}
+      >
+        <Text className="badges-link-text">🎖️ {t('gamification.myBadges')}</Text>
+        <Text className="badges-link-arrow" aria-hidden="true">›</Text>
+      </View>
     </View>
   )
 }

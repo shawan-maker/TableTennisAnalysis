@@ -127,3 +127,27 @@
     }
   }
 }
+
+/* R-FE-R1 批次B（FE-P1-4/10）：升级引导弹层（membership.upgrade* 文案） */
+.upgrade-popup {
+  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xl);
+
+  .upgrade-title {
+    display: block;
+    font-size: var(--fs-h3);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm-md);
+  }
+
+  .upgrade-desc {
+    display: block;
+    font-size: var(--fs-body);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .upgrade-cancel-btn {
+    margin-top: var(--spacing-sm);
+  }
+}

@@ -19,6 +19,7 @@
 | P0/P1 主会话实证 | 全部通过 | grep 复核零入口断言、useMembershipGate/42910/局分字段零消费均成立 |
 | 页面注册表完整性 | 39/39 ✓ | 主文档 §2.2/§八 Phase 1 页面无缺页；Tab Bar 5 项配置逐字一致 |
 | Service/Store/i18n 契约层 | 高保真 | 13 模块端点/状态机/双语键与设计逐项一致，i18n 零缺键 |
+| **R-FE-R1 修复进展** | **12 项已修复落地** | 批次 A 全量 + 批次 B 付费转化组：P0×3 + FE-P1-4/5/7/9/10/11/12/13 + FE-P2-25；验证门禁全绿（tsc 0 错 + eslint 0 error + Jest 285 + E2E 7/7 含 axe 零违规 + weapp 1.23MB/H5 双构建）——明细见 §九修复记录 |
 
 **核心结论**：前端本体实现质量高（页面、Service、Store、i18n、WS 链路、样式 token 均严格落地），**遗漏集中在三类结构性缺口**：
 
@@ -32,7 +33,7 @@
 
 ## 二、P0 明细（3 项 —— 已实现页面全工程零入口）
 
-### FE-P0-1 [设置页] 设置页全工程零入口，页面已实现但不可达
+### FE-P0-1 [设置页] 设置页全工程零入口，页面已实现但不可达 —— ✅ 已修复（R-FE-R1）
 
 | 项 | 内容 |
 |----|------|
@@ -40,7 +41,7 @@
 | 实现现状 | `app.config.ts` L53 已注册；grep `pages/settings` 全 src 仅命中注册行与 settings 自身文件，`pages/user/profile/index.tsx` L271-333（快捷宫格/导出/危险区）无设置入口——**通知开关、数据导出、注销冷静期撤销、关于/版本全部功能失效** |
 | 修改方案 | `pages/user/profile/index.tsx` quick-actions 区新增入口 Cell（icon ⚙️，`Taro.navigateTo({ url: '/pages/settings/index' })`）；`locales/zh-CN.ts`/`en-US.ts` 补 `user.settingsEntry`（'设置'/'Settings'） |
 
-### FE-P0-2 [进度分析] 训练报告/进度分析三页零入口（summary/comparison/trend-detail）
+### FE-P0-2 [进度分析] 训练报告/进度分析三页零入口（summary/comparison/trend-detail） —— ✅ 已修复（R-FE-R1）
 
 | 项 | 内容 |
 |----|------|
@@ -48,7 +49,7 @@
 | 实现现状 | 三页已注册（`app.config.ts` L39-41）且本体完整实现；grep `pages/progress/` 全 src 仅 1 命中（summary L85 模块内跳 trend-detail）；user/profile 菜单（edit/big-data/rating-history/membership）与 constants/home.ts QUICK_ROUTES 均无 progress 路由——**月度快照、指标趋势、对比分析整模块不可达** |
 | 修改方案 | `pages/user/profile/index.tsx` 功能列表区新增「训练报告」入口 → `/pages/progress/summary/index`；comparison 入口可由 summary 页概览卡或 video-analysis/list 补「与上次对比」；i18n 补 `user.progressEntry` 双语 |
 
-### FE-P0-3 [游戏化] 徽章墙零入口（badges 页）
+### FE-P0-3 [游戏化] 徽章墙零入口（badges 页） —— ✅ 已修复（R-FE-R1）
 
 | 项 | 内容 |
 |----|------|
@@ -78,13 +79,13 @@
 - **实现现状**：`pages/video-analysis/report/index.tsx` L144-168 heatmap-section 仅九宫格+hint 无 toggle；grep `myLanding|opponentLanding|landingView|heatmap-toggle` 于 frontend/src 零命中；§5.3 L1462-1481 有完整样式设计未落地
 - **修改方案**：report 页恢复 landingView state + 双按钮，locales 补 `analysis.myLanding/opponentLanding` 双语，scss 补 .heatmap-toggle 块；**注意**：设计 ReportDetail 契约（L202-206）仅有单一 nine_grid——对手侧数据需后端补字段，或文档注记降级（跨栈类）
 
-### FE-P1-4 [video_analysis] 42910 免费额度耗尽的会员升级引导未实现
+### FE-P1-4 [video_analysis] 42910 免费额度耗尽的会员升级引导未实现 —— ✅ 已修复（R-FE-R1）
 
 - **设计要求**：`05-API详细设计.md` L133「42910 \| 429 \| 免费分析额度耗尽」+ L135「前端按 code 做差异化交互（如 42910 → 引导升级会员弹窗）」（经 03 frontend.md L6 依据链进入前端范围）；`04-前端实施计划.md` L518 遗留未勾选「免费额度用尽→会员引导」
 - **实现现状**：`pages/video-analysis/upload/index.tsx` L110-113 createTask 失败仅 `showToast(err?.message)`；grep `42910|statusCode === 429` 全 frontend/src **零命中**（主会话实证）；e2e/payment-flow.spec.ts L41-54 以手动 navigateTo 会员页绕过了该缺口——**免费→付费转化关键触发点缺失**
 - **修改方案**：upload 页 confirmAndCreateTask catch 中增加 `err.statusCode===429 \|\| err.code===42910` 分支：弹 NutUI Dialog/Popup 升级引导 → `Taro.navigateTo('/pages/membership/index')`；与 FE-P1-10 useMembershipGate 接线配套（request.ts 已透出 code，改造成本低）
 
-### FE-P1-5 [video_analysis] 「我的分析」历史报告列表页零入口
+### FE-P1-5 [video_analysis] 「我的分析」历史报告列表页零入口 —— ✅ 已修复（R-FE-R1）
 
 - **设计要求**：`02界面设计 v2.0` L188 我的 Tab 页面树「├── 我的分析（历史报告列表）」（未标 [Pn]=Phase 1 核心承诺）
 - **实现现状**：video-analysis/list 页已实现（含下拉刷新/上拉加载），grep `video-analysis/list` 全 src 仅 app.config.ts L20 注册行——**报告列表页用户不可达**，历史报告无从查看
@@ -96,7 +97,7 @@
 - **实现现状**：`pages/scoring/scoreboard/index.tsx` L159-173 比分区仅渲染分数无局分/局数；grep `current_game|games_won` 于页面零命中（主会话实证仅 store 接口定义）；后端已存 games_won_user/games_won_opp（app/models/match.py L53-54）但 MatchDetail schema 未暴露——**bo3/bo5 局结束清零后用户无从得知大比分与当前第几局**
 - **修改方案**：优先后端补齐 MatchDetail 响应字段（games_won_user/games_won_opp）；备选纯前端从 currentMatch.score_sequence 按 game_number 聚合推导，score-display 上方新增 `.game-info` 行（「第 N 局 · 局分 x:y」）
 
-### FE-P1-7 [video_analysis→training] 报告页→训练建议入口断裂（report_id 死链路）
+### FE-P1-7 [video_analysis→training] 报告页→训练建议入口断裂（report_id 死链路） —— ✅ 已修复（R-FE-R1）
 
 - **设计要求**：`07-training_advice/frontend.md` L1737「报告 → 查看训练建议 → `/pages/training/advice/index?report_id={id}`」+ L1928 功能验证 + v1.0 L454「训练建议：点击进入训练建议详情页」+ v2.0 L1422 用户旅程「报告 → 训练建议」（合并 03 代理 VA-F-06 与 07 代理 F1 双报）
 - **实现现状**：advice 页 report_id 直达参数与 fetchAdviceByReport（advice/index.tsx L31-33）均已实现，但 grep `advice|训练建议` 于 pages/video-analysis 零命中——**全仓无任何携带 report_id 的调用方**（现有入口：训练 Tab/home AdviceBanner/onboarding 均不带参），分析→建议闭环在设计流程 1/3 中的关键一环断裂
@@ -108,31 +109,31 @@
 - **实现现状**：BadgeUnlockPopup 仅挂载 3 页（badges/checkin-calendar/training/plans/detail）；video-analysis/processing、report 页无挂载（grep badge_unlocked 于该域零命中）——**AI 分析完成触发「首分析/分析 N 次」类徽章时用户正位于 processing/report 页，弹层不出现**
 - **修改方案**：将 `<BadgeUnlockPopup />` 上提到应用级全局布局，或至少补挂 processing 与 report 两页（useBadgeUnlock 为共享单例监听，多页挂载无重复连接风险，useWebSocket.ts L11-15 已注明）
 
-### FE-P1-9 [gamification] PointsCard 积分卡未嵌入首页（注记③承诺的 FS7 消费未兑现）
+### FE-P1-9 [gamification] PointsCard 积分卡未嵌入首页（注记③承诺的 FS7 消费未兑现） —— ✅ 已修复（R-FE-R1，落地裁决：嵌入首页）
 
 - **设计要求**：`09-gamification/frontend.md` L225「### 4.1 训练积分卡片（**嵌入首页 Dashboard**）」+ L25 注记③「『嵌入首页 Dashboard』归 FS7 首页升级消费」
 - **实现现状**：grep `PointsCard` 全 src 仅 checkin-calendar L100 一处消费；home 六区块无积分卡——注记③后半句（归 FS7）未兑现，训练总积分/本月积分首页不可见
 - **修改方案**：`pages/home/index.tsx` 在 CheckinCalendar 上方嵌入 `<PointsCard />`；或在 00-home/frontend.md 补 P3 注记明确放弃首页嵌入、仅保留打卡页（产品裁决类）
 
-### FE-P1-10 [membership] useMembershipGate Hook 零页面消费，升级引导双场景未接线
+### FE-P1-10 [membership] useMembershipGate Hook 零页面消费，升级引导双场景未接线 —— ✅ 已修复（R-FE-R1）
 
 - **设计要求**：`10-membership/frontend.md` L1048 反幻觉约束「权益降级 **必须** 使用 useMembershipGate Hook 统一控制功能入口可见性」+ L1028-1029 功能验证「免费用户额度用完后，进入视频分析时显示升级提示」/「到期会员的功能入口被隐藏（如 3D 教学、进度分析）」+ L934 注记②「升级弹层由消费页面渲染」
 - **实现现状**：Hook 本体完整实现（`hooks/useMembershipGate.ts` L46-85），但 grep `useMembershipGate|showUpgradePrompt|upgradeVisible` 全工程仅 hook 自身与契约测试命中——**零页面消费**；upload 页仅静态展示额度数字（文件头注释宣称「耗尽引导购买」但无对应代码）；progress 域三页无会员门控；hook 引用的 `membership.upgradeTitle` 等 i18n key 在 locales 零命中
 - **修改方案**：① upload 页 `quotaRemaining===0 && bonusRemaining===0` 时调 showUpgradePrompt() 渲染升级弹层（与 FE-P1-4 429 分支互补）；② progress 域三页按 needsMembership 渲染升级引导（复用 training 域 40300→Empty 引导先例）；③ locales 补 upgradeTitle/upgradeDesc/upgradeConfirm/upgradeCancel 双语
 
-### FE-P1-11 [payment] 我的订单页全工程零 UI 入口
+### FE-P1-11 [payment] 我的订单页全工程零 UI 入口 —— ✅ 已修复（R-FE-R1）
 
 - **设计要求**：`02界面设计 v2.0` L1272-1305（P5.5 我的订单，属「我的」域用户页面）+ `11-payment/frontend.md` L5「定位：订单创建页…、订单列表页」
 - **实现现状**：orders 页已实现（四态筛选/WS 刷新/Empty），grep `pages/payment/orders` 全工程仅注册行+测试构造命中；唯一到达路径为支付成功通知 action_url 间接跳转——**用户无法主动查看订单**
 - **修改方案**：`pages/user/profile/index.tsx` quick-actions 新增订单入口卡 → `/pages/payment/orders/index`，i18n 补 `payment.ordersEntry` 双语；或 membership 页当前状态卡加「查看订单」次级链接
 
-### FE-P1-12 [notification] 通知列表下拉刷新配置缺失（weapp 不触发）
+### FE-P1-12 [notification] 通知列表下拉刷新配置缺失（weapp 不触发） —— ✅ 已修复（R-FE-R1）
 
 - **设计要求**：`12-notification/frontend.md` L539-543 下拉刷新样例 + L841/L846 验证清单「下拉刷新动画正常」「下拉刷新重置列表」
 - **实现现状**：`pages/notification/list/index.tsx` L66-74 已挂 usePullDownRefresh，但 `index.config.ts` 未设 `enablePullDownRefresh: true`——工程先例（home/templates/dashboard/va-list 四页 config L3）均显式设置，weapp 下无此配置下拉刷新不触发
 - **修改方案**：`pages/notification/list/index.config.ts` 补 `enablePullDownRefresh: true`（一行）
 
-### FE-P1-13 [notification] ScrollView 固定高度结构致页面级 onReachBottom 分页失效
+### FE-P1-13 [notification] ScrollView 固定高度结构致页面级 onReachBottom 分页失效 —— ✅ 已修复（R-FE-R1，方案 b）
 
 - **设计要求**：`12-notification/frontend.md` L545-548 上拉加载样例（useReachBottom）+ L845「通知列表分页加载（20条/页）」；设计样例为页面级滚动
 - **实现现状**：list.scss L8-11 `.notification-scroll { flex:1; height: calc(100vh - 88px) }` + index.tsx L138 `<ScrollView scrollY>` 包裹全列表——滚动发生在 ScrollView 内部，页面级 onReachBottom（L77-80）永不触发，**第 2 页起无法加载，列表仅剩首屏 20 条**
@@ -176,7 +177,7 @@
 | FE-P2-22 | community | community-tab.md L36-57/L76-87/L141-188「即将上线」占位页：预告卡四项（积分排行/球友圈/挑战赛/精彩分享）+ preview-grid 样式 | pages/community 仅 `<PagePlaceholder />` 通用占位；grep preview* 键零命中；目录无 index.scss——设计整段未落地 | 按设计 §2/§3 实现专属占位页（预告卡四项+样式）；或扩展 PagePlaceholder 支持 children |
 | FE-P2-23 | community | community-tab.md L227-263 zh/en community 段 12 keys | locales 双文件尾部均无 community 段（测试计划 FE-I18N-06 将其列为必需 18 段之一） | 随 FE-P2-22 落地补 12 keys 双语 |
 | FE-P2-24 | payment | frontend.md L194 注记①「定价运行时从 GET /membership/tiers 取」+ L1024「金额正确计算」 | create 页 L80-87 `?? 0` 兜底：fetchTiers 失败时三周期金额全显示 ¥0.00，支付按钮无金额校验可点击，提交必 422 | create 页补 tiers 加载失败分支（Empty+重试）+ pay-button `disabled={... \|\| !amountCents}`；membershipStore 增 tiersError |
-| FE-P2-25 | membership | frontend.md L1028-1029「到期会员的功能入口被隐藏」到期场景 | progress 域到期会员无任何门控表现（useMembershipGate 零消费的到期侧面，随 FE-P1-10 修复） | 随 FE-P1-10 ②实施 |
+| FE-P2-25 ✅已修复（R-FE-R1，随 FE-P1-10 ②） | membership | frontend.md L1028-1029「到期会员的功能入口被隐藏」到期场景 | progress 域到期会员无任何门控表现（useMembershipGate 零消费的到期侧面，随 FE-P1-10 修复） | 随 FE-P1-10 ②实施 |
 | FE-P2-26 | 全局 | 总览 §3.8 L449-460「所有 View onClick 应添加 role="button"+aria-label+accessible」「WS 推送通知 aria-live="polite"」 | grep `role="button"`/`accessible={` 全 src 0 命中（约 105 处 onClick）；NotificationBell L59 无可访问名、角标无 aria-live | NotificationBell 补三属性+角标 aria-live；按 §3.8 清单分页补齐 View onClick；补齐后将 .eslintrc.js 三条 jsx-a11y warn 升 error（联动 FE-P3-40） |
 
 ---
@@ -265,7 +266,7 @@
 
 ## 七、修改方案汇总与排期建议
 
-### 批次 A：P0 + 一行级接线类 P1（预计 1 天，13 项）
+### 批次 A：P0 + 一行级接线类 P1（预计 1 天，13 项）—— ✅ 已完成（R-FE-R1）
 
 | 项 | 改动量 | 验证 |
 |----|--------|------|
@@ -277,7 +278,7 @@
 
 ### 批次 B：P1 功能类 + P2 核心链路（预计 3 天）
 
-- **付费转化链路组**：FE-P1-4 + FE-P1-10 + FE-P2-25（42910 分支 + useMembershipGate 接线 + progress 域门控 + upgrade 弹层 i18n）——优先级最高（商业化闭环）
+- **付费转化链路组**：FE-P1-4 + FE-P1-10 + FE-P2-25（42910 分支 + useMembershipGate 接线 + progress 域门控 + upgrade 弹层 i18n）——✅ 已完成（R-FE-R1，优先级最高的商业化闭环先行）；余组未动
 - **账号链路组**：FE-P1-2 + FE-P2-1/2/3（consent 启动接线 + 登录入口 + logout + export_completed WS）
 - **记分可用性组**：FE-P1-6 + FE-P2-7/8（局分显示 + deuce/换边提示——后端字段零成本消费优先做 FE-P2-8 的 should_change_sides/is_key_point 消费）
 - **录入正确性组**：FE-P1-14 + FE-P2-15（FORMAT_WIN_MAP 前端校验 + 双向切换）
@@ -301,7 +302,7 @@
 
 ### 产品裁决类（「补代码 vs 补文档注记」二选一，12 项）
 
-FE-P1-1（h5-bridge 注册或据实关闭）、FE-P1-9（PointsCard 首页嵌入或注记）、FE-P2-4（训练频次卡口径）、FE-P2-13（21 分制）、FE-P2-14（对手打法）、FE-P2-17（生成训练单）、FE-P3-14（48px 大比分）、FE-P3-23（导航标题硬编码豁免）、FE-P3-26（technique 文案口径）、FE-P3-35（状态色双源）、FE-P3-39/40（性能规范豁免）、FE-P3-42（10MB 降级口径）——裁决后统一以「R-FE-P3 注记」格式回写设计文档。
+FE-P1-1（h5-bridge 注册或据实关闭）、~~FE-P1-9（PointsCard 首页嵌入或注记）~~（✅ R-FE-R1 已按「嵌入首页」落地）、FE-P2-4（训练频次卡口径）、FE-P2-13（21 分制）、FE-P2-14（对手打法）、FE-P2-17（生成训练单）、FE-P3-14（48px 大比分）、FE-P3-23（导航标题硬编码豁免）、FE-P3-26（technique 文案口径）、FE-P3-35（状态色双源）、FE-P3-39/40（性能规范豁免）、FE-P3-42（10MB 降级口径）——裁决后统一以「R-FE-P3 注记」格式回写设计文档。
 
 ### 修复验证纪律（每批次完成后全量执行）
 
@@ -318,4 +319,35 @@ Jest 30 套件 285 用例（--maxWorkers=2）+ tsc 零错误 + eslint 零 error 
 3. **上游主设计文档（v1.0/v2.0）承诺与切片设计的继承断层**——约 30 项（scoring 系列为主）因切片文档未继承且未注记 descoped 而悬空，需按「补代码 or 补注记」逐项裁决收敛设计-实现契约面。
 
 建议排期：批次 A 立即执行（1 天修复 13 项核心接线）→ 批次 B/C 随后 6 天收敛全部 P1/P2 与可实施 P3 → 跨栈 4 项与后端排期协调 → 裁决 12 项回写设计文档注记后，前端设计-实现契约面可宣告收敛。
+
+---
+
+## 九、R-FE-R1 修复记录（2026-11-11，批次 A 全量 + 批次 B 付费转化组，12 项）
+
+> 修复范围（用户裁决）：批次 A 全量（P0×3 + FE-P1-5/7/9/11/12/13）+ 批次 B 付费转化组（FE-P1-4/10 + FE-P2-25）。完成后全量遗漏余 **73 项**（P1×6 / P2×25 / P3×42，其中含产品裁决 11 项、跨栈 4 项待协调）。
+
+### 9.1 实现要点
+
+| 项 | 落地点 |
+|----|--------|
+| FE-P0-1/2 + FE-P1-5/11 | `user/profile` 新增 feature-section 功能入口区：我的分析（→video-analysis/list）/ 训练报告（→progress/summary）/ 我的订单（→payment/orders）/ 我的徽章（→gamification/badges）/ 设置（→settings）——5 页全部恢复可达 |
+| FE-P0-3 + FE-P1-9 注记兑现 | home `CheckinCalendar` 底部补「我的徽章」badges-link（设计 §6 首页入口优先位）；`PointsCard` 嵌入 home QuickGrid 与打卡日历之间（注记③「归 FS7」承诺兑现） |
+| FE-P1-12/13 | notification list `index.config.ts` 补 `enablePullDownRefresh: true`；分页改 ScrollView `onScrollToLower` 驱动（方案 b，保留骨架布局），移除页面级 useReachBottom |
+| FE-P1-7 | report 页 bottom-actions 新增「查看训练建议」→ `training/advice?report_id=${reportId}`，fetchAdviceByReport 死链路激活 |
+| FE-P1-4 + FE-P1-10①② + FE-P2-25 | upload 页接线 `useMembershipGate('analysis_reports')`：①进入页免费态额度耗尽主动弹升级层（autoPromptDismissed 粘性守卫防重弹，「暂不升级」后本次停留不自动再弹）；②`confirmAndCreateTask` catch `statusCode===429 \|\| code===42910` 分支 Toast 透传后端消息 + 弹升级层；progress 三页（summary/comparison/trend-detail）按 canAccess 渲染 Empty 升级引导（到期会员功能入口隐藏场景随接）；弹层文案 `membership.upgrade*` 四键双语补齐 |
+| i18n | 新增 10 键双语（user.settingsEntry/progressEntry、analysis.viewAdvice、progress.membershipRequired/upgradeMembership、membership.upgradeTitle/upgradeDesc/upgradeConfirm/upgradeCancel、payment.ordersEntry）+ home.myBadges |
+
+### 9.2 E2E 口径变更注记
+
+- **payment-flow.spec 改走真实弹层转化路径**（取代原手动 `gotoPage` 旁路）：自动弹层（额度耗尽）→ 暂不升级 → 429 再弹 → 立即升级 → membership——九步付费链路与产品行为一致；
+- **弹层「不弹」断言由 `toHaveCount(0)` 改 `toBeHidden()`**：NutUI 2.7.14 Popup `unmountOnExit: destroyOnClose`（默认 false）——弹层关闭后内容以隐藏 DOM 留存；且 `gotoPage` 为同文档 hash 导航（Taro 页栈复用原 upload 实例），隐藏弹层 DOM 恒在，count 断言结构性不可能通过。`toBeHidden` 保留守卫语义（误弹为可见态时仍失败）；
+- **analysis-flow/smoke 断言收紧 exact**：新增可见文本（「查看训练建议」「训练积分/总积分」）与既有子串断言在 Taro H5 页栈 DOM 驻留下构成 strict mode violation，跨页存活断言一律 `exact: true`；
+- **a11y-mocks** /membership/current 覆盖 member/active（防 progress 三页被门控替换为 Empty 引导，保真页面内容扫描；会员页扫描态随之变 member 属可接受取舍）。
+
+### 9.3 验证门禁（全绿）
+
+tsc 零错误 ✓ | eslint 0 error / 93 warning（≤200 预算，较基线 +2 为 badges-link View onClick 同既有模式，ARIA 治理归批次 C FE-P2-26）✓ | Jest 30 套件 285 用例全过 ✓ | E2E 7 spec 全绿（a11y 41 页 critical/serious 零违规 + E2E-01/02/03/04/05 + smoke）✓ | weapp 构建 1.23MB + H5 构建 ✓（bundle ≤8MB 门控通过）
+
+> 注：E2E 排障过程实证两条基建陷阱——① src 改动后须重建 H5 产物再跑 E2E（spec 改动即时生效但 src 走 dist 缓存，首修复轮因未重建导致旧弹层循环复现）；② Playwright 需 Node 20+，本机默认 node 18.14 不可用，以 MobileClaw 内置 Node v22.14 驱动。
+
 

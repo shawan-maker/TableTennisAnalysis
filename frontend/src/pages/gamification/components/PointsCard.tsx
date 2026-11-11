@@ -4,6 +4,8 @@
  *
  * FS5-P3：设计定位「嵌入首页 Dashboard」，首页聚合归 FS7 升级，
  * 本 Sprint 嵌入打卡日历页顶部（streak 上下文关联，语义一致）。
+ * R-FE-R1 批次A（FE-P1-9）：注记后半句兑现——已嵌入首页 Dashboard
+ * （home/index.tsx，QuickGrid 与打卡日历之间），打卡页保留展示。
  */
 import { useEffect } from 'react'
 import { View, Text } from '@tarojs/components'

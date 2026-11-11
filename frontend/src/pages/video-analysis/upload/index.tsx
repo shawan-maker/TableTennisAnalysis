@@ -7,13 +7,22 @@
  *   真实 OSS S6+ 接入），formData 按设计样例 STS PostObject 字段组装
  * - 文件大小校验双侧兜底：前端 500MB 上限 + 后端 400/422 错误分支
  * - 会员守卫：展示免费额度 remaining + 付费包 bonus_remaining（R15-VA-N1），耗尽引导购买
+ *
+ * R-FE-R1 批次B 付费转化组（FE-P1-4 + FE-P1-10①）：
+ * - 429/42910 免费额度耗尽（05-API §1.7「前端按 code 做差异化交互」）→
+ *   升级引导弹层（useMembershipGate 统一出口，10-membership §8 注记②弹层由消费页面渲染）
+ * - 免费用户进入页面时额度已耗尽 → 主动弹升级提示（§8 功能验证
+ *   「免费用户额度用完后，进入视频分析时显示升级提示」）；会员不弹
+ *   （/users/quota 为免费视图不感知会员态，须以 current 判定）
  */
 import { useState, useCallback, useEffect } from 'react'
 import Taro from '@tarojs/taro'
 import { View, Text } from '@tarojs/components'
-import { Button, Toast, Progress } from '@nutui/nutui-react'
+import { Button, Toast, Progress, Popup } from '@nutui/nutui-react'
 import { useVideoAnalysisStore } from '@/stores/videoAnalysisStore'
 import { getQuota } from '@/services/user'
+import { useMembershipStore } from '@/stores/membershipStore'
+import { useMembershipGate } from '@/hooks/useMembershipGate'
 import { useTranslation } from 'react-i18next'
 import './index.scss'
 
@@ -35,6 +44,22 @@ export default function UploadPage() {
   const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null)
   const [bonusRemaining, setBonusRemaining] = useState<number | null>(null)
 
+  // R-FE-R1 批次B（FE-P1-4/10）：升级引导弹层统一出口（useMembershipGate §8）
+  const {
+    upgradeVisible,
+    showUpgradePrompt,
+    handleUpgradeConfirm,
+    handleUpgradeCancel,
+  } = useMembershipGate('analysis_reports')
+  const membershipCurrent = useMembershipStore((s) => s.current)
+  // 自动弹层关闭粘性：用户「暂不升级」后本次会话不再自动重弹（429 提交分支仍会触发）；
+  // hook 的 showUpgradePrompt 每次 render 新身份，若依赖其重跑 effect 会在关闭后立即重开
+  const [autoPromptDismissed, setAutoPromptDismissed] = useState(false)
+  const handleUpgradeCancelWrapped = () => {
+    setAutoPromptDismissed(true)
+    handleUpgradeCancel()
+  }
+
   const showToast = (msg: string) => {
     setToastMsg(msg)
     setToastVisible(true)
@@ -51,6 +76,20 @@ export default function UploadPage() {
         // 额度展示失败不阻塞上传入口（创建任务时后端仍会校验额度）
       })
   }, [])
+
+  // R-FE-R1 批次B（FE-P1-10①）：免费用户额度耗尽 → 进入页面主动弹升级提示。
+  // current 未载入 / 会员态不弹（quota 为免费视图，防对会员误弹）；
+  // 额度未返回（quotaRemaining===null）不弹——429 分支在提交时兜底；
+  // 用户手动关闭（autoPromptDismissed）后不再自动重弹。
+  useEffect(() => {
+    if (quotaRemaining === null || !membershipCurrent || autoPromptDismissed) return
+    const tier = membershipCurrent.tier
+    const status = membershipCurrent.status
+    const isFreeLike = tier === 'free' || status === 'expired' || status === 'closed'
+    if (isFreeLike && quotaRemaining === 0 && (bonusRemaining ?? 0) === 0) {
+      showUpgradePrompt()
+    }
+  }, [quotaRemaining, bonusRemaining, membershipCurrent, autoPromptDismissed, showUpgradePrompt])
 
   /** OSS 直传 + 确认 + 创建任务 */
   const startUpload = useCallback(
@@ -108,11 +147,17 @@ export default function UploadPage() {
           Taro.redirectTo({ url: `/pages/video-analysis/processing/index?task_id=${result.task_id}` })
         }, 1500)
       } catch (err: any) {
+        // R-FE-R1 批次B（FE-P1-4）：429/42910 免费额度耗尽 → 差异化交互：
+        // Toast 透传后端消息 + 升级引导弹层承接免费→付费转化
+        // （05-API §1.7 错误码表「42910 → 引导升级会员弹窗」）
         showToast(err?.message || t('analysis.taskCreateFailed'))
+        if (err?.statusCode === 429 || err?.code === 42910) {
+          showUpgradePrompt()
+        }
         resetUpload()
       }
     },
-    [confirmUpload, createTask, resetUpload, t]
+    [confirmUpload, createTask, resetUpload, showUpgradePrompt, t]
   )
 
   /** 选择/拍摄视频（类型/大小/时长校验） */
@@ -206,6 +251,31 @@ export default function UploadPage() {
         <Button type="primary" block className="upload-btn" onClick={handleChooseVideo}>
           {t('analysis.chooseVideo')}
         </Button>
+
+        {/* R-FE-R1 批次B（FE-P1-4/10）：升级引导弹层（10-membership §8 注记②
+            弹层由消费页面渲染；文案 membership.upgrade*） */}
+        <Popup
+          visible={upgradeVisible}
+          position="bottom"
+          round
+          onClose={handleUpgradeCancelWrapped}
+        >
+          <View className="upgrade-popup">
+            <Text className="upgrade-title">{t('membership.upgradeTitle')}</Text>
+            <Text className="upgrade-desc">{t('membership.upgradeDesc')}</Text>
+            <Button type="primary" block onClick={handleUpgradeConfirm}>
+              {t('membership.upgradeConfirm')}
+            </Button>
+            <Button
+              type="default"
+              block
+              className="upgrade-cancel-btn"
+              onClick={handleUpgradeCancelWrapped}
+            >
+              {t('membership.upgradeCancel')}
+            </Button>
+          </View>
+        </Popup>
 
         <Toast visible={toastVisible} content={toastMsg} onClose={() => setToastVisible(false)} />
       </View>

@@ -1,6 +1,10 @@
 /**
  * 个人档案页（02-user/frontend.md §4.1）
  * 档案展示 + 积分更新 + 注销（X-23）+ 数据导出（X-24）
+ *
+ * R-FE-R1 批次A（遗漏检查报告 round1）：功能入口区集中修复 5 个
+ * 已实现页面零入口问题——我的分析（FE-P1-5）/ 训练报告（FE-P0-2）/
+ * 我的订单（FE-P1-11）/ 我的徽章（FE-P0-3）/ 设置（FE-P0-1）。
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Taro from '@tarojs/taro'
@@ -285,6 +289,35 @@ export default function ProfilePage() {
           <Text className="action-icon">👑</Text>
           <Text className="action-text">{t('membership.title')}</Text>
         </View>
+      </View>
+
+      {/* R-FE-R1 批次A：功能入口（修复 5 个已实现页面零入口——报告 FE-P0-1/2/3 + FE-P1-5/11） */}
+      <View className="feature-section">
+        <Cell
+          title={t('analysis.myReports')}
+          clickable
+          onClick={() => Taro.navigateTo({ url: '/pages/video-analysis/list/index' })}
+        />
+        <Cell
+          title={t('user.progressEntry')}
+          clickable
+          onClick={() => Taro.navigateTo({ url: '/pages/progress/summary/index' })}
+        />
+        <Cell
+          title={t('payment.ordersEntry')}
+          clickable
+          onClick={() => Taro.navigateTo({ url: '/pages/payment/orders/index' })}
+        />
+        <Cell
+          title={t('gamification.myBadges')}
+          clickable
+          onClick={() => Taro.navigateTo({ url: '/pages/gamification/badges/index' })}
+        />
+        <Cell
+          title={t('user.settingsEntry')}
+          clickable
+          onClick={() => Taro.navigateTo({ url: '/pages/settings/index' })}
+        />
       </View>
 
       {/* X-24: 数据导出入口 */}

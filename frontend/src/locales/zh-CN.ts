@@ -97,6 +97,9 @@ export default {
     completenessHint: '完整档案可获得更精准的训练建议',
     bigData: '乒乓大数据',
     ratingHistory: '积分历史',
+    // R-FE-R1 批次A：profile 功能入口（FE-P0-1 设置页 / FE-P0-2 训练报告）
+    settingsEntry: '设置',
+    progressEntry: '训练报告',
     style_loop: '弧圈型',
     style_quick_attack: '快攻型',
     style_chop: '削球型',
@@ -443,6 +446,8 @@ export default {
     shareReport: '分享报告',
     shareLinkCopied: '分享链接已复制到剪贴板',
     myReports: '我的分析',
+    // R-FE-R1 批次A（FE-P1-7）：报告页 → 训练建议入口
+    viewAdvice: '查看训练建议',
     noReports: '还没有分析记录',
     noSummary: '暂无摘要',
     startAnalysis: '开始第一次分析',
@@ -569,6 +574,9 @@ export default {
     },
     currentPlan: '当前训练方案',
     planVersion: '方案版本',
+    // R-FE-R1 批次B（FE-P1-10②）：progress_analysis 会员门控升级引导
+    membershipRequired: '进度分析是会员专属功能',
+    upgradeMembership: '升级会员',
   },
   // training_advice 模块（07-training_advice/frontend.md §7）
   training: {
@@ -704,9 +712,16 @@ export default {
     yearlyPromo: '年付立省约 2 个月费用，更优惠',
     priceMonthly: '¥{{price}}/月',
     priceQuarterly: '¥{{price}}/季',
+    // R-FE-R1 批次B（FE-P1-4/10）：升级引导弹层（useMembershipGate 配套文案）
+    upgradeTitle: '免费额度已用完',
+    upgradeDesc: '升级会员即可无限次视频分析，还能解锁进度分析、专属训练方案等会员权益',
+    upgradeConfirm: '立即升级',
+    upgradeCancel: '暂不升级',
   },
   payment: {
     openMembership: '开通会员',
+    // R-FE-R1 批次A（FE-P1-11）：profile 功能入口「我的订单」
+    ordersEntry: '我的订单',
     chooseTier: '选择适合您的会员等级',
     recommended: '推荐',
     selectPeriod: '选择订阅周期',

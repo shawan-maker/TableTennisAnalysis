@@ -5,12 +5,17 @@
  * FS4-P3：NutUI Progress 为 percent（样例 percentage 为 2.x 旧口径）+ strokeWidth '8px'；
  * summary 含 training_plan_status（R4-Progress-4）——FS5 已消费：当前训练方案
  * 区块展示版本/调整原因/目标达成度，点击跳训练方案详情（plans/detail?plan_id=）。
+ *
+ * R-FE-R1 批次B（FE-P1-10② + FE-P2-25）：会员门控——progress_analysis 在
+ * EXPIRED_ACCESS_MAP 中为 hidden（10-membership §8 useMembershipGate 统一控制），
+ * 免费/到期/闭户用户渲染升级引导（training 域 40300 Empty 先例）。
  */
 import { useEffect } from 'react'
 import Taro from '@tarojs/taro'
 import { View, Text } from '@tarojs/components'
-import { Cell, Tag, Progress, Skeleton } from '@nutui/nutui-react'
+import { Cell, Tag, Progress, Skeleton, Empty } from '@nutui/nutui-react'
 import { useProgressStore } from '@/stores/progressStore'
+import { useMembershipGate } from '@/hooks/useMembershipGate'
 import { useTranslation } from 'react-i18next'
 import './index.scss'
 
@@ -29,10 +34,34 @@ export default function ProgressSummary() {
   const summary = useProgressStore((s) => s.summary)
   const loading = useProgressStore((s) => s.loading)
   const fetchSummary = useProgressStore((s) => s.fetchSummary)
+  // R-FE-R1 批次B（FE-P1-10②）：progress_analysis 会员门控
+  const { canAccess } = useMembershipGate('progress_analysis')
 
   useEffect(() => {
     fetchSummary()
   }, [fetchSummary])
+
+  // 会员门控：免费/到期/闭户 → 升级引导（10-membership §8 功能验证：
+  // 「到期会员的功能入口被隐藏（如 3D 教学、进度分析）」）
+  if (!canAccess) {
+    return (
+      <View className="progress-summary">
+        <View className="membership-guard">
+          <Empty
+            title={t('progress.membershipRequired')}
+            actions={[
+              {
+                text: t('progress.upgradeMembership'),
+                type: 'primary',
+                size: 'small',
+                onClick: () => Taro.navigateTo({ url: '/pages/membership/index' }),
+              },
+            ]}
+          />
+        </View>
+      </View>
+    )
+  }
 
   if (loading && !summary) {
     return (

@@ -178,7 +178,9 @@ test('E2E-01 新用户分析全流程：登录→consent→上传→分析→报
   await page.goBack()
   await expect(page.getByText('加强正手拉冲练习')).toBeVisible({ timeout: 10000 })
   await page.getByText('加强正手拉冲练习').click()
-  await expect(page.getByText('训练建议')).toBeVisible({ timeout: 10000 })
+  // R-FE-R1（FE-P1-7）：报告页驻留 DOM 新增「查看训练建议」按钮，子串会双命中
+  // （Taro H5 页栈 DOM 驻留），收紧 exact 只匹配建议页 page-title
+  await expect(page.getByText('训练建议', { exact: true })).toBeVisible({ timeout: 10000 })
   // 4 类建议（diagnosis/suggestions/methods/template，字段镜像 services/training.ts）
   await expect(page.getByText('正手击球点偏晚')).toBeVisible()
   await expect(page.getByText('正手拉冲多球训练：每组 30 球，共 3 组，固定高点期击球')).toBeVisible()

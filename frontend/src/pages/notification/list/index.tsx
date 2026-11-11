@@ -8,9 +8,13 @@
  * - Empty 组件按 NutUI 2.7.14 真实 API 用 title（样例 description 不存在）
  * - 挂 useWebSocket 共享连接：通知域事件（notification/sync/export_completed）
  *   在单例内消化直达 store，列表自动顶部插入；防 deep link 直达时无连接
+ *
+ * R-FE-R1 批次A（FE-P1-12/13）：index.config.ts 补 enablePullDownRefresh
+ * （weapp 下拉刷新不触发的配置缺失）；固定高度 ScrollView 改由
+ * onScrollToLower 驱动分页（页面级 useReachBottom 在此结构下永不触发）。
  */
 import { useEffect, useState, useCallback } from 'react'
-import Taro, { usePullDownRefresh, useReachBottom } from '@tarojs/taro'
+import Taro, { usePullDownRefresh } from '@tarojs/taro'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { Cell, Button, Tabs, Empty, Skeleton } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
@@ -73,11 +77,13 @@ export default function NotificationList() {
     })
   })
 
-  // 上拉加载更多
-  useReachBottom(() => {
+  // 上拉加载更多——R-FE-R1 批次A（FE-P1-13）：列表滚动发生在固定高度 ScrollView
+  // 内部，页面级 useReachBottom 永不触发（第 2 页起无法加载）；改由
+  // ScrollView onScrollToLower 驱动（store 内部守卫 isLoading/hasMore）
+  const handleLoadMore = useCallback(() => {
     const filter = activeTab === 'all' ? undefined : { is_read: activeTab === 'read' }
     fetchNotifications(false, filter)
-  })
+  }, [activeTab, fetchNotifications])
 
   /** 处理通知点击：未读标记已读 + 按 extra_data.action_url 跳转 */
   const handleNotificationClick = useCallback(
@@ -134,8 +140,8 @@ export default function NotificationList() {
         )}
       </View>
 
-      {/* 通知列表 */}
-      <ScrollView scrollY className="notification-scroll">
+      {/* 通知列表（FE-P1-13：onScrollToLower 驱动分页） */}
+      <ScrollView scrollY className="notification-scroll" onScrollToLower={handleLoadMore}>
         {notifications.length === 0 && !isLoading ? (
           <Empty title={t('notification.empty')} />
         ) : (

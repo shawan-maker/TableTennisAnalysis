@@ -266,6 +266,14 @@
   padding: var(--spacing-sm-md) var(--spacing-md);
   background: var(--color-card);
   box-shadow: var(--shadow-card-top);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+
+  .advice-btn {
+    /* R-FE-R1 批次A（FE-P1-7）：查看训练建议次级按钮，主按钮仍为分享 */
+    flex: none;
+  }
 }
 
 .feedback-popup {

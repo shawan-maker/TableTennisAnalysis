@@ -276,6 +276,18 @@ export default function ReportPage() {
 
       {/* 底部操作 */}
       <View className="bottom-actions">
+        {/* R-FE-R1 批次A（FE-P1-7）：报告 → 训练建议闭环（07-training §6.5 报告 →
+            查看训练建议 → advice?report_id=，fetchAdviceByReport 现成能力） */}
+        <Button
+          type="default"
+          block
+          className="advice-btn"
+          onClick={() =>
+            Taro.navigateTo({ url: `/pages/training/advice/index?report_id=${reportId}` })
+          }
+        >
+          {t('analysis.viewAdvice')}
+        </Button>
         <Button type="primary" block onClick={handleShare}>
           {t('analysis.shareReport')}
         </Button>

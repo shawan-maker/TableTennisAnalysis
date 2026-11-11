@@ -5,12 +5,15 @@
  * 40415 分支（FS4 关键子任务）：metric 不在后端 METRIC_DEFINITIONS 时
  * GET /progress/technique-trends/{metric} 返回 404/40415「指标不存在」，
  * 页面渲染错误态并引导返回 summary。
+ *
+ * R-FE-R1 批次B（FE-P1-10② + FE-P2-25）：progress_analysis 会员门控（同 summary 页）。
  */
 import { useEffect } from 'react'
 import Taro, { useRouter } from '@tarojs/taro'
 import { View, Text } from '@tarojs/components'
-import { Cell, Tag, Progress, Button, Skeleton } from '@nutui/nutui-react'
+import { Cell, Tag, Progress, Button, Skeleton, Empty } from '@nutui/nutui-react'
 import { useProgressStore } from '@/stores/progressStore'
+import { useMembershipGate } from '@/hooks/useMembershipGate'
 import { useTranslation } from 'react-i18next'
 import { buildLineChart } from '@/utils/chart'
 import './index.scss'
@@ -33,12 +36,35 @@ export default function TrendDetailPage() {
   const loading = useProgressStore((s) => s.loading)
   const fetchTrendDetail = useProgressStore((s) => s.fetchTrendDetail)
   const metric = (router.params.metric as string) || ''
+  // R-FE-R1 批次B（FE-P1-10②）：progress_analysis 会员门控
+  const { canAccess } = useMembershipGate('progress_analysis')
 
   useEffect(() => {
     if (metric) {
       fetchTrendDetail(metric)
     }
   }, [metric, fetchTrendDetail])
+
+  // 会员门控：免费/到期/闭户 → 升级引导（R-FE-R1 批次B，同 summary 页先例）
+  if (!canAccess) {
+    return (
+      <View className="trend-detail">
+        <View className="membership-guard">
+          <Empty
+            title={t('progress.membershipRequired')}
+            actions={[
+              {
+                text: t('progress.upgradeMembership'),
+                type: 'primary',
+                size: 'small',
+                onClick: () => Taro.navigateTo({ url: '/pages/membership/index' }),
+              },
+            ]}
+          />
+        </View>
+      </View>
+    )
+  }
 
   // 40415 无效指标分支（R14-B4-1）
   if (trendDetailError) {

@@ -110,4 +110,31 @@
     border-radius: var(--radius-md);
     padding: var(--spacing-md) 0;
   }
+
+  /* R-FE-R1 批次A（FE-P0-3）：徽章墙入口链接 */
+  .badges-link {
+    margin-top: var(--spacing-sm);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+
+    .badges-link-text {
+      font-size: 13px;
+      color: var(--color-text-primary);
+      font-weight: 500;
+    }
+
+    .badges-link-arrow {
+      font-size: 16px;
+      color: var(--color-text-secondary);
+    }
+
+    &:active {
+      opacity: 0.85;
+    }
+  }
 }
