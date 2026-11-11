@@ -1,0 +1,321 @@
+# 前端代码 - 遗漏检查报告 - Round 1
+
+> 日期：2026-11-11
+> 范围：前端设计文档全量对照实现代码的「设计→实现」遗漏审计——13 份模块切片 frontend.md（00-home ~ 12-notification）+ 14-tab-pages 五份（onboarding/settings/community-tab/match-tab/training-tab）+ 00-垂直切片设计总览通用约定六节 + 02界面设计 v2.0 主文档（§一设计系统/§二信息架构/§四-§七 Phase1 页面/§八对照表/§九用户流程/§十降级策略）
+> 基线：frontend/src @ main c3fab13（FS1-FS8 已收官：39/39 页注册、Jest 285、E2E 7 spec、a11y 41 页零违规、双 CI 全绿）
+> 方法：11 个并行比对代理（按模块域分组逐项枚举设计承诺→代码验证，每条双证据：设计文档行号+原文 / 实现行号或 grep 零命中）→ 主会话对全部 P0/P1 断言独立抽查实证（grep 复核）→ 跨代理重复项合并去重
+> 口径：① 只报「设计承诺但代码未实现」的遗漏，不报代码多余项；② 设计文档中带「注记」「P3 文档同步」「R-FSx-P3」「据实关闭」等明确「设计 X 实际为 Y」的段落属已记录偏差不计遗漏；③ Phase 3/4 功能（社区 Feed/赛事报名/装备/信用分/教练/球馆/约球/排行）不在范围，但切片文档明确承诺的提前项在范围；④ 级别：P0=核心流程不可用级（页面/主链路缺失）/ P1=重要交互或用户可见功能缺失 / P2=次要功能/边界状态缺失 / P3=样式文案打磨
+
+---
+
+## 一、执行摘要
+
+| 事项 | 数量 | 说明 |
+|------|------|------|
+| 审计覆盖 | 13 模块切片 + 5 Tab 页 + 总览六节 + 主文档全局 | 11 代理全量比对 |
+| 遗漏发现合计 | **85 项** | P0×3 / P1×14 / P2×26 / P3×42 |
+| 跨代理重复合并 | 3 处 | h5-bridge 双报、报告→训练建议入口双报、占位文案口径双报 |
+| 已注记偏差（不计遗漏） | 60+ 项 | 设计文档 R-FSx-P3 注记体系自洽，实现全部按注记落地（§六汇总） |
+| P0/P1 主会话实证 | 全部通过 | grep 复核零入口断言、useMembershipGate/42910/局分字段零消费均成立 |
+| 页面注册表完整性 | 39/39 ✓ | 主文档 §2.2/§八 Phase 1 页面无缺页；Tab Bar 5 项配置逐字一致 |
+| Service/Store/i18n 契约层 | 高保真 | 13 模块端点/状态机/双语键与设计逐项一致，i18n 零缺键 |
+
+**核心结论**：前端本体实现质量高（页面、Service、Store、i18n、WS 链路、样式 token 均严格落地），**遗漏集中在三类结构性缺口**：
+
+1. **「已实现页面零入口」三连（全部 P0）**——设置页、进度分析三页（训练报告）、徽章墙共 5 个已注册页面在全工程范围内无任何导航入口，用户不可达（各一行 `navigateTo` 即可修复，但当前状态下对应功能整体失效）；
+2. **「设计承诺的下游消费端未接线」**——useMembershipGate Hook 完整实现却零页面消费、42910 升级引导无处理、report_id 直达参数成死链路、logout/checkConsentStatus/handleExportCompleted 等 action 有定义无调用方、BadgeUnlockPopup 仅挂 3 页而非设计要求的全局；
+3. **「上游 v1.0/v2.0 界面设计承诺未被切片设计继承」**——记分牌局分显示、deuce/换边提示、赛后动作三件套（分享/关联视频/看板入口）、报告页节奏曲线/关键帧/落点切换等，切片文档静默裁剪且无注记。
+
+修复总规模预估：批次 A（P0+接线类 P1，约 11 项，1 天）→ 批次 B（P1 功能类 + P2 核心，约 20 项，3 天）→ 批次 C（P2 余量 + P3，约 54 项，3 天）；其中跨栈契约类 4 项需后端配合、产品裁决类 12 项需「补代码 vs 补文档注记」决策。
+
+---
+
+## 二、P0 明细（3 项 —— 已实现页面全工程零入口）
+
+### FE-P0-1 [设置页] 设置页全工程零入口，页面已实现但不可达
+
+| 项 | 内容 |
+|----|------|
+| 设计要求 | `14-tab-pages/settings.md` L19「确认路由：pages/settings/index（非 TabBar 页，**由个人主页 navigateTo 进入**）」+ L532（§反幻觉约束重申同款）；§2.2 IA 树「设置（通知/隐私/账号/关于）」 |
+| 实现现状 | `app.config.ts` L53 已注册；grep `pages/settings` 全 src 仅命中注册行与 settings 自身文件，`pages/user/profile/index.tsx` L271-333（快捷宫格/导出/危险区）无设置入口——**通知开关、数据导出、注销冷静期撤销、关于/版本全部功能失效** |
+| 修改方案 | `pages/user/profile/index.tsx` quick-actions 区新增入口 Cell（icon ⚙️，`Taro.navigateTo({ url: '/pages/settings/index' })`）；`locales/zh-CN.ts`/`en-US.ts` 补 `user.settingsEntry`（'设置'/'Settings'） |
+
+### FE-P0-2 [进度分析] 训练报告/进度分析三页零入口（summary/comparison/trend-detail）
+
+| 项 | 内容 |
+|----|------|
+| 设计要求 | `02界面设计 v2.0` L203-204 我的 Tab 页面树「[P2] 训练报告（月度趋势）」+ L1401 §八 Phase 对照表「我的：徽章成就 + 训练报告」；`08-progress_analysis/frontend.md` L12 定位行「阅读前端设计 v2.0 §2.2 L1（我的 Tab → 训练报告 / 进度分析入口）」 |
+| 实现现状 | 三页已注册（`app.config.ts` L39-41）且本体完整实现；grep `pages/progress/` 全 src 仅 1 命中（summary L85 模块内跳 trend-detail）；user/profile 菜单（edit/big-data/rating-history/membership）与 constants/home.ts QUICK_ROUTES 均无 progress 路由——**月度快照、指标趋势、对比分析整模块不可达** |
+| 修改方案 | `pages/user/profile/index.tsx` 功能列表区新增「训练报告」入口 → `/pages/progress/summary/index`；comparison 入口可由 summary 页概览卡或 video-analysis/list 补「与上次对比」；i18n 补 `user.progressEntry` 双语 |
+
+### FE-P0-3 [游戏化] 徽章墙零入口（badges 页）
+
+| 项 | 内容 |
+|----|------|
+| 设计要求 | `09-gamification/frontend.md` L915-916「// 首页 → 徽章列表 Taro.navigateTo({ url: '/pages/gamification/badges/index' })」；v2.0 L204「[P2] 徽章/成就」 |
+| 实现现状 | badges 页已注册（`app.config.ts` L43）且徽章墙本体完整（earned/locked 分组、进度条、空态）；grep `/pages/gamification/badges` 全 src 零命中——home 六区块（TopBar/概览/宫格/打卡/报告/提醒）与 user/profile 均无徽章入口 |
+| 修改方案 | 按设计 §6 首页入口优先：`pages/home/components/CheckinCalendar.tsx` 区块底部补「我的徽章」链接，或 `user/profile` 功能列表并行补入口；i18n 补 `home.myBadges` 双语 |
+
+---
+
+## 三、P1 明细（14 项 —— 重要交互/用户可见功能缺失）
+
+### FE-P1-1 [auth] h5-bridge 页未注册，H5 降级中转链路为死代码
+
+- **设计要求**：`01-auth/frontend.md` L566「'pages/auth/h5-bridge/index', // 新增：H5 降级中转页」+ §10 L992「H5 降级：生成 Token → 跳转 H5 → 换取 JWT」；总览 §2 L49 模块范围含「登录页、H5降级页」；架构设计认证透传流（小程序→一次性 H5 Token→H5 换 JWT）
+- **实现现状**：页面 `frontend/src/pages/auth/h5-bridge/index.tsx` 完整实现但 `app.config.ts` 39 页注册表不含它（页面自身 L7-8 注释自证「不注册」）；grep `pages/auth/h5-bridge` 全 src 无导航入口；`generateH5Token/exchangeH5Token`（services/auth.ts L55/L62，后端 h5-token/h5-exchange 端点真实存在）除该页外零调用——未注册页双端均不可路由，整链死代码
+- **修改方案**：二选一——(a) Phase 1 需保留 H5 中转能力：`app.config.ts` pages 补 `'pages/auth/h5-bridge/index'`（40 页口径）并在登录页/相关流接入调用；(b) 确认 Phase 2+ 才启用：回写 `01-auth/frontend.md` L566 与总览 §2 L49 加「据实关闭」注记。**推荐 (b)**（Phase 1 无 3D 等重功能跳 H5 场景），属产品裁决类
+
+### FE-P1-2 [auth] consent-status 启动恢复链路未接线（token 恢复场景 PIPL 引导缺失）
+
+- **设计要求**：`01-auth/frontend.md` L100「用于登录后判断是否需要弹出隐私政策同意页（consented=false 时）」、L273-274、§9.1 L789「或 checkConsentStatus 返回 consented=false（API §2.10）时，跳转至此页」
+- **实现现状**：`authStore.ts` L24/L47/L173 已实现 checkConsentStatus，但全 src 零调用方；`app.ts` L20-23 启动恢复仅 fetchMe；grep `needs_consent` 仅 store 内部赋值无导航消费——**冷启动/H5 整页重载的已登录未同意用户永不被引导至同意页**，PIPL 同意触发链仅剩登录响应单一路径
+- **修改方案**：`app.ts` useLaunch 的 fetchMe().then 回调追加 `checkConsentStatus()`，检查 `user.needs_consent===true` 时 `Taro.navigateTo({ url: '/pages/auth/consent/index' })`；或挂 home onShow（`pages/home/index.tsx` L50-77 triggerOnboarding 同位点）
+
+### FE-P1-3 [video_analysis] 报告页落点热图「我的/对手落点」切换缺失
+
+- **设计要求**：`03-video_analysis/frontend.md` L873-886（§4.3 heatmap-toggle 双按钮 + setLandingView('mine'/'opponent')）+ L1854-1855 i18n 承诺 myLanding/opponentLanding + L2119 验证清单「落点热图可切换」
+- **实现现状**：`pages/video-analysis/report/index.tsx` L144-168 heatmap-section 仅九宫格+hint 无 toggle；grep `myLanding|opponentLanding|landingView|heatmap-toggle` 于 frontend/src 零命中；§5.3 L1462-1481 有完整样式设计未落地
+- **修改方案**：report 页恢复 landingView state + 双按钮，locales 补 `analysis.myLanding/opponentLanding` 双语，scss 补 .heatmap-toggle 块；**注意**：设计 ReportDetail 契约（L202-206）仅有单一 nine_grid——对手侧数据需后端补字段，或文档注记降级（跨栈类）
+
+### FE-P1-4 [video_analysis] 42910 免费额度耗尽的会员升级引导未实现
+
+- **设计要求**：`05-API详细设计.md` L133「42910 \| 429 \| 免费分析额度耗尽」+ L135「前端按 code 做差异化交互（如 42910 → 引导升级会员弹窗）」（经 03 frontend.md L6 依据链进入前端范围）；`04-前端实施计划.md` L518 遗留未勾选「免费额度用尽→会员引导」
+- **实现现状**：`pages/video-analysis/upload/index.tsx` L110-113 createTask 失败仅 `showToast(err?.message)`；grep `42910|statusCode === 429` 全 frontend/src **零命中**（主会话实证）；e2e/payment-flow.spec.ts L41-54 以手动 navigateTo 会员页绕过了该缺口——**免费→付费转化关键触发点缺失**
+- **修改方案**：upload 页 confirmAndCreateTask catch 中增加 `err.statusCode===429 \|\| err.code===42910` 分支：弹 NutUI Dialog/Popup 升级引导 → `Taro.navigateTo('/pages/membership/index')`；与 FE-P1-10 useMembershipGate 接线配套（request.ts 已透出 code，改造成本低）
+
+### FE-P1-5 [video_analysis] 「我的分析」历史报告列表页零入口
+
+- **设计要求**：`02界面设计 v2.0` L188 我的 Tab 页面树「├── 我的分析（历史报告列表）」（未标 [Pn]=Phase 1 核心承诺）
+- **实现现状**：video-analysis/list 页已实现（含下拉刷新/上拉加载），grep `video-analysis/list` 全 src 仅 app.config.ts L20 注册行——**报告列表页用户不可达**，历史报告无从查看
+- **修改方案**：`pages/user/profile/index.tsx` 菜单新增「我的分析」项 → `/pages/video-analysis/list/index`（i18n 复用 `analysis.myReports`）；与 FE-P0-2 的 profile 菜单改造合并实施
+
+### FE-P1-6 [scoring] 记分牌不显示局分/局数（bo3/bo5 主流程可用性）
+
+- **设计要求**：v1.0 L509（P1.7 记分牌头部）「← 退出 局1 11:7 **1:0**」——承诺当前局数+局分；v2.0 L406-408 E3.2 经引用纳入 Phase 1；`04-scoring/frontend.md` L150 MatchDetail 接口已声明 current_game 字段
+- **实现现状**：`pages/scoring/scoreboard/index.tsx` L159-173 比分区仅渲染分数无局分/局数；grep `current_game|games_won` 于页面零命中（主会话实证仅 store 接口定义）；后端已存 games_won_user/games_won_opp（app/models/match.py L53-54）但 MatchDetail schema 未暴露——**bo3/bo5 局结束清零后用户无从得知大比分与当前第几局**
+- **修改方案**：优先后端补齐 MatchDetail 响应字段（games_won_user/games_won_opp）；备选纯前端从 currentMatch.score_sequence 按 game_number 聚合推导，score-display 上方新增 `.game-info` 行（「第 N 局 · 局分 x:y」）
+
+### FE-P1-7 [video_analysis→training] 报告页→训练建议入口断裂（report_id 死链路）
+
+- **设计要求**：`07-training_advice/frontend.md` L1737「报告 → 查看训练建议 → `/pages/training/advice/index?report_id={id}`」+ L1928 功能验证 + v1.0 L454「训练建议：点击进入训练建议详情页」+ v2.0 L1422 用户旅程「报告 → 训练建议」（合并 03 代理 VA-F-06 与 07 代理 F1 双报）
+- **实现现状**：advice 页 report_id 直达参数与 fetchAdviceByReport（advice/index.tsx L31-33）均已实现，但 grep `advice|训练建议` 于 pages/video-analysis 零命中——**全仓无任何携带 report_id 的调用方**（现有入口：训练 Tab/home AdviceBanner/onboarding 均不带参），分析→建议闭环在设计流程 1/3 中的关键一环断裂
+- **修改方案**：`pages/video-analysis/report/index.tsx` 反馈区或底部操作区新增「查看训练建议」Button → `/pages/training/advice/index?report_id=${reportId}`；locales 补 `analysis.viewAdvice` 双语（复用 services/training.ts L135 getAdviceByReport 现成能力）
+
+### FE-P1-8 [gamification] BadgeUnlockPopup 未全局挂载，分析场景徽章弹层静默丢失
+
+- **设计要求**：`09-gamification/frontend.md` L1039-1040「监听 WebSocket badge_unlocked 事件。**在首页或全局布局中调用**」+ L1111 验证清单
+- **实现现状**：BadgeUnlockPopup 仅挂载 3 页（badges/checkin-calendar/training/plans/detail）；video-analysis/processing、report 页无挂载（grep badge_unlocked 于该域零命中）——**AI 分析完成触发「首分析/分析 N 次」类徽章时用户正位于 processing/report 页，弹层不出现**
+- **修改方案**：将 `<BadgeUnlockPopup />` 上提到应用级全局布局，或至少补挂 processing 与 report 两页（useBadgeUnlock 为共享单例监听，多页挂载无重复连接风险，useWebSocket.ts L11-15 已注明）
+
+### FE-P1-9 [gamification] PointsCard 积分卡未嵌入首页（注记③承诺的 FS7 消费未兑现）
+
+- **设计要求**：`09-gamification/frontend.md` L225「### 4.1 训练积分卡片（**嵌入首页 Dashboard**）」+ L25 注记③「『嵌入首页 Dashboard』归 FS7 首页升级消费」
+- **实现现状**：grep `PointsCard` 全 src 仅 checkin-calendar L100 一处消费；home 六区块无积分卡——注记③后半句（归 FS7）未兑现，训练总积分/本月积分首页不可见
+- **修改方案**：`pages/home/index.tsx` 在 CheckinCalendar 上方嵌入 `<PointsCard />`；或在 00-home/frontend.md 补 P3 注记明确放弃首页嵌入、仅保留打卡页（产品裁决类）
+
+### FE-P1-10 [membership] useMembershipGate Hook 零页面消费，升级引导双场景未接线
+
+- **设计要求**：`10-membership/frontend.md` L1048 反幻觉约束「权益降级 **必须** 使用 useMembershipGate Hook 统一控制功能入口可见性」+ L1028-1029 功能验证「免费用户额度用完后，进入视频分析时显示升级提示」/「到期会员的功能入口被隐藏（如 3D 教学、进度分析）」+ L934 注记②「升级弹层由消费页面渲染」
+- **实现现状**：Hook 本体完整实现（`hooks/useMembershipGate.ts` L46-85），但 grep `useMembershipGate|showUpgradePrompt|upgradeVisible` 全工程仅 hook 自身与契约测试命中——**零页面消费**；upload 页仅静态展示额度数字（文件头注释宣称「耗尽引导购买」但无对应代码）；progress 域三页无会员门控；hook 引用的 `membership.upgradeTitle` 等 i18n key 在 locales 零命中
+- **修改方案**：① upload 页 `quotaRemaining===0 && bonusRemaining===0` 时调 showUpgradePrompt() 渲染升级弹层（与 FE-P1-4 429 分支互补）；② progress 域三页按 needsMembership 渲染升级引导（复用 training 域 40300→Empty 引导先例）；③ locales 补 upgradeTitle/upgradeDesc/upgradeConfirm/upgradeCancel 双语
+
+### FE-P1-11 [payment] 我的订单页全工程零 UI 入口
+
+- **设计要求**：`02界面设计 v2.0` L1272-1305（P5.5 我的订单，属「我的」域用户页面）+ `11-payment/frontend.md` L5「定位：订单创建页…、订单列表页」
+- **实现现状**：orders 页已实现（四态筛选/WS 刷新/Empty），grep `pages/payment/orders` 全工程仅注册行+测试构造命中；唯一到达路径为支付成功通知 action_url 间接跳转——**用户无法主动查看订单**
+- **修改方案**：`pages/user/profile/index.tsx` quick-actions 新增订单入口卡 → `/pages/payment/orders/index`，i18n 补 `payment.ordersEntry` 双语；或 membership 页当前状态卡加「查看订单」次级链接
+
+### FE-P1-12 [notification] 通知列表下拉刷新配置缺失（weapp 不触发）
+
+- **设计要求**：`12-notification/frontend.md` L539-543 下拉刷新样例 + L841/L846 验证清单「下拉刷新动画正常」「下拉刷新重置列表」
+- **实现现状**：`pages/notification/list/index.tsx` L66-74 已挂 usePullDownRefresh，但 `index.config.ts` 未设 `enablePullDownRefresh: true`——工程先例（home/templates/dashboard/va-list 四页 config L3）均显式设置，weapp 下无此配置下拉刷新不触发
+- **修改方案**：`pages/notification/list/index.config.ts` 补 `enablePullDownRefresh: true`（一行）
+
+### FE-P1-13 [notification] ScrollView 固定高度结构致页面级 onReachBottom 分页失效
+
+- **设计要求**：`12-notification/frontend.md` L545-548 上拉加载样例（useReachBottom）+ L845「通知列表分页加载（20条/页）」；设计样例为页面级滚动
+- **实现现状**：list.scss L8-11 `.notification-scroll { flex:1; height: calc(100vh - 88px) }` + index.tsx L138 `<ScrollView scrollY>` 包裹全列表——滚动发生在 ScrollView 内部，页面级 onReachBottom（L77-80）永不触发，**第 2 页起无法加载，列表仅剩首屏 20 条**
+- **修改方案**：(a) 移除固定高度改页面级滚动，useReachBottom 自然生效；或 (b) 保留 ScrollView 改由 `onScrollToLower` 驱动 `fetchNotifications(false, filter)`——推荐 (b)（改动小，不破坏骨架布局）
+
+### FE-P1-14 [match_data] 局分语义（my_score=局分）在录入页无体现与前端校验，bo3+ 提交必被后端 422 拒收
+
+- **设计要求**：`05-match_data/backend.md` L692-703「_validate_score_by_format … FORMAT_WIN_MAP … bo5→3:x」（局分语义后端强校验）；frontend.md L1326 承诺「前端拦截 + 后端校验」双层
+- **实现现状**：`detailed-entry/index.tsx` L59-64 样例照抄设计把 my_score 当逐分累计（每条明细+1）；FORMAT_WIN_MAP 前端零命中；quick/detailed 两页仅有非空+相等校验——**详细录入打 bo5 场次逐分累计后 my_score≈40+，提交必 422**；快捷录入填 11:7 选 bo5 同样 422，前端仅 Toast err.message 无引导
+- **修改方案**：① `constants/matchData.ts` 新增前端 FORMAT_WIN_MAP（bo1:1/bo3:2/bo5:3/bo7:4），两页提交前按 format 预校验；② 详细录入明确「逐分明细 vs 局分」换算口径（明细按局分组或提交前确认局分），至少 bo3+ 拦截逐分累计式总分；③ 新增 `matchData.invalidScoreByFormat` 双语提示键
+
+---
+
+## 四、P2 明细（26 项）
+
+### 导航与链路类
+
+| 编号 | 模块 | 设计要求（位置+摘要） | 实现现状（证据） | 修改方案 |
+|------|------|----------------------|------------------|----------|
+| FE-P2-1 | auth | frontend.md L12 登录入口链「我的 Tab → 个人主页 → 登录引导」（v2.0 §2.2） | grep `pages/auth/login` 仅注册行+request.ts 401 兜底两处；user/profile 无 isAuthenticated 分支——未登录用户只能经 401 reLaunch 到达 | profile 页补未登录分支渲染「点击登录」引导卡 → login 页 |
+| FE-P2-2 | auth | frontend.md §10 L991「登出：清除本地 Token → 跳转登录页」 | authStore.logout（L130-136）已实现，全 src 无调用方；settings 页 grep logout 零命中——登出整链无 UI 载体 | settings 页「账号」分组补退出登录 Cell：logout() → `Taro.reLaunch('/pages/auth/login/index')`；与 FE-P0-1 入口修复联动 |
+| FE-P2-3 | user | frontend.md L353-359 handleExportCompleted + 「profile 页通过 useWebSocket.onMessage 监听 export_completed 后调用」（WS 即时刷新替代轮询） | userStore L95/L251-253 action 已实现零调用点；useWebSocket.ts L122-125 将 export_completed 作为内置事件消化（return true 不分发）——页面即使挂监听也收不到；轮询上限 5×3s 后导出状态永久停留「处理中」 | useWebSocket 内置分支追加 `useUserStore.getState().handleExportCompleted(msg.data)`（延迟 import 防循环依赖），同步更新 12-notification L219 内置五事件注记（跨模块） |
+| FE-P2-4 | home | v2.0 §三 L227-229 概览第三卡「训练频次：每周4次」（frontend.md §4.3 L440-445 改为连续打卡天数但**无注记**） | OverviewCards.tsx L55-60 仅渲染 streak_days；training_frequency_per_week 字段仅 dashboard 页消费 | 二选一：首页第三卡补 `每周 {n} 次`（数据源已备）；或 frontend.md §4.3 补「训练频次并入看板」注记（产品裁决） |
+| FE-P2-5 | video_analysis | v2.0 L117/L304 T2.3「节奏曲线」为报告页核心区块承诺；frontend.md L5 定位行亦列「节奏曲线」 | report/index.tsx L113-307 无节奏图区块；grep `节奏|rhythm` 零命中；store result_data 契约无节奏字段 | 跨栈类：后端 result_data 补节奏序列（如 rally_tempo）后前端补 SVG 折线区块；或设计文档注记降级 |
+| FE-P2-6 | video_analysis | v2.0 L304 T2.3「视频回放带关键帧标记」 | report 页 L246-256 纯 `<Video controls>` 无 marker/seek；grep keyframe 零命中（result_data.score_analysis.key_points 时间戳字段已在契约） | 若 key_points 含时间戳，video-section 下渲染 marker 列表点击 seek；数据不可得则注记降级 |
+| FE-P2-7 | scoring | v1.0 L538「10:10 后显示『需领先2分』提示」 | grep `领先|deuce` 零命中；is_key_point（store L66/后端 ScoreResponse 均已返回）零 UI 消费 | scoreboard 页 score-display 下方条件提示条（双分 ≥ target-1 时渲染），i18n 补 scoring.deuceHint |
+| FE-P2-8 | scoring | v1.0 L540「换边：每局结束后自动提示换边」；backend.md L1642「should_change_sides **必须**返回（R-2 修复）」 | grep `should_change_sides` 零命中；doScore（scoringStore L155-167）丢弃 score 响应体 | doScore 捕获响应的 should_change_sides/is_key_point 写入 state；scoreboard 据此弹 Toast/横幅（i18n 补 scoring.changeSides） |
+| FE-P2-9 | scoring | v1.0 L580「📤 分享比赛结果」；v2.0 E3.3 经引用纳入 | statistics 页 grep `share|分享` 零命中（分享能力仅 VA 模块有） | statistics 页结果卡下补分享按钮：Phase 1 按 report 页先例 Taro.setClipboardData 复制比分文本，i18n 补 scoring.shareResult |
+| FE-P2-10 | scoring | v1.0 L573-574「📹 关联视频分析」；v2.0 L1430 流程 2 尾段「统计 → 数据看板 → 关联视频」 | statistics 页 grep `video|关联视频` 零命中 | statistics 页补「关联视频分析」入口卡 → `/pages/video-analysis/upload/index`（携带 matchId 供后续关联） |
+| FE-P2-11 | scoring | v1.0 L577「📊 查看数据看板」；v2.0 L1430「统计 → 数据看板」 | statistics 页 grep `dashboard|看板` 零命中——流程 2 在统计页中断 | statistics 页底部补跳看板按钮（dashboard 页已注册），i18n 补 scoring.viewDashboard |
+| FE-P2-12 | scoring | v1.0 L557-558 结果展示「(11-7, 8-11, 11-9, 11-6)」逐局比分明细 | statistics L44 仅渲染 final_score（bo 多局模式为局分 "3:1"）；逐局比分未下发未聚合 | 前端从 score_sequence 按 game_number 分组、各局末记录推算比分，result-score 下补逐局行；或后端补 games_detail（跨栈备选） |
+| FE-P2-13 | scoring | v1.0 L478 赛制卡片承诺 21 分制选项；后端契约 target_score 1-21 | setup L40 `target_score: 11` 硬编码，无 11/21 切换 UI | setup 页补「每局目标分」Picker（11/21），i18n 补 scoring.targetScore |
+| FE-P2-14 | scoring | v1.0 L487 对手信息「打法：[快攻][弧圈][削球][全面]」 | setup 创建参数无打法字段；后端 MatchCreateRequest 亦无——跨栈缺口 | 后端 MatchCreateRequest/Match 补 opponent_playing_style，前端 setup 补四选项 Picker；或 v2.0 E3.1 增放弃注记（跨栈+裁决） |
+| FE-P2-15 | match_data | frontend.md L1322「快速录入 ↔ 详细录入可切换」（双向） | 仅 quick→detailed 单向（quick L166-171）；detailed 页无反向切换入口（grep switchToQuick 零命中） | detailed 页提交按钮后补 entry-switch redirectTo quick 页；i18n 补 matchData.switchToQuick（设计样例与验证清单自身矛盾，同步修订文档口径） |
+| FE-P2-16 | dashboard | frontend.md L1460「网络错误显示错误提示」 | dashboardStore 五个 fetch 均 `catch { console.error }` 静默；失败区块永久空白无提示无重试 | store 增加各区块 error 字段，页面渲染错误提示+重试按钮；i18n 补 dashboard.loadFailed |
+| FE-P2-17 | training | v1.0 P1.11 L729-733 方案卡「频率：每周3次 / 预期周期：4-6周 / [生成训练单]」 | templates/detail L110-164 仅 goal/sessions/exercises/metrics 四区；grep 生成训练单/printable 零命中 | 字段级：后端 template_data 补 frequency/cycle 则前端补渲染；交互级：progress/summary 方案状态跳转文案升级为「查看训练单」承接意图 + 切片文档注记裁剪（裁决） |
+| FE-P2-18 | progress | frontend.md L214-215 等 6 action catch 承诺 `Taro.showToast(...)` | progressStore 六个 action 全部仅 console.error；fetchSummary 失败 → summary=null → 页面静默渲染空态「暂无进度数据」**误导为无数据** | 六个 catch 恢复 showToast（common.operationFailed 键已备）；或页面级 error state |
+| FE-P2-19 | progress | R-FS4-P3 契约② max_length_a/b、max_a/b 已声明；comparison 页 L8 注释自证「此处一并展示」 | comparison L137-171 仅渲染 avg 两列，max 字段全文件零引用——注释与代码矛盾，最长回合/最高球速数据丢失 | comparison 维度 3/4 补「最长回合/最高球速」行（复用 comparison-row）；或修正 L8 注释 |
+| FE-P2-20 | membership/payment | v2.0 P5.5 订单卡「[管理续费]」/「[查看报告]」+ CurrentMembershipData.auto_renew | orders 页 paid 订单仅静态文案；grep auto_renew 仅类型定义，全工程零 UI 展示（会员页状态卡也未显示） | 短期：membership current-card 展示自动续费状态、orders 卡补标签；中期：管理续费/查看报告依赖后端补 auto-renew 端点与订单关联字段（跨栈） |
+| FE-P2-21 | settings | settings.md L524-525「用户协议、隐私政策子页面通过 H5 webview 承载：pages/settings/webview?url=xxx」 | grep `settings/webview` 零命中；两处 onClick 仅 showToast（文档实际打不开） | 新增 pages/settings/webview/index.tsx（web-view 承载 url query）+ 注册 app.config；两处 onClick 改 navigateTo |
+| FE-P2-22 | community | community-tab.md L36-57/L76-87/L141-188「即将上线」占位页：预告卡四项（积分排行/球友圈/挑战赛/精彩分享）+ preview-grid 样式 | pages/community 仅 `<PagePlaceholder />` 通用占位；grep preview* 键零命中；目录无 index.scss——设计整段未落地 | 按设计 §2/§3 实现专属占位页（预告卡四项+样式）；或扩展 PagePlaceholder 支持 children |
+| FE-P2-23 | community | community-tab.md L227-263 zh/en community 段 12 keys | locales 双文件尾部均无 community 段（测试计划 FE-I18N-06 将其列为必需 18 段之一） | 随 FE-P2-22 落地补 12 keys 双语 |
+| FE-P2-24 | payment | frontend.md L194 注记①「定价运行时从 GET /membership/tiers 取」+ L1024「金额正确计算」 | create 页 L80-87 `?? 0` 兜底：fetchTiers 失败时三周期金额全显示 ¥0.00，支付按钮无金额校验可点击，提交必 422 | create 页补 tiers 加载失败分支（Empty+重试）+ pay-button `disabled={... \|\| !amountCents}`；membershipStore 增 tiersError |
+| FE-P2-25 | membership | frontend.md L1028-1029「到期会员的功能入口被隐藏」到期场景 | progress 域到期会员无任何门控表现（useMembershipGate 零消费的到期侧面，随 FE-P1-10 修复） | 随 FE-P1-10 ②实施 |
+| FE-P2-26 | 全局 | 总览 §3.8 L449-460「所有 View onClick 应添加 role="button"+aria-label+accessible」「WS 推送通知 aria-live="polite"」 | grep `role="button"`/`accessible={` 全 src 0 命中（约 105 处 onClick）；NotificationBell L59 无可访问名、角标无 aria-live | NotificationBell 补三属性+角标 aria-live；按 §3.8 清单分页补齐 View onClick；补齐后将 .eslintrc.js 三条 jsx-a11y warn 升 error（联动 FE-P3-40） |
+
+---
+
+## 五、P3 明细（42 项）
+
+### 样式规范类（color-mix 回退 / token 漂移 / 双源）
+
+| 编号 | 位置 | 问题 | 修改方案 |
+|------|------|------|----------|
+| FE-P3-1 | onboarding/profile/index.scss L46 + ActionGuideCard.scss L16 | 设计承诺 color-mix(...10%, transparent)，实现硬编码 rgba(230,57,70,0.1) | 恢复 color-mix 或新增 --color-primary-10 token |
+| FE-P3-2 | user/profile L172-173/L278 + edit L45（4 处） | 设计 L1365/L1471/L1668 承诺 color-mix 8%/20%/5%/10%，实现硬编码 rgba(230,57,70,…)——违反反幻觉约束 L1952 | 4 处替换回 color-mix |
+| FE-P3-3 | settings/index.scss L40 | 设计 L413 color-mix 6%，实现 rgba(230,57,70,0.06) 硬编码（同场景 list.scss L37 保留了 color-mix，非全局降级） | 替换回 color-mix |
+| FE-P3-4 | dashboard/OverviewCards.scss L25-29 | 设计 L993-996 四卡数值各配主色（winrate-primary/analysis-secondary/training-accent/streak-success），实现统一 primary | 补四条分色规则 |
+| FE-P3-5 | dashboard/OverviewCards.scss L46-54 | 设计 L1002-1005 advice-banner 橙色左边框+accent 底；实现无 border-left、底色 secondary 10% 无注记 | 补 border-left: 3px solid var(--color-accent)；底色恢复或补注记 |
+| FE-P3-6 | dashboard/MatchRecordList.scss | 设计 L1220-1223 承诺胜场绿/负场红 4px 左边框；实现无任何 border-left（L90-92 空规则注释「由结果标签承担」无设计豁免注记） | 补 .record-card 左边框透明基态 + card-win/card-lose 两色规则 |
+| FE-P3-7 | dashboard/LandingHeatmap.scss L41-51 | 设计 L1138/1144 cell-value/cell-label text-shadow 提升彩底可读性；实现无；cell-label 用错 token（--color-text-inverse vs 设计的 inverse-secondary） | 补 text-shadow + 改 token |
+| FE-P3-8 | dashboard/LandingHeatmap.tsx L82-92 | 设计 L799-809 分布图例三项各带彩色圆点（.dist-dot 8px）；实现仅三 Text 无圆点 | 每项前补 .dist-dot（三色 var()），scss 补样式 |
+| FE-P3-9 | dashboard/LandingHeatmap.tsx L94-102 | 设计 L1149-1171 承诺 stat-row 两端对齐统计行+distribution-row 分隔线；实现改单行拼接 | 拆两个 stat-row + 补 border-top |
+| FE-P3-10 | dashboard/LandingHeatmap.tsx L51 | `PRIMARY_RGB='230,57,70'` 为 FS8-7 调色前旧值（app.scss --color-primary 已深化为 #C92738）——JS 硬编码色与全站主色漂移 | 改 '201,39,56' 并全局 grep 排查同类硬编码 RGB |
+| FE-P3-11 | progress/trend-detail/index.scss L109-110 | 设计 L1096-1098 目标参考线 var(--color-warning) 橙；实现改 --color-secondary 深蓝（与数据线同色系语义混淆）；L102 左轴线丢失 | 改回 --color-warning；补 border-left |
+| FE-P3-12 | membership/index.tsx L75 + membership.scss L5-8 | 设计 L257/L456-457 ScrollView 双层（membership-page 包 membership-scroll）；实现单层——嵌套选择器无匹配节点，height/padding 永不生效，**全页贴边无间距** | scss 将 height/padding 平铺进 .membership-page（视觉影响全页，优先修复） |
+| FE-P3-13 | scoring/statistics L54-59 | v1.0 L563-565 得分分布承诺计数+占比双展示；实现仅计数 | 以 total_points 为分母渲染 "8 (27%)" 形式 |
+| FE-P3-14 | match-data/record-detail L34-40 | 设计验证清单 L1317 要求 48px 大比分；实现 32px（设计 §5.4 样例自身写 32px——文档内部矛盾） | 二选一：改 48px 或修订清单为 32px 并注明（裁决） |
+| FE-P3-15 | notification/list.scss L31-85 | 设计 L839「已读通知灰色样式区分」；实现仅定义 .unread 高亮，已读无视觉差异（设计样例同缺——清单与样例矛盾） | 补已读态灰化规则 |
+
+### 常量文件组织类（设计承诺独立常量文件，实现内联）
+
+| 编号 | 范围 | 问题 | 修改方案 |
+|------|------|------|----------|
+| FE-P3-16 | dashboard | 设计 L1408-1431 承诺 constants/dashboard.ts（PERIOD/RESULT_FILTER/GRID_CELL_LABELS）；三组常量内联在三个组件 | 新建 constants/dashboard.ts 收敛（labelKey 走 i18n），组件改 import |
+| FE-P3-17 | training | 设计 §7 L1870-1904 承诺 constants/training.ts 四映射（含 ADJUSTMENT_ACTION_MAP）；实现内联且 ADJUSTMENT_ACTION_MAP 全仓零命中 | 新建 constants/training.ts；调整历史渲染时补第四映射 |
+| FE-P3-18 | training-tab | 设计 §7 L289-298 承诺 constants/trainingTab.ts；实现内联 TRAINING_ENTRIES（有同构注释） | 可选：建文件或维持现状（文件组织级偏差） |
+| FE-P3-19 | gamification | 设计 §7 L925-945 承诺 constants/gamification.ts（POINTS_SOURCE_MAP/BADGE_CATEGORY_MAP）；零命中，且对应 10 个 i18n 键成为死键 | 补建常量文件供后续消费；或删 10 个死键收敛体积 |
+
+### 交互提示与状态反馈类
+
+| 编号 | 位置 | 问题 | 修改方案 |
+|------|------|------|----------|
+| FE-P3-20 | home/CheckinCalendar.tsx L42-47 | v2.0 L240-245 周视图承诺「本周已训练5次」计数；实现仅连续打卡 | 补周计数（buildWeekView days 直接可算），i18n 补 key |
+| FE-P3-21 | home/AdviceBanner.tsx L47-61 | v2.0 L256-258「[查看训练方案 →]」可见 CTA；实现整卡可点但无 CTA 文本 | banner 底部补 CTA 文本，i18n 补 key |
+| FE-P3-22 | home/TopBar.scss L2-7 | 设计 §5 L783-789 承诺 64px 固定高；实现自然撑至 72px | 补 height 或按实际值回写设计样例 |
+| FE-P3-23 | 全部 39 页 index.config.ts | frontend.md §8「所有文本有翻译无硬编码」；navigationBarTitleText 硬编码中文且无 setNavigationBarTitle 动态机制（全项目性） | 全项目豁免注记（weapp config 静态限制）或逐页 useDidShow 动态标题（建议豁免+文档注记） |
+| FE-P3-24 | home/homeStore | 设计 §3 承诺 adviceLoading 独立字段；实现复用 overviewLoading（行为等价仅字段名不同） | 可不改；逐字对齐则补字段 |
+| FE-P3-25 | user/profile L336-346 | 设计 L703 confirmBtnProps={{loading}} 注销弹窗提交中防重；实现无 loading 属性可反复点确认 | Dialog 补 confirmBtnProps（若 NutUI 版本支持）或 handleConfirmDeletion 入口卫语句拦截 |
+| FE-P3-26 | video-analysis/report L192 | 设计 §7 technique 文案「正手攻球/反手拨球」；实现顶层 technique 枚举「正手快攻/反手快攻…」（与记分标签共用），报告页图例口径偏差（en 与设计一致仅 zh 偏差） | 报告页专用 analysis.technique.* 子键；或共用枚举+设计注记 |
+| FE-P3-27 | scoring/setup | v1.0 L481-482「你的信息：姓名/积分」本人档案展示；实现无 | setup 顶部补只读 Cell（读 userStore 档案） |
+| FE-P3-28 | scoring/statistics L79-94 | v1.0 L568-569 关键分聚合「9:9后得分 3/5（60%）」；实现仅逐条列表无聚合行 | key_points 聚合占比一行（纯前端计算） |
+| FE-P3-29 | gamification/checkin-calendar L69-73 | 设计 L1108 打卡成功提示承诺「积分+连续天数」；实现仅积分+奖励（current_streak 字段已备未消费） | toast 追加 currentStreak 拼接（键 zh L637 已备） |
+| FE-P3-30 | progress/summary L171 | forecast 区 `<Cell title={metric}>` 直显后端英文键名（backhand_ratio），未走 progress.metric.* 映射（同页 L80 趋势行走 mt.metric_name 中文名——页内口径不一；设计样例自身缺陷被复制） | 改 `t(\`progress.metric.${metric}\`)`，forecast 键集超出则补 locales |
+| FE-P3-31 | training/advice L90-92 | 设计 §8 L1930+反幻觉 L1955「首次分析显示标签**和提示**」；i18n 键 firstAnalysisHint 已备（zh L577/en L575）但组件零使用——死键 | 首次分析分支补提示行 |
+| FE-P3-32 | training/plans/detail | 设计 §2/§3 承诺 getPlanAdjustments 调整历史链路；action 已实现（store L201-209）但页面零渲染——数据拉取后无 UI 出口 | plans/detail 头部补「调整历史」区块消费 store.adjustments（用 FE-P3-17 映射渲染） |
+| FE-P3-33 | settings L163-177 | settings.md L620 反幻觉约束「冷静期必须显示倒计时」；实现仅图标+撤销按钮无倒计时（profile 页 L41-61 已有秒级倒计时可复用） | 抽公共 DeletionCoolingBanner 组件两页共用 |
+| FE-P3-34 | membership L166-248 | 设计 §9 L1022 空态引导；实现 fetchTiers 失败/空列表仅 section-title+空表，无 Empty 引导 | 补 Empty+重试，i18n 补 key |
+| FE-P3-35 | membership | 设计 §7 L813-823 MEMBERSHIP_STATUS_MAP 六状态含 color 字段；实现颜色走 scss statusClass 类——map.color 为死数据双源 | statusClass 改读 map.color 内联，删 scss 状态类；或修订注记「颜色走 scss」 |
+| FE-P3-36 | notification/settings | 设计 L1394+§2.2 社区占位承诺「即将上线」；PagePlaceholder 渲染 common.pageInDevelopment「页面建设中」——文案口径不一致（合并 12 代理 N12 与全局代理 F-06 双报） | PagePlaceholder 增加 comingSoon 语义 key 或 community 页改用专属键（随 FE-P2-22 落地） |
+| FE-P3-37 | community | 设计 L64-70/L120-124 承诺 CDN 占位图 200×200（community-coming-soon.png）；实现 🏓 emoji 替代 | 随 FE-P2-22 落地 Image（资源上传 CDN 后引用） |
+| FE-P3-38 | community | 设计 L89-92/L241/L261 footer「关注公众号第一时间获取上线通知」；实现无 footer | 随 FE-P2-22 落地 footer-section |
+
+### 全局基建规范类（历史推迟项到期未兑现）
+
+| 编号 | 来源 | 问题 | 修改方案 |
+|------|------|------|----------|
+| FE-P3-39 | 总览 §3.9 L485-494 | 图片 lazyLoad + 自定义 ESLint 检测规则零实现（R19-P3-2 推迟项，FS1-FS8 已收尾承诺到期） | 列表场景 Image 补 lazyLoad；.eslintrc.js 补检测规则；或总览注记豁免（数据量级小） |
+| FE-P3-40 | 总览 §3.9 L491-492 | VirtualList 虚拟滚动 + debounce/throttle 零命中（同推迟项） | 长列表接入 VirtualList 或注记豁免；输入类补 debounce(300ms) |
+| FE-P3-41 | 总览 §3.8 L479 vs .eslintrc.js L82-84 | 设计承诺 jsx-a11y 三交互规则「CI 阻塞」，实现显式降级 warn（降级理由仅存代码注释，设计文档未注记） | 与 FE-P2-26 联动：补齐键盘事件后升 error；或总览回注「交互规则 warn，可达性由 axe+真机覆盖」 |
+| FE-P3-42 | v2.0 §十 L1497 vs upload 页 | 主文档承诺 weapp 视频 10MB 受限「引导到 App」；实现全端 500MB（切片契约口径，主文档未同步） | 文档侧优先：§十该行回注切片契约（500MB STS 直传+Phase 1 无 App 可引导）；或 upload 页按 TARO_ENV 补提示分支 |
+
+**附带观察（不计入遗漏）**：① settings/index.tsx L193/L211 appVersion Cell 在「账号信息」「关于」两节重复出现，建议顺手去重；② user/profile/index.scss L23-27 残留 `.header-bell` 死样式（FS7 铃铛迁回首页后未清理）；③ 「训练建议为会员守卫页」的既有认知与代码不符——advice 两端点实为免费（router.py L21-39 仅 get_current_user），守卫页实为模板列表/详情与方案详情 6 个会员端点，不构成遗漏仅校正背景。
+
+---
+
+## 六、已注记偏差汇总（设计文档自洽性证明，不计遗漏）
+
+审计中确认设计文档 R-FSx-P3 注记体系覆盖良好，以下主要注记均已核实按注记落地（代表性清单）：
+
+- **契约同步类**：01-auth 极性统一（requires_consent→needs_consent）；03-VA task_id int/card_image_url/STS 字段；04-scoring 端点 7→10、WS subscribe 协议；05-match_data PATCH updateRecord 复用口径；06-dashboard is_readonly/固定索引取数；07-training created_at/plan_id 双参；08-progress landing 键名/40415；10-membership price_*_cents/quota_config；12-notification content nullable/markRead 范围
+- **WS 协议类**：子协议认证 jwt.{token}、用户频道连接级订阅、内置五事件连接级单次执行（connected/notification/sync/export_completed/membership_downgrade）、pong token_expired 刷新重建、指数退避 [1,2,4,8,16]s×5
+- **组件 API 适配类**：NutUI 2.7.14 真实 API 对齐（Empty title、Skeleton rows、Cell extra/description/clickable、Progress percent、Tag background、Swipe rightAction、TextArea）；PullRefresh→页面级下拉；FlatList→ScrollView
+- **路由类**：training/plans/detail 静态路径+query 传参（weapp 不支持动态段）；matchTab 三注记（/scoring/current 不存在改 listMatches 首条/进行中徽标恒真/Skeleton rows）
+- **架构分工类**：分享页 /share/{token} 归后端 SSR；conftest 契约对齐；tabBar 5 标题硬编码中文（总览 §3.4 契约+weapp 原生限制）
+- **调色类**：FS8-7 WCAG AA 深化（#E63946→#C92738 等）注记于主文档 §1.2 L40 + app.scss——但**总览 §3.2/§3.4 契约文本未回写**（见 FE-P3-42 同批处理，架构文档分包注记缺失移交架构审计）
+- **页面注册口径**：consent 页注册注记（总览 §3.4 L197）；39 页 vs h5-bridge 的口径冲突归入 FE-P1-1
+
+---
+
+## 七、修改方案汇总与排期建议
+
+### 批次 A：P0 + 一行级接线类 P1（预计 1 天，13 项）
+
+| 项 | 改动量 | 验证 |
+|----|--------|------|
+| FE-P0-1/2/3 + FE-P1-5/11 | profile 页菜单/快捷区集中补 5 个入口（设置/训练报告/我的分析/我的订单 + 徽章入口） | tsc + Jest + 手动导航验证 |
+| FE-P1-12 | 一行 config | weapp 真机/模拟器下拉验证 |
+| FE-P1-7 | report 页一个按钮+一 key | E2E payment/analysis 回归 |
+| FE-P1-9 | home 嵌 PointsCard | E2E smoke + a11y 回归 |
+| FE-P1-13 | ScrollView onScrollToLower 改造 | 通知列表分页手测 |
+
+### 批次 B：P1 功能类 + P2 核心链路（预计 3 天）
+
+- **付费转化链路组**：FE-P1-4 + FE-P1-10 + FE-P2-25（42910 分支 + useMembershipGate 接线 + progress 域门控 + upgrade 弹层 i18n）——优先级最高（商业化闭环）
+- **账号链路组**：FE-P1-2 + FE-P2-1/2/3（consent 启动接线 + 登录入口 + logout + export_completed WS）
+- **记分可用性组**：FE-P1-6 + FE-P2-7/8（局分显示 + deuce/换边提示——后端字段零成本消费优先做 FE-P2-8 的 should_change_sides/is_key_point 消费）
+- **录入正确性组**：FE-P1-14 + FE-P2-15（FORMAT_WIN_MAP 前端校验 + 双向切换）
+- **其余 P1**：FE-P1-3（落点切换，若后端补对手数据）/ FE-P1-8（BadgeUnlockPopup 补挂两页）
+- **P2 链路**：FE-P2-9/10/11（统计页三入口按钮）、FE-P2-16/18（错误态）、FE-P2-21/22/23（webview + community 占位 + i18n 12 键）
+
+### 批次 C：P2 余量 + P3（预计 3 天）
+
+- P2 剩余（scoring 赛制明细 FE-P2-12/13/14、P2-17/19/20 等）
+- P3 按三组并行：样式规范组（FE-P3-1~15：color-mix 回退 7 处 + dashboard 视觉 8 项 + 其他）、常量组织组（FE-P3-16~19）、提示状态组（FE-P3-20~38）
+- 全局规范组（FE-P3-39~42 + FE-P2-26）：lazyLoad/VirtualList/ARIA 三属性按「实现 or 注记豁免」逐项裁决
+
+### 跨栈契约类（需后端配合，4 项）
+
+| 项 | 后端缺口 | 前端就绪度 |
+|----|----------|-----------|
+| FE-P1-6 | MatchDetail 补 games_won_user/opp（字段已在 model L53-54，仅 schema 未暴露——改造成本极低） | score_sequence 聚合兜底方案可先行 |
+| FE-P1-3 | ReportDetail 补对手侧 nine_grid | toggle UI 设计已备（§5.3 样式完整） |
+| FE-P2-5 | result_data 补节奏序列 | 区块样式可参考 conic 先例 |
+| FE-P2-14/20 | opponent_playing_style 字段 / auto-renew 端点 / 订单关联 report | 均可先文档注记降级 |
+
+### 产品裁决类（「补代码 vs 补文档注记」二选一，12 项）
+
+FE-P1-1（h5-bridge 注册或据实关闭）、FE-P1-9（PointsCard 首页嵌入或注记）、FE-P2-4（训练频次卡口径）、FE-P2-13（21 分制）、FE-P2-14（对手打法）、FE-P2-17（生成训练单）、FE-P3-14（48px 大比分）、FE-P3-23（导航标题硬编码豁免）、FE-P3-26（technique 文案口径）、FE-P3-35（状态色双源）、FE-P3-39/40（性能规范豁免）、FE-P3-42（10MB 降级口径）——裁决后统一以「R-FE-P3 注记」格式回写设计文档。
+
+### 修复验证纪律（每批次完成后全量执行）
+
+Jest 30 套件 285 用例（--maxWorkers=2）+ tsc 零错误 + eslint 零 error + E2E 7 spec（含 a11y 41 页门禁）+ weapp/H5 双端构建 + bundle ≤8MB 门控；i18n 改动过 i18nKeys.test；入口/导航类改动须同步 app.config 与 constants 路由表核对；修复后本报告标记「已修复」并按惯例提交 push 确认双 CI 绿。
+
+---
+
+## 八、结论
+
+本轮为前端阶段首次全量「设计→实现」遗漏审计（对照后端 15 轮同类审计惯例记 Round 1）。**85 项遗漏中无一项涉及页面本体缺失或主流程崩溃**——39 页、13 模块 Service/Store、i18n、WS 链路的切片内契约全部严格落地，已注记偏差（60+ 项）实现一致率高。风险集中在：
+
+1. **5 个已实现页面的用户可达性为零（P0×3）**——一行入口代码级修复，但不修则功能整体失效，属最高优先；
+2. **商业化闭环断点**——42910 升级引导 + useMembershipGate 零消费 + 订单页零入口三处叠加，免费→付费转化触发链当前仅剩 E2E 测试里的手动导航；
+3. **上游主设计文档（v1.0/v2.0）承诺与切片设计的继承断层**——约 30 项（scoring 系列为主）因切片文档未继承且未注记 descoped 而悬空，需按「补代码 or 补注记」逐项裁决收敛设计-实现契约面。
+
+建议排期：批次 A 立即执行（1 天修复 13 项核心接线）→ 批次 B/C 随后 6 天收敛全部 P1/P2 与可实施 P3 → 跨栈 4 项与后端排期协调 → 裁决 12 项回写设计文档注记后，前端设计-实现契约面可宣告收敛。
+
