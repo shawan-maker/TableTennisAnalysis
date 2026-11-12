@@ -28,6 +28,14 @@
   }
 }
 
+/* R-FE-R2 批次E（FE-P3-31）：首次分析提示行（标签下补充说明） */
+.first-analysis-hint {
+  display: block;
+  margin: 0 var(--spacing-lg) var(--spacing-sm);
+  font-size: var(--fs-caption);
+  color: var(--color-text-secondary);
+}
+
 .advice-scroll {
   height: calc(100vh - 56px);
   padding-bottom: var(--spacing-lg);

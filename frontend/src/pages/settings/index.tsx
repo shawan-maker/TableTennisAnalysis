@@ -14,6 +14,9 @@ import { useTranslation } from 'react-i18next'
 import { useUserStore } from '@/stores/userStore'
 import { useAuthStore } from '@/stores/authStore'
 import { NOTIF_ITEMS, NOTIF_STORAGE_PREFIX, APP_VERSION, URL_USER_AGREEMENT, URL_PRIVACY_POLICY } from '@/constants/settings'
+// R-FE-R2 批次E（FE-P3-33）：注销冷静期公共横幅——补倒计时（settings.md L620
+// 反幻觉约束「冷静期必须显示倒计时」，修复前仅图标+撤销按钮）
+import DeletionCoolingBanner from '@/components/DeletionCoolingBanner'
 import './index.scss'
 
 export default function SettingsPage() {
@@ -184,24 +187,15 @@ export default function SettingsPage() {
             onClick={handleExport}
           />
 
-          {/* 注销冷静期状态（如果存在） */}
+          {/* 注销冷静期状态（R-FE-R2 批次E FE-P3-33：改公共 DeletionCoolingBanner 补倒计时） */}
           {deletionLoading && !deletionState ? (
             <Skeleton rows={2} visible={deletionLoading} />
           ) : deletionState?.status === 'cooling' ? (
-            <View className="deletion-cooling-banner">
-              <View className="banner-row">
-                <Text className="banner-icon">⚠️</Text>
-                <Text className="banner-text">{t('user.deletionCoolingTitle')}</Text>
-              </View>
-              <Button
-                size="small"
-                type="primary"
-                loading={deletionLoading}
-                onClick={handleCancelDeletion}
-              >
-                {t('user.cancelDeletion')}
-              </Button>
-            </View>
+            <DeletionCoolingBanner
+              deletionState={deletionState}
+              loading={deletionLoading}
+              onCancel={handleCancelDeletion}
+            />
           ) : (
             <Cell
               title={t('user.deleteAccount')}

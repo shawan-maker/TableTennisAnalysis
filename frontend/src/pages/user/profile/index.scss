@@ -186,58 +186,8 @@
   box-shadow: var(--shadow-card);
 }
 
-/* X-23: 注销冷静期状态横幅 */
-.deletion-status-banner {
-  margin: var(--spacing-sm-md) var(--spacing-md);
-  padding: var(--spacing-md);
-  background: rgba(230, 57, 70, 0.08);
-  border: 1px solid rgba(230, 57, 70, 0.2);
-  border-radius: var(--radius-md);
-
-  .banner-icon-row {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-
-    .banner-icon {
-      font-size: 18px;
-    }
-
-    .banner-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--color-primary);
-    }
-  }
-
-  .banner-desc {
-    display: block;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    line-height: 1.5;
-    margin-bottom: var(--spacing-sm-md);
-  }
-
-  .countdown-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--spacing-sm-md);
-
-    .countdown-label {
-      font-size: 13px;
-      color: var(--color-text-secondary);
-    }
-
-    .countdown-value {
-      font-size: 18px;
-      font-weight: bold;
-      color: var(--color-primary);
-      font-variant-numeric: tabular-nums;
-    }
-  }
-}
+/* X-23: 注销冷静期状态横幅（R-FE-R2 批次E FE-P3-33：样式随公共
+ * DeletionCoolingBanner 组件下沉，本页死样式删除） */
 
 /* X-23: 注销入口（危险区域） */
 .danger-section {
@@ -296,7 +246,7 @@
     flex-direction: column;
     gap: var(--spacing-xs);
     padding: var(--spacing-sm) var(--spacing-sm-md);
-    background: rgba(230, 57, 70, 0.05);
+    background: color-mix(in srgb, var(--color-primary) 5%, transparent);
     border-radius: var(--radius-sm);
 
     .confirm-text {

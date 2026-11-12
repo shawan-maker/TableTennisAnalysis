@@ -46,6 +46,15 @@
     color: var(--color-text-secondary);
   }
 
+  /* R-FE-R2 批次E（FE-P3-21）：可见 CTA 文本（v2.0 L258） */
+  .banner-cta {
+    display: block;
+    margin-top: var(--spacing-sm);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--color-accent);
+  }
+
   .banner-empty {
     display: block;
     font-size: 13px;

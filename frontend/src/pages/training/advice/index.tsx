@@ -92,6 +92,12 @@ export default function TrainingAdvicePage() {
         )}
       </View>
 
+      {/* R-FE-R2 批次E（FE-P3-31）：首次分析提示行（设计 §8「首次分析显示标签和提示」，
+          firstAnalysisHint 键已备（zh L577/en L575）修复前死键零消费） */}
+      {advice.is_first_analysis && (
+        <Text className="first-analysis-hint">{t('training.firstAnalysisHint')}</Text>
+      )}
+
       <ScrollView scrollY className="advice-scroll">
         {/* 诊断短板区域 */}
         <DiagnosisSection diagnosis={advice.diagnosis} />

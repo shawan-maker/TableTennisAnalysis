@@ -85,6 +85,14 @@
     }
   }
 
+  /* R-FE-R2 批次E（FE-P3-20）：周训练计数行（v2.0 L244） */
+  .week-count {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: var(--fs-caption);
+    color: var(--color-text-secondary);
+  }
+
   .checkin-btn {
     margin-top: var(--spacing-sm);
     text-align: center;

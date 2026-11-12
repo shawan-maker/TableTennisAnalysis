@@ -65,6 +65,11 @@ export default function CheckinCalendar({ data, loading }: Props) {
         ))}
       </View>
 
+      {/* R-FE-R2 批次E（FE-P3-20）：周训练计数（v2.0 L244「本周已训练5次」，buildWeekView days 直接统计） */}
+      <Text className="week-count">
+        {t('home.weeklyCount', { count: data.days.filter((d) => d.checked_in).length })}
+      </Text>
+
       <View
         className={`checkin-btn ${data.todayCheckedIn ? 'done' : ''}`}
         onClick={handleCheckin}

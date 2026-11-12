@@ -42,7 +42,7 @@
     color: var(--color-text-primary);
 
     &.active {
-      background: rgba(230, 57, 70, 0.1);
+      background: color-mix(in srgb, var(--color-primary) 10%, transparent);
       border-color: var(--color-primary);
       color: var(--color-primary);
     }

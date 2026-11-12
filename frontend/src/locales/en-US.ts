@@ -205,6 +205,9 @@ export default {
     dataBoard: 'Dashboard',
     dataBoardDesc: 'View training data',
     checkinCalendar: 'Check-in Calendar',
+    // R-FE-R2 batch E (FE-P3-20/21): weekly training count + advice banner CTA
+    weeklyCount: 'Trained {{count}} times this week',
+    viewPlan: 'View Training Plan →',
     checkinNow: 'Check in now',
     todayCheckedIn: 'Checked in today',
     weekMon: 'Mon',
@@ -277,6 +280,9 @@ export default {
   scoring: {
     // Match setup page (04-scoring/frontend.md §7)
     matchSetup: 'Match Setup',
+    // R-FE-R2 batch E (FE-P3-27): your info read-only row (v1.0 L481-482)
+    yourInfo: 'Your Info',
+    myPoints: 'Points',
     opponentName: 'Opponent Name',
     opponentNamePlaceholder: 'Enter opponent name',
     opponentRating: 'Opponent Rating',
@@ -599,6 +605,15 @@ export default {
       landing_forehand_pct: 'Forehand Landing',
       landing_backhand_pct: 'Backhand Landing',
       landing_middle_pct: 'Middle Landing',
+      // R-FE-R2 batch E (FE-P3-30): forecast goal_completion key set aligned to backend METRIC_DEFINITIONS (14 keys)
+      landing_dispersion: 'Landing Dispersion',
+      avg_rally_length: 'Avg Rally Length',
+      max_rally_length: 'Max Rally Length',
+      rally_frequency: 'Rally Frequency',
+      avg_ball_speed: 'Avg Ball Speed',
+      max_ball_speed: 'Max Ball Speed',
+      score_win_rate: 'Win Rate',
+      key_point_win_rate: 'Key Point Win Rate',
     },
     currentPlan: 'Current Plan',
     planVersion: 'Plan Version',
@@ -656,6 +671,8 @@ export default {
     actionNewGoal: 'New Goal',
     fetchAdviceFailed: 'Failed to get training advice',
     planReEvaluated: 'Plan re-evaluated',
+    // R-FE-R2 batch E (FE-P3-32): adjustment history section title
+    adjustmentHistory: 'Adjustment History',
     reEvaluateFailed: 'Re-evaluation failed',
     reEvaluate: 'Re-evaluate',
     planDetail: 'Training Plan Detail',
@@ -742,6 +759,8 @@ export default {
     resetAt: 'Resets at {{time}} daily',
     free: 'Free',
     tiersCompare: 'Membership Tier Comparison',
+    // R-FE-R2 batch E (FE-P3-34): tiers failure/empty guidance
+    tiersEmpty: 'Tier info unavailable',
     benefit: 'Benefit',
     subscribe: 'Subscribe',
     currentTier: 'Current',

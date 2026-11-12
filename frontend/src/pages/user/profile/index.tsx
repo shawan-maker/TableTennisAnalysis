@@ -13,6 +13,8 @@ import { Cell, Button, Toast, Progress, Dialog, Popup, Tag, Skeleton, TextArea }
 import { useUserStore } from '@/stores/userStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useTranslation } from 'react-i18next'
+// R-FE-R2 批次E（FE-P3-33）：注销冷静期公共横幅（倒计时逻辑下沉组件）
+import DeletionCoolingBanner from '@/components/DeletionCoolingBanner'
 import './index.scss'
 
 export default function ProfilePage() {
@@ -30,7 +32,6 @@ export default function ProfilePage() {
   // X-23: 注销弹窗状态
   const [deletionDialogVisible, setDeletionDialogVisible] = useState(false)
   const [deletionReason, setDeletionReason] = useState('')
-  const [deletionCountdown, setDeletionCountdown] = useState('')
 
   // X-24: 数据导出弹窗状态
   const [exportPopupVisible, setExportPopupVisible] = useState(false)
@@ -46,28 +47,6 @@ export default function ProfilePage() {
     // 原因：GET /users/account/deletion-status 端点未在后端 API 契约中定义
     // deletionState 仅由用户主动提交注销请求后由 store 写入
   }, [])
-
-  // X-23: 注销冷静期倒计时
-  useEffect(() => {
-    if (deletionState?.status === 'cooling' && deletionState.cooling_ends_at) {
-      const updateCountdown = () => {
-        const endsAt = new Date(deletionState.cooling_ends_at!).getTime()
-        const now = Date.now()
-        const diff = endsAt - now
-        if (diff <= 0) {
-          setDeletionCountdown(t('user.deletionExecuted'))
-          return
-        }
-        const hours = Math.floor(diff / (1000 * 60 * 60))
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000)
-        setDeletionCountdown(`${hours}h ${minutes}m ${seconds}s`)
-      }
-      updateCountdown()
-      const timer = setInterval(updateCountdown, 1000)
-      return () => clearInterval(timer)
-    }
-  }, [deletionState, t])
 
   // X-24: 导出轮询清理
   useEffect(() => {
@@ -126,6 +105,9 @@ export default function ProfilePage() {
 
   // X-23: 确认注销
   const handleConfirmDeletion = async () => {
+    // R-FE-R2 批次E（FE-P3-25）：提交中防重（设计承诺 confirmBtnProps loading，
+    // 本地 NutUI 2.7.14 Dialog 无该属性——改入口卫语句拦截，行为等价）
+    if (deletionLoading) return
     try {
       await requestDeletion(deletionReason || t('user.deletionDefaultReason'))
       setDeletionDialogVisible(false)
@@ -361,28 +343,13 @@ export default function ProfilePage() {
         />
       </View>
 
-      {/* X-23: 注销冷静期状态（如果存在） */}
-      {deletionState?.status === 'cooling' && (
-        <View className="deletion-status-banner">
-          <View className="banner-icon-row">
-            <Text className="banner-icon">⚠️</Text>
-            <Text className="banner-title">{t('user.deletionCoolingTitle')}</Text>
-          </View>
-          <Text className="banner-desc">{t('user.deletionCoolingDesc')}</Text>
-          <View className="countdown-row">
-            <Text className="countdown-label">{t('user.deletionCountdown')}</Text>
-            <Text className="countdown-value">{deletionCountdown}</Text>
-          </View>
-          <Button
-            size="small"
-            type="primary"
-            loading={deletionLoading}
-            onClick={handleCancelDeletion}
-          >
-            {t('user.cancelDeletion')}
-          </Button>
-        </View>
-      )}
+      {/* X-23: 注销冷静期状态（R-FE-R2 批次E FE-P3-33：改公共 DeletionCoolingBanner，
+          秒级倒计时逻辑随组件下沉） */}
+      <DeletionCoolingBanner
+        deletionState={deletionState}
+        loading={deletionLoading}
+        onCancel={handleCancelDeletion}
+      />
 
       {/* X-23: 注销账号入口（冷静期不显示） */}
       {deletionState?.status !== 'cooling' && (

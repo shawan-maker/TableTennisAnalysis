@@ -70,6 +70,11 @@ export default function CheckinCalendarPage() {
         if (result.bonus) {
           msg += t('gamification.streakBonus', { bonus: result.bonus })
         }
+        // R-FE-R2 批次E（FE-P3-29）：追加连天天数（设计 L1108「积分+连续天数」，
+        // current_streak 契约字段已备、currentStreak 键已备，修复前未消费）
+        if (result.current_streak > 1) {
+          msg += t('gamification.currentStreak', { days: result.current_streak })
+        }
         Taro.showToast({ title: msg, icon: 'none' })
       }
     } catch (err: any) {

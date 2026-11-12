@@ -58,6 +58,8 @@ export default function AdviceBanner({ advice, loading }: Props) {
           {new Date(advice.latest_report_at).toLocaleDateString()}
         </Text>
       )}
+      {/* R-FE-R2 批次E（FE-P3-21）：可见 CTA 文本（v2.0 L258「[查看训练方案 →]」，修复前整卡可点但无 CTA） */}
+      <Text className="banner-cta">{t('home.viewPlan')}</Text>
     </View>
   )
 }

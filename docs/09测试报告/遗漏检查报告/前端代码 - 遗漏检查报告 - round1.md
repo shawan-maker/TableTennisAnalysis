@@ -293,7 +293,7 @@
 
 ### 批次 C：P2 余量 + P3（预计 3 天）
 
-> **状态（2026-11-12 R-FE-R2）**：P2 剩余中 FE-P2-12/13/19/20（短期方案）✅，余 FE-P2-14（跨栈）/FE-P2-17（裁决）/FE-P2-20 中期跨栈部分；P3 样式规范组 FE-P3-4~13/15 ✅、常量组织组 FE-P3-16/17 ✅、提示状态组 FE-P3-28/36/37/38 ✅、color-mix 组 FE-P3-1/2/3 与全局规范组（FE-P3-39~42 + FE-P2-26 全量补齐）未动——余项归 §10.5 批次 E/F。
+> **状态（2026-11-12 R-FE-R2）**：P2 剩余中 FE-P2-12/13/19/20（短期方案）✅，余 FE-P2-14（跨栈）/FE-P2-17（裁决）/FE-P2-20 中期跨栈部分；P3 样式规范组 FE-P3-4~13/15/1/2/3 ✅（color-mix 三项批次 E 修复）、常量组织组 FE-P3-16/17/19 ✅、提示状态组 FE-P3-20/21/25/27/28/29/30/31/32/33/34/36/37/38 ✅（批次 E 补齐 11 项）、常量组织组 FE-P3-18 与全局规范组（FE-P3-39~42 + FE-P2-26 全量补齐）未动——余项归 §10.5 批次 F/G。
 
 - P2 剩余（scoring 赛制明细 FE-P2-12/13/14、P2-17/19/20 等）
 - P3 按三组并行：样式规范组（FE-P3-1~15：color-mix 回退 7 处 + dashboard 视觉 8 项 + 其他）、常量组织组（FE-P3-16~19）、提示状态组（FE-P3-20~38）
@@ -369,7 +369,7 @@ tsc 零错误 ✓ | eslint 0 error / 93 warning（≤200 预算，较基线 +2 �
 
 ## 十、R-FE-R2 修复记录（2026-11-12，批次 B 余量 + 批次 C 大部，41 项）
 
-> 修复范围：批次 B 余量（账号链路/记分可用性/录入正确性/错误态四组 + P2 链路类）+ 批次 C 大部（看板视觉 + 常量收敛 + 提示状态类）。合计 P1×4 + P2×20 + P3×17 + 附带观察①②，含跨栈 1 项（FE-P1-6 后端 schema 补字段）。**批次 D 收尾已完成（2026-11-12）：E2E 两处适配（含 technique 分布口径回退）+ 2 处 axe serious contrast 回归修复 + P3-17 常量接线迁移 + ADJUSTMENT_ACTION_MAP 双语 4 键补齐（批次 D 增量，见 §10.4 末注）——E2E 7 spec 全绿（2.1m）/ 后端 integration+e2e 84 passed / Jest 285 全绿 / tsc 零错误；6 处设计文档 P3 注记与 39→40 页口径同步完成（04-前端实施计划 v1.4 changelog 在案）。** 修复后全量遗漏余 32 项（P1×2 / P2×5 含 1 项部分修复 / P3×25）。
+> 修复范围：批次 B 余量（账号链路/记分可用性/录入正确性/错误态四组 + P2 链路类）+ 批次 C 大部（看板视觉 + 常量收敛 + 提示状态类）。合计 P1×4 + P2×20 + P3×17 + 附带观察①②，含跨栈 1 项（FE-P1-6 后端 schema 补字段）。**批次 D 收尾已完成（2026-11-12）：E2E 两处适配（含 technique 分布口径回退）+ 2 处 axe serious contrast 回归修复 + P3-17 常量接线迁移 + ADJUSTMENT_ACTION_MAP 双语 4 键补齐（批次 D 增量，见 §10.4 末注）——E2E 7 spec 全绿（2.1m）/ 后端 integration+e2e 84 passed / Jest 285 全绿 / tsc 零错误；6 处设计文档 P3 注记与 39→40 页口径同步完成（04-前端实施计划 v1.4 changelog 在案）。批次 E 已完成（2026-11-12，15 项代码修复 + 1 项文档修订 FE-P3-22 按实现回写设计样例，见 §10.5 批次 E 表）——门禁全绿（E2E 7 spec 2.4m / Jest 285 / tsc 零错 / weapp 1.27MB）。** 修复后全量遗漏余 16 项（批次 F 裁决类 11 + 批次 G 跨栈类 4 + FE-P2-20 中期部分）。
 
 ### 10.1 实现要点
 
@@ -443,23 +443,31 @@ tsc 零错误 ✓ | eslint 0 error / 93 warning（≤200 预算，较基线 +2 �
 
 **批次 D：R-FE-R2 收尾**（§10.4）——**✅ 已完成（2026-11-12）**，累计 53 项完整修复闭环（R1×12 + R2×41）+ 收尾增量 3 项（contrast×2 / 双语 4 键 / P3-17 接线补全，见 §10.4 末注）。
 
-**批次 E：纯实现类 16 项（预计 1 天，无需裁决、无跨栈依赖）**
+**批次 E：纯实现类 16 项——✅ 已完成（2026-11-12，15 项代码修复 + 1 项文档修订）**
 
-| 项 | 要点 |
+| 项 | 落地方式 |
 |----|------|
-| FE-P3-1/2/3 | color-mix 回退恢复 7 处——**注意**：当前 `rgba(230, 57, 70, …)` 为 FS8-7 深化前旧主色 #E63946 的 RGB，改 `color-mix(in srgb, var(--color-primary) N%, transparent)` 可同时修正「格式漂移 + 旧色值残留」双重问题（涉及 onboarding/profile L46、onboarding/components/ActionGuideCard.scss L16、user/profile L193/194/299、user/edit L45、settings/index.scss L40 共 5 文件 7 处） |
-| FE-P3-19 | constants/gamification.ts 补建（POINTS_SOURCE_MAP/BADGE_CATEGORY_MAP）激活 10 个死键供 badges 页后续消费（或删键收敛体积，二选一） |
-| FE-P3-20 | home CheckinCalendar 周计数（buildWeekView days 直接统计「本周已训练 N 次」） |
-| FE-P3-21 | AdviceBanner 底部 CTA 文本「查看训练方案 →」 |
-| FE-P3-22 | TopBar 64px 固定高（或按实际撑高值回写设计样例） |
-| FE-P3-25 | 注销弹窗提交中防重（confirmBtnProps loading 或 handleConfirmDeletion 入口卫语句） |
-| FE-P3-27 | setup 顶部本人档案只读 Cell（读 userStore.profile） |
-| FE-P3-29 | 打卡成功 Toast 追加 currentStreak 拼接（zh 键已备） |
-| FE-P3-30 | summary forecast 行走 `progress.metric.*` 映射（`t(\`progress.metric.${metric}\`)`，键集超出则补 locales） |
-| FE-P3-31 | advice 首次分析提示行（firstAnalysisHint 死键激活） |
-| FE-P3-32 | plans/detail 头部「调整历史」区块（消费 store.adjustments + FE-P3-17 映射渲染） |
-| FE-P3-33 | 抽公共 DeletionCoolingBanner 组件（settings 复用 profile 秒级倒计时） |
-| FE-P3-34 | membership fetchTiers 失败/空列表 Empty + 重试引导 |
+| FE-P3-1/2/3 ✅ | color-mix 恢复 7 处：`rgba(230,57,70, N%)` 全部改 `color-mix(in srgb, var(--color-primary) N%, transparent)`（6%/8%/20%/5%/10%×3），同时修正「格式漂移 + 旧主色 #E63946 残留」双重问题；写后全局 rg 验证 rgba(230 残留 = 0 |
+| FE-P3-19 ✅ | 新建 constants/gamification.ts（POINTS_SOURCE_MAP 6 源 + BADGE_CATEGORY_MAP 4 类，逐字镜像设计 §7 L925-945）——选「补建激活」而非删键：10 个 i18n 死键转常量引用；**消费端接线依赖后端 schema 暴露 category/source（模型层已有、BadgeResponse 未暴露），归批次 G 跨栈协调** |
+| FE-P3-20 ✅ | CheckinCalendar week-row 下方补周计数行（`data.days.filter(d.checked_in).length` 直算），i18n 补 home.weeklyCount 双语 |
+| FE-P3-21 ✅ | AdviceBanner 补 .banner-cta 可见 CTA 文本（accent 色 + 600 字重），i18n 补 home.viewPlan 双语 |
+| FE-P3-22 ✅ | **按实际撑高值回写设计样例**（方案二）：00-home frontend.md TopBar 样例 `height: 64px` 删改为注记——64px 与样例自身参数矛盾（avatar 40px + padding 16px×2 = 自然高 72px，固定 64 会裁切 avatar），实现按内容自然撑高落地，代码不动 |
+| FE-P3-25 ✅ | handleConfirmDeletion 入口卫语句 `if (deletionLoading) return`（本地核实 NutUI 2.7.14 Dialog 无 confirmBtnProps 属性——node_modules 类型定义零命中，方案一不可行），行为等价设计意图 |
+| FE-P3-27 ✅ | setup 顶部补「你的信息」只读行（读 userStore.profile 缓存，未加载不渲染）；tsc 暴露契约修正：积分字段为 `profile.kqs_rating`（非顶层 rating），null 时显示 '-' |
+| FE-P3-29 ✅ | 打卡 Toast 追加 `currentStreak` 拼接（current_streak>1 时拼「连续打卡 N 天」，键 zh/en 已备） |
+| FE-P3-30 ✅ | forecast goal_completion 行改 `t(\`progress.metric.${metric}\`)` 映射 + **locales 补 8 键对齐后端 METRIC_DEFINITIONS 全集 14 键**（原仅 6 键：landing_dispersion/avg_rally_length/max_rally_length/rally_frequency/avg_ball_speed/max_ball_speed/score_win_rate/key_point_win_rate）；调整空对象兜底 noData 分支 |
+| FE-P3-31 ✅ | advice 页首次分析分支补提示行（firstAnalysisHint 死键激活，is_first_analysis 双处消费：标签+提示行） |
+| FE-P3-32 ✅ | plans/detail 头部补「调整历史」区块：fetchPlanAdjustments 挂载接线 + adjustments 区块渲染（version/action Tag/reason/changes_summary）；**ADJUSTMENT_ACTION_MAP 批次 D 补双语键后的首次组件消费落地** |
+| FE-P3-33 ✅ | 抽公共 components/DeletionCoolingBanner（秒级倒计时逻辑下沉组件内），profile 页删本地倒计时 effect+死样式、settings 页接入获倒计时（settings.md L620 反幻觉约束兑现）+删死样式 |
+| FE-P3-34 ✅ | membership tiers 失败/空列表分支：tiersError（批次 B FE-P2-24 已备标志）或空列表渲染 Empty + 重试按钮，i18n 补 tiersEmpty 双语 |
+| i18n | 批次 E 新增 14 键/侧（home 2 + scoring 2 + metric 8 + training 1 + membership 1） |
+
+> **批次 E 验证门禁（全绿 ✅ 2026-11-12）**：tsc --noEmit 零错误 / eslint 0 error 100 warning（与批次 D 基线持平，新增代码零新增 warn）/ Jest --maxWorkers=2 30 套件 285 用例全绿 / H5 生产构建成功（E2E 前重建 dist）/ **E2E 7 spec 全过（2.4m，a11y 40 页 + onboarding 双态 critical/serious 零违规）**/ weapp 构建 bundle 1.27MB ≤ 8MB 门控（较批次 D +0.01MB，新组件合理增量）/ 后端零改动（批次 E 纯前端，无需复跑后端套件）。
+
+> **批次 E 过程注记（3 项）**：
+> ① **CheckinCalendar edit 污染事故**——周计数块插入时 edit 工具报成功但写入被破坏（key 表达式被替换为字面占位符 + map 闭合块重复追加），tsc 首跑 12 错暴露（TS1145/1382 parsing error）；全局 rg 排查其余文件零污染（仅此 1 文件）；修复后 tsc 零错。呼应既有教训：**edit 成功 ≠ 改动符合预期，批量 edit 后必须 tsc/全局 rg 核对**；
+> ② Jest 默认 worker 数在本机触发 Zone Allocation OOM（7 suite 假失败、209 用例未跑），`--maxWorkers=2` 复跑 285 全绿——环境限制非代码回归，复验时一律带该参数；
+> ③ setup 档案行积分字段契约：userStore UserProfile 无顶层 rating，实为 `profile.kqs_rating: number \| null`（开球网积分）——消费前先核类型定义，勿凭 v1.0 线框字面命名推断。
 
 **批次 F：产品裁决类 11 项（0.5 天会商 + 注记回写，格式同 R-FE-P3 惯例）**
 
@@ -485,4 +493,4 @@ tsc 零错误 ✓ | eslint 0 error / 93 warning（≤200 预算，较基线 +2 �
 
 > FE-P2-20 中期部分（auto-renew 操作端点 + 订单关联报告字段）同批协调。四项均可先文档注记降级。
 
-**收敛口径**：批次 D-G 完成后（预计前端 3 天 + 后端协调周期），前端设计→实现契约面宣告收敛；届时按惯例执行 **Round 2 全量遗漏复审**（方法学同本轮 11 代理比对，重点：已修复 54 项的断言级回归 + 新增注记自洽性 + 本轮新增代码（webview 页/community 页/常量文件）的设计文档反向同步）。
+**收敛口径**：批次 D/E 已完成（累计 72 项：批次 D 闭环 53 + 收尾增量 3 + 批次 E 16），余批次 F 裁决类 11 项 + 批次 G 跨栈类 4 项（+ FE-P2-20 中期部分，依赖后端排期）；批次 F/G 完成后前端设计→实现契约面宣告收敛；届时按惯例执行 **Round 2 全量遗漏复审**（方法学同本轮 11 代理比对，重点：已修复 72 项的断言级回归 + 新增注记自洽性 + 本轮新增代码（webview 页/community 页/常量文件/DeletionCoolingBanner 公共组件）的设计文档反向同步）。

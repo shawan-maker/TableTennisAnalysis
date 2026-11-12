@@ -31,32 +31,8 @@
   }
 }
 
-/* 注销冷静期横幅 */
-.deletion-cooling-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-md);
-  background: rgba(230, 57, 70, 0.06);
-  border-bottom: 1px solid var(--color-divider);
-
-  .banner-row {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    flex: 1;
-
-    .banner-icon {
-      font-size: 18px;
-    }
-
-    .banner-text {
-      font-size: 13px;
-      color: var(--color-primary);
-      font-weight: 500;
-    }
-  }
-}
+/* 注销冷静期横幅（R-FE-R2 批次E FE-P3-33：样式随公共
+ * DeletionCoolingBanner 组件下沉，本页死样式删除） */
 
 /* 弹窗公共 */
 .popup-header {

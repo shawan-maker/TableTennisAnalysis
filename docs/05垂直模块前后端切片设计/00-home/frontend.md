@@ -790,7 +790,9 @@ export default function AdviceBanner({ advice, loading }: Props) {
   justify-content: space-between;
   padding: var(--spacing-md) var(--spacing-md);
   background: var(--color-secondary);
-  height: 64px;
+  /* R-FE-R2 批次E（FE-P3-22）注记：原样例 height: 64px 与本块自身参数矛盾
+     （avatar 40px + padding 16px×2 = 自然高 72px，固定 64px 将裁切 avatar），
+     实现按内容自然撑高 ~72px 落地，以实现为准修订样例。 */
 
   .topbar-user {
     display: flex;

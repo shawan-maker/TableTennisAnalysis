@@ -43,6 +43,58 @@
   padding: 0 var(--spacing-md);
 }
 
+/* R-FE-R2 批次E（FE-P3-32）：调整历史区块 */
+.adjustments-section {
+  padding: var(--spacing-sm) var(--spacing-md) 0;
+
+  .section-title {
+    display: block;
+    font-size: var(--fs-body);
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .adjustment-card {
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+
+    .adjustment-header {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+
+      .adjustment-version {
+        font-size: var(--fs-small);
+        font-weight: 600;
+        color: var(--color-text-primary);
+      }
+
+      .adjustment-date {
+        margin-left: auto;
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+      }
+    }
+
+    .adjustment-reason {
+      display: block;
+      margin-top: var(--spacing-xs);
+      font-size: var(--fs-small);
+      color: var(--color-text-primary);
+    }
+
+    .adjustment-summary {
+      display: block;
+      margin-top: var(--spacing-xs);
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+    }
+  }
+}
+
 .session-item {
   margin-bottom: var(--spacing-sm);
   border-radius: var(--radius-md) !important;

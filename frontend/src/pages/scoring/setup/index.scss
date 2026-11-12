@@ -5,7 +5,29 @@
   padding: 0 var(--spacing-md);
 }
 
-.setup-header {
+  /* R-FE-R2 批次E（FE-P3-27）：你的信息只读行 */
+  .my-profile-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin-bottom: var(--spacing-xs);
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+
+    .profile-label {
+      font-size: var(--fs-small);
+      color: var(--color-text-secondary);
+    }
+
+    .profile-value {
+      font-size: var(--fs-small);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+  }
+
+  .setup-header {
   padding: var(--spacing-lg) 0 var(--spacing-md);
 
   .setup-title {

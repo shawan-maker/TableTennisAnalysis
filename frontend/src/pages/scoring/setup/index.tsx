@@ -7,6 +7,7 @@ import Taro from '@tarojs/taro'
 import { View, Text, Picker } from '@tarojs/components'
 import { Cell, Button, Input, Toast } from '@nutui/nutui-react'
 import { useScoringStore } from '@/stores/scoringStore'
+import { useUserStore } from '@/stores/userStore'
 import { useTranslation } from 'react-i18next'
 import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS, TARGET_SCORE_OPTIONS } from '@/constants/scoring'
 import './index.scss'
@@ -14,6 +15,8 @@ import './index.scss'
 export default function MatchSetup() {
   const { t } = useTranslation()
   const { createMatch, isLoading } = useScoringStore()
+  // R-FE-R2 批次E（FE-P3-27）：本人档案只读展示（v1.0 L481-482「你的信息：姓名/积分」）
+  const userProfile = useUserStore((s) => s.profile)
   const [opponentName, setOpponentName] = useState('')
   const [opponentRating, setOpponentRating] = useState('')
   const [formatIdx, setFormatIdx] = useState(2) // 默认 bo5
@@ -54,6 +57,17 @@ export default function MatchSetup() {
       <View className="setup-header">
         <Text className="setup-title">{t('scoring.matchSetup')}</Text>
       </View>
+
+      {/* 你的信息（R-FE-R2 批次E FE-P3-27：v1.0 L481-482 只读档案区，读 userStore 缓存，未加载时不渲染） */}
+      {userProfile && (
+        <View className="my-profile-row">
+          <Text className="profile-label">{t('scoring.yourInfo')}</Text>
+          <Text className="profile-value">
+            {userProfile.nickname} · {t('scoring.myPoints')}{' '}
+            {userProfile.profile.kqs_rating ?? '-'}
+          </Text>
+        </View>
+      )}
 
       {/* 对手信息 */}
       <Cell

@@ -15,6 +15,8 @@ import { View, Text, ScrollView } from '@tarojs/components'
 import { Cell, Button, Skeleton, Empty, Tag, Progress } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import { useTrainingStore } from '@/stores/trainingStore'
+// R-FE-R2 批次E（FE-P3-32）：调整历史区块消费 ADJUSTMENT_ACTION_MAP（批次D补齐双语的首次接线）
+import { ADJUSTMENT_ACTION_MAP } from '@/constants/training'
 import BadgeUnlockPopup from '@/components/BadgeUnlockPopup'
 import './index.scss'
 
@@ -31,13 +33,18 @@ export default function TrainingPlanDetailPage() {
   const fetchTrainingSessions = useTrainingStore((s) => s.fetchTrainingSessions)
   const completeTrainingSession = useTrainingStore((s) => s.completeTrainingSession)
   const reEvaluatePlan = useTrainingStore((s) => s.reEvaluatePlan)
+  // R-FE-R2 批次E（FE-P3-32）：调整历史（设计 §2/§3 承诺，store action 已备修复前页面零渲染）
+  const adjustments = useTrainingStore((s) => s.adjustments)
+  const adjustmentsLoading = useTrainingStore((s) => s.adjustmentsLoading)
+  const fetchPlanAdjustments = useTrainingStore((s) => s.fetchPlanAdjustments)
 
   const planId = Number(router.params.plan_id || 0)
 
-  // 拉取训练单列表（API §8.7）
+  // 拉取训练单列表（API §8.7）+ 调整历史（API §8.5，FE-P3-32）
   useEffect(() => {
     if (planId) {
       fetchTrainingSessions(planId)
+      fetchPlanAdjustments(planId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId])
@@ -155,6 +162,39 @@ export default function TrainingPlanDetailPage() {
           </Button>
         </View>
       </View>
+
+      {/* 调整历史（R-FE-R2 批次E FE-P3-32：设计 §2/§3 承诺，API §8.5，
+          store.fetchPlanAdjustments 已备修复前页面零渲染；action 走 ADJUSTMENT_ACTION_MAP） */}
+      {adjustments && adjustments.adjustments.length > 0 && (
+        <View className="adjustments-section">
+          <Text className="section-title">
+            📋 {t('training.adjustmentHistory')}
+          </Text>
+          {adjustmentsLoading && <Skeleton rows={2} animated />}
+          {adjustments.adjustments.map((adj) => {
+            const meta = ADJUSTMENT_ACTION_MAP[adj.action] || ADJUSTMENT_ACTION_MAP.adjust
+            return (
+              <View className="adjustment-card" key={adj.id}>
+                <View className="adjustment-header">
+                  <Text className="adjustment-version">v{adj.version}</Text>
+                  <Tag background={meta.color} color="var(--color-text-inverse)">
+                    {t(meta.labelKey)}
+                  </Tag>
+                  {adj.created_at && (
+                    <Text className="adjustment-date">
+                      {new Date(adj.created_at).toLocaleDateString()}
+                    </Text>
+                  )}
+                </View>
+                {adj.reason && <Text className="adjustment-reason">{adj.reason}</Text>}
+                {adj.changes_summary && (
+                  <Text className="adjustment-summary">{adj.changes_summary}</Text>
+                )}
+              </View>
+            )
+          })}
+        </View>
+      )}
 
       <ScrollView scrollY className="sessions-scroll">
         {sessions.map((session) => (

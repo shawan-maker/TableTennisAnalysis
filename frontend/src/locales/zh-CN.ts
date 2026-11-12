@@ -207,6 +207,9 @@ export default {
     dataBoard: '数据看板',
     dataBoardDesc: '查看训练数据',
     checkinCalendar: '打卡日历',
+    // R-FE-R2 批次E（FE-P3-20/21）：周训练计数 + 训练提醒 CTA
+    weeklyCount: '本周已训练 {{count}} 次',
+    viewPlan: '查看训练方案 →',
     checkinNow: '立即打卡',
     todayCheckedIn: '今日已打卡',
     weekMon: '一',
@@ -279,6 +282,9 @@ export default {
   scoring: {
     // 比赛设置页（04-scoring/frontend.md §7）
     matchSetup: '比赛设置',
+    // R-FE-R2 批次E（FE-P3-27）：你的信息只读区（v1.0 L481-482）
+    yourInfo: '你的信息',
+    myPoints: '积分',
     opponentName: '对手姓名',
     opponentNamePlaceholder: '请输入对手姓名',
     opponentRating: '对手积分',
@@ -601,6 +607,15 @@ export default {
       landing_forehand_pct: '正手区落点率',
       landing_backhand_pct: '反手区落点率',
       landing_middle_pct: '中路落点率',
+      // R-FE-R2 批次E（FE-P3-30）：forecast goal_completion 键集对齐后端 METRIC_DEFINITIONS 14 键
+      landing_dispersion: '落点分散度',
+      avg_rally_length: '平均回合长度',
+      max_rally_length: '最长回合长度',
+      rally_frequency: '回合频率',
+      avg_ball_speed: '平均球速',
+      max_ball_speed: '最大球速',
+      score_win_rate: '胜率',
+      key_point_win_rate: '关键分胜率',
     },
     currentPlan: '当前训练方案',
     planVersion: '方案版本',
@@ -658,6 +673,8 @@ export default {
     actionNewGoal: '新目标',
     fetchAdviceFailed: '获取训练建议失败',
     planReEvaluated: '方案已重新评估',
+    // R-FE-R2 批次E（FE-P3-32）：调整历史区块标题
+    adjustmentHistory: '调整历史',
     reEvaluateFailed: '重新评估失败',
     reEvaluate: '重新评估',
     planDetail: '训练方案详情',
@@ -744,6 +761,8 @@ export default {
     resetAt: '每日 {{time}} 重置',
     free: '免费',
     tiersCompare: '会员等级权益对比',
+    // R-FE-R2 批次E（FE-P3-34）：tiers 失败/空列表引导
+    tiersEmpty: '权益信息暂不可用',
     benefit: '权益',
     subscribe: '开通会员',
     currentTier: '当前等级',

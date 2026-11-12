@@ -174,10 +174,14 @@ export default function ProgressSummary() {
             title={`${t('progress.planVersion')} v${summary.training_plan_status.plan_version}`}
             description={
               summary.training_plan_status.adjustment_reason ||
-              Object.entries(summary.training_plan_status.goal_completion)
-                .map(([metric, val]) => `${metric}: ${val}`)
-                .join(' · ') ||
-              t('progress.noData')
+              (summary.training_plan_status.goal_completion &&
+              Object.entries(summary.training_plan_status.goal_completion).length > 0
+                ? Object.entries(summary.training_plan_status.goal_completion)
+                    // R-FE-R2 批次E（FE-P3-30）：goal_completion 键走 progress.metric.* 映射
+                    // （修复前直显后端英文键名 backhand_ratio，与同页 L109 metric_name 中文口径不一）
+                    .map(([metric, val]) => `${t(`progress.metric.${metric}`)}: ${val}`)
+                    .join(' · ')
+                : t('progress.noData'))
             }
             clickable
             onClick={() => {

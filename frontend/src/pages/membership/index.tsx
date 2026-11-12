@@ -13,7 +13,7 @@
 import { useEffect } from 'react'
 import Taro from '@tarojs/taro'
 import { View, Text, ScrollView } from '@tarojs/components'
-import { Button, Skeleton } from '@nutui/nutui-react'
+import { Button, Skeleton, Empty } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import { useMembershipStore } from '@/stores/membershipStore'
 import { usePaymentNotify } from '@/hooks/usePaymentNotify'
@@ -25,6 +25,8 @@ export default function MembershipCenter() {
   const {
     tiers, current, quota,
     isLoadingTiers, isLoadingCurrent, isLoadingQuota,
+    // R-FE-R2 批次E（FE-P3-34）：tiers 失败/空列表 Empty + 重试引导（设计 §9 L1022）
+    tiersError,
     fetchTiers, fetchCurrent, fetchQuota, refreshAll,
   } = useMembershipStore()
 
@@ -177,6 +179,20 @@ export default function MembershipCenter() {
       {isLoadingTiers ? (
         <View className="tiers-section">
           <Skeleton rows={5} visible={isLoadingTiers} />
+        </View>
+      ) : tiersError || tierList.length === 0 ? (
+        /* R-FE-R2 批次E（FE-P3-34）：失败/空列表 Empty + 重试引导（修复前仅
+           section-title+空表头，无引导；tiersError 标志随 FE-P2-24 批次B 已备） */
+        <View className="tiers-section">
+          <View className="section-title">
+            <Text>{t('membership.tiersCompare')}</Text>
+          </View>
+          <Empty
+            title={t('membership.tiersEmpty')}
+            actions={[
+              { text: t('common.retry'), type: 'primary', size: 'small', onClick: () => fetchTiers() },
+            ]}
+          />
         </View>
       ) : (
       <View className="tiers-section">
