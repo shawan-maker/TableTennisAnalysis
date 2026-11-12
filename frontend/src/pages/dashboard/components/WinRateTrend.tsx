@@ -10,6 +10,7 @@ import { Tabs, Skeleton } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import type { WinRateTrendData, TrendPeriod } from '@/services/dashboard'
 import { buildLineChart, extractWinRates } from '@/utils/chart'
+import { PERIOD_OPTIONS } from '@/constants/dashboard'
 import './WinRateTrend.scss'
 
 interface Props {
@@ -22,11 +23,8 @@ interface Props {
 export default function WinRateTrend({ data, period, loading, onPeriodChange }: Props) {
   const { t } = useTranslation()
 
-  const periodOptions: Array<{ key: TrendPeriod; label: string }> = [
-    { key: 'month', label: t('dashboard.month') },
-    { key: 'quarter', label: t('dashboard.quarter') },
-    { key: 'year', label: t('dashboard.year') },
-  ]
+  // R-FE-R1 批次C（FE-P3-16）：周期选项收敛至 constants/dashboard.ts（设计 L1408-1431）
+  const periodOptions = PERIOD_OPTIONS.map((o) => ({ key: o.key, label: t(o.labelKey) }))
 
   const winRates = data ? extractWinRates(data.series) : []
   const { points, segments } = data ? buildLineChart(winRates) : { points: [], segments: [] }

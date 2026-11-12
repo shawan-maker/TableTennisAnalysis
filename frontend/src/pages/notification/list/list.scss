@@ -38,6 +38,17 @@
     border-left: 3px solid var(--color-primary); /* #E63946 */
   }
 
+  /* R-FE-R1 批次C（FE-P3-15）：已读态灰化区分（设计 L839；修复前仅 .unread
+     高亮、已读无视觉差异）。已读区分 = 标题降色降字重 + 无未读左边框；
+     正文/时间不加 opacity（实测 0.7 将 text-secondary 压至 3.2:1 触发 axe
+     serious color-contrast，R-FE-R2 收尾时移除） */
+  &:not(.unread) {
+    .notification-item-title {
+      font-weight: 400;
+      color: var(--color-text-secondary);
+    }
+  }
+
   &-inner {
     display: flex;
     align-items: flex-start;

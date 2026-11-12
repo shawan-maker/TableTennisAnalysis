@@ -92,5 +92,14 @@
       font-weight: 500;
       color: var(--color-success);
     }
+
+    /* R-FE-R1 批次C（FE-P2-20）：管理续费入口标签（导向会员中心状态展示） */
+    .action-renew {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-secondary);
+      text-decoration: underline;
+      margin-left: var(--spacing-sm);
+    }
   }
 }

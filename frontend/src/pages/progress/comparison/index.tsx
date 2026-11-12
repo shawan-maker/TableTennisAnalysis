@@ -177,6 +177,16 @@ export default function ComparisonPage() {
                 </Text>
               </View>
             </View>
+            {/* R-FE-R1 批次C（FE-P2-19）：最长回合（R-FS4-P3 契约②已声明，修复前零引用） */}
+            <View className="comparison-row">
+              <Text className="row-label">{t('progress.maxRallyLength')}</Text>
+              <View className="row-values">
+                <Text className="value-a">{comparison.comparisons.rally.max_length_a ?? '-'}</Text>
+                <Text className="value-arrow">→</Text>
+                <Text className="value-b">{comparison.comparisons.rally.max_length_b ?? '-'}</Text>
+                <Text style={{ color: 'var(--color-text-secondary)' }}>-</Text>
+              </View>
+            </View>
           </View>
 
           {/* 维度 4：球速对比 */}
@@ -193,6 +203,16 @@ export default function ComparisonPage() {
                     ? `${comparison.comparisons.ball_speed.change > 0 ? '+' : ''}${comparison.comparisons.ball_speed.change}`
                     : '-'}
                 </Text>
+              </View>
+            </View>
+            {/* R-FE-R1 批次C（FE-P2-19）：最高球速（R-FS4-P3 契约②已声明，修复前零引用） */}
+            <View className="comparison-row">
+              <Text className="row-label">{t('progress.maxBallSpeed')}</Text>
+              <View className="row-values">
+                <Text className="value-a">{comparison.comparisons.ball_speed.max_a ?? '-'} m/s</Text>
+                <Text className="value-arrow">→</Text>
+                <Text className="value-b">{comparison.comparisons.ball_speed.max_b ?? '-'} m/s</Text>
+                <Text style={{ color: 'var(--color-text-secondary)' }}>-</Text>
               </View>
             </View>
           </View>

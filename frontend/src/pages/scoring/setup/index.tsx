@@ -8,7 +8,7 @@ import { View, Text, Picker } from '@tarojs/components'
 import { Cell, Button, Input, Toast } from '@nutui/nutui-react'
 import { useScoringStore } from '@/stores/scoringStore'
 import { useTranslation } from 'react-i18next'
-import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS } from '@/constants/scoring'
+import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS, TARGET_SCORE_OPTIONS } from '@/constants/scoring'
 import './index.scss'
 
 export default function MatchSetup() {
@@ -18,6 +18,8 @@ export default function MatchSetup() {
   const [opponentRating, setOpponentRating] = useState('')
   const [formatIdx, setFormatIdx] = useState(2) // 默认 bo5
   const [typeIdx, setTypeIdx] = useState(0) // 默认 friendly
+  // R-FE-R1 批次C（FE-P2-13）：每局目标分（v1.0 L478 21 分制承诺；后端契约 1-21）
+  const [targetScoreIdx, setTargetScoreIdx] = useState(0) // 默认 11 分制
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
@@ -37,14 +39,14 @@ export default function MatchSetup() {
         opponent_rating: opponentRating ? parseInt(opponentRating, 10) : undefined,
         format: FORMAT_OPTIONS[formatIdx].value,
         match_type: MATCH_TYPE_OPTIONS[typeIdx].value,
-        target_score: 11,
+        target_score: TARGET_SCORE_OPTIONS[targetScoreIdx].value,
       })
       // 跳转到实时记分页（记分页检测 status=setup 时自动调 start，后端 X-21）
       Taro.redirectTo({ url: `/pages/scoring/scoreboard/index?matchId=${matchId}` })
     } catch (err: any) {
       showToast(err?.message || t('scoring.createFailed'))
     }
-  }, [opponentName, opponentRating, formatIdx, typeIdx, createMatch, t])
+  }, [opponentName, opponentRating, formatIdx, typeIdx, targetScoreIdx, createMatch, t])
 
   return (
     <View className="match-setup">
@@ -107,6 +109,21 @@ export default function MatchSetup() {
             onChange={(e: any) => setTypeIdx(parseInt(e.detail.value, 10))}
           >
             <View className="picker-value">{t(MATCH_TYPE_OPTIONS[typeIdx].labelKey)}</View>
+          </Picker>
+        }
+      />
+
+      {/* 每局目标分（R-FE-R1 批次C FE-P2-13：11/21 切换，替代硬编码 11） */}
+      <Cell
+        title={t('scoring.targetScore')}
+        extra={
+          <Picker
+            mode="selector"
+            range={TARGET_SCORE_OPTIONS.map((o) => t(o.labelKey))}
+            value={targetScoreIdx}
+            onChange={(e: any) => setTargetScoreIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">{t(TARGET_SCORE_OPTIONS[targetScoreIdx].labelKey)}</View>
           </Picker>
         }
       />

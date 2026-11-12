@@ -13,18 +13,38 @@
   font-size: 15px;
 }
 
+// R-FE-R1 批次B（FE-P2-1）：未登录引导卡
+.login-guide {
+  .login-guide-card {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-lg) var(--spacing-md);
+    background: var(--color-card);
+    margin-top: var(--spacing-md);
+
+    .avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      margin-right: var(--spacing-md);
+      background: var(--color-divider);
+    }
+
+    .login-guide-desc {
+      display: block;
+      margin-top: var(--spacing-xs);
+      font-size: var(--font-size-sm);
+      color: var(--color-text-secondary);
+    }
+  }
+}
+
 .profile-header {
-  position: relative; /* FS6: 铃铛绝对定位锚点 */
+  position: relative;
   display: flex;
   align-items: center;
   padding: var(--spacing-lg) var(--spacing-md);
   background: var(--color-card);
-
-  .header-bell {
-    position: absolute;
-    top: var(--spacing-sm);
-    right: var(--spacing-md);
-  }
 
   .avatar {
     width: 64px;

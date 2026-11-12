@@ -7,6 +7,7 @@ import { View, Text } from '@tarojs/components'
 import { Tabs, Empty } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import type { MatchRecordItem, ResultFilter } from '@/services/dashboard'
+import { RESULT_FILTER_OPTIONS } from '@/constants/dashboard'
 import './MatchRecordList.scss'
 
 interface Props {
@@ -30,11 +31,8 @@ export default function MatchRecordList({
 }: Props) {
   const { t } = useTranslation()
 
-  const filterOptions: Array<{ key: ResultFilter; label: string }> = [
-    { key: 'all', label: t('dashboard.allMatches') },
-    { key: 'win', label: t('dashboard.winsOnly') },
-    { key: 'lose', label: t('dashboard.lossesOnly') },
-  ]
+  // R-FE-R1 批次C（FE-P3-16）：筛选选项收敛至 constants/dashboard.ts（设计 L1408-1431）
+  const filterOptions = RESULT_FILTER_OPTIONS.map((o) => ({ key: o.key, label: t(o.labelKey) }))
 
   const handleItemClick = (item: MatchRecordItem) => {
     // 跳转 S2 记分数据详情（模块联动）

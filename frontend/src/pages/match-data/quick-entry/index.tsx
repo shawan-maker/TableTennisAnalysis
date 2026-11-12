@@ -9,6 +9,7 @@ import { Cell, Button, Input, Toast } from '@nutui/nutui-react'
 import { useMatchDataStore } from '@/stores/matchDataStore'
 import { useTranslation } from 'react-i18next'
 import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS } from '@/constants/scoring'
+import { validateScoreByFormat } from '@/constants/matchData'
 import './index.scss'
 
 export default function QuickEntry() {
@@ -40,6 +41,12 @@ export default function QuickEntry() {
     }
     if (myScore === oppScore) {
       showToast(t('matchData.scoreCannotBeEqual'))
+      return
+    }
+    // R-FE-R1 批次B（FE-P1-14）：局分语义前端预校验（镜像后端
+    // _validate_score_by_format——bo 系列要求局分如 3:1，逐分累计必 422）
+    if (!validateScoreByFormat(parseInt(myScore, 10), parseInt(oppScore, 10), FORMAT_OPTIONS[formatIdx].value)) {
+      showToast(t('matchData.invalidScoreByFormat'))
       return
     }
 

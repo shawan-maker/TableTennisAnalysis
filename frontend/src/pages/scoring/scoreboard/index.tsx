@@ -18,8 +18,11 @@ export default function Scoreboard() {
   const { t } = useTranslation()
   const router = useRouter()
   const matchId = parseInt((router.params.matchId || '0') as string, 10)
-  const { currentMatch, fetchMatch, startMatch, doScore, doUndo, finishMatch, abandonMatch, resumeMatch, isScoring } =
-    useScoringStore()
+  const {
+    currentMatch, fetchMatch, startMatch, doScore, doUndo, finishMatch, abandonMatch, resumeMatch, isScoring,
+    // R-FE-R1 批次B（FE-P2-8）：换边/关键分提示消费
+    lastScoreFlags, consumeScoreFlags,
+  } = useScoringStore()
   const { isConnected } = useMatchSync(matchId || null)
 
   const [showMethodSheet, setShowMethodSheet] = useState(false)
@@ -71,6 +74,19 @@ export default function Scoreboard() {
       Taro.redirectTo({ url: `/pages/scoring/statistics/index?matchId=${matchId}` })
     }
   }, [currentMatch?.status, currentMatch?.id, matchId])
+
+  // R-FE-R1 批次B（FE-P2-8）：换边 / 关键分提示（ScoreResponse flags 消费，
+  // 弹 Toast 后清空防重复）——换边 Toast 优先于关键分（信息密度更高）
+  useEffect(() => {
+    if (!lastScoreFlags) return
+    const { should_change_sides, is_key_point } = lastScoreFlags
+    if (should_change_sides) {
+      showToast(t('scoring.changeSides'))
+    } else if (is_key_point) {
+      showToast(t('scoring.keyPoint'))
+    }
+    consumeScoreFlags()
+  }, [lastScoreFlags, consumeScoreFlags, t])
 
   /** 点击得分大按钮 */
   const handleScoreClick = useCallback((scorer: 'user' | 'opponent') => {
@@ -146,12 +162,39 @@ export default function Scoreboard() {
   const { current_score_user, current_score_opp, current_server, status } = currentMatch
   const seqLength = currentMatch.score_sequence?.length || 0
 
+  // R-FE-R1 批次B（FE-P1-6）：局数 + 局分（bo3/bo5 主流程可用性——修复前
+  // 局结束清零后用户无从得知大比分与当前第几局，v1.0 L509「局1 11:7 1:0」）
+  const gamesWonUser = currentMatch.games_won_user ?? 0
+  const gamesWonOpp = currentMatch.games_won_opp ?? 0
+
+  // R-FE-R1 批次B（FE-P2-7）：deuce 提示——双分均达 target-1（10:10 / 20:20）
+  // 时渲染「需领先 2 分」（v1.0 L538）
+  const isDeuce =
+    status === 'in_progress' &&
+    current_score_user >= currentMatch.target_score - 1 &&
+    current_score_opp >= currentMatch.target_score - 1
+
   return (
     <View className="scoreboard">
       {/* WebSocket 连接状态指示器（断线横幅） */}
       {!isConnected && (
         <View className="ws-banner" aria-live="polite">
           {t('scoring.wsDisconnected')}
+        </View>
+      )}
+
+      {/* 局数/局分（FE-P1-6：bo 多局模式大比分） */}
+      <View className="game-info" aria-live="polite">
+        <Text className="game-number">{t('scoring.gameNumber', { game: currentMatch.current_game })}</Text>
+        <Text className="games-score">
+          {t('scoring.gamesScore', { user: gamesWonUser, opp: gamesWonOpp })}
+        </Text>
+      </View>
+
+      {/* deuce 提示条（FE-P2-7：10:10 后「需领先 2 分」） */}
+      {isDeuce && (
+        <View className="deuce-hint" aria-live="polite">
+          {t('scoring.deuceHint')}
         </View>
       )}
 

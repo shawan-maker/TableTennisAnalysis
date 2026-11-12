@@ -16,7 +16,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import Taro, { useRouter } from '@tarojs/taro'
 import { View, Text, Radio, Label, ScrollView } from '@tarojs/components'
-import { Button, Tag, Skeleton } from '@nutui/nutui-react'
+import { Button, Tag, Skeleton, Empty } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import { usePaymentStore } from '@/stores/paymentStore'
 import { useMembershipStore } from '@/stores/membershipStore'
@@ -59,7 +59,7 @@ export default function CreateOrder() {
   const { t } = useTranslation()
   const router = useRouter()
   const { createOrder, requestWechatPay, pollOrderStatus, loading, paying } = usePaymentStore()
-  const { tiers, isLoadingTiers, fetchTiers } = useMembershipStore()
+  const { tiers, isLoadingTiers, tiersError, fetchTiers } = useMembershipStore()
   const [selectedTier, setSelectedTier] = useState('member')
   const [selectedPeriod, setSelectedPeriod] = useState('monthly')
 
@@ -97,6 +97,12 @@ export default function CreateOrder() {
 
   /** 提交订单 → 微信支付 → 降级轮询确认 */
   const handlePay = useCallback(async () => {
+    // R-FE-R1 批次B（FE-P2-24）：金额未就绪（tiers 未加载/加载失败）禁止提交，
+    // 防御纵深——UI 层 pay-button 已 disabled，此处兜底快速点击/状态竞态
+    if (!amountCents) {
+      Taro.showToast({ title: t('payment.tiersLoadFailed'), icon: 'none' })
+      return
+    }
     try {
       // 1. 创建订单
       const result = await createOrder({
@@ -136,7 +142,7 @@ export default function CreateOrder() {
     } catch (err: any) {
       Taro.showToast({ title: err?.message || t('payment.payFailed'), icon: 'none' })
     }
-  }, [selectedTier, selectedPeriod, createOrder, requestWechatPay, pollOrderStatus, t])
+  }, [selectedTier, selectedPeriod, amountCents, createOrder, requestWechatPay, pollOrderStatus, t])
 
   return (
     <ScrollView scrollY className="payment-create">
@@ -146,10 +152,14 @@ export default function CreateOrder() {
         <Text className="page-subtitle">{t('payment.chooseTier')}</Text>
       </View>
 
-      {/* 会员等级选择 */}
+      {/* 会员等级选择（FE-P2-24：tiers 失败空态，替代此前静默空列表） */}
       {isLoadingTiers ? (
         <View className="tier-list">
           <Skeleton rows={4} visible={isLoadingTiers} />
+        </View>
+      ) : tiersError ? (
+        <View className="tier-list">
+          <Empty title={t('payment.tiersLoadFailed')} />
         </View>
       ) : (
       <View className="tier-list">
@@ -220,10 +230,11 @@ export default function CreateOrder() {
           <Text className="amount-label">{t('payment.payable')}</Text>
           <Text className="amount-value">{formatAmount(amountCents)}</Text>
         </View>
+        {/* R-FE-R1 批次B（FE-P2-24）：金额未就绪禁用支付，防 0 元订单提交 */}
         <Button
           type="primary"
           loading={loading || paying}
-          disabled={loading || paying}
+          disabled={loading || paying || !amountCents}
           onClick={handlePay}
           className="pay-button"
         >

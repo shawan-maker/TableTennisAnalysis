@@ -150,12 +150,13 @@ test('E2E-02 记分牌全流程：创建→记分→多设备WS同步→撤销�
   await expect(page.locator('.result-score')).toHaveText('1:0')
   await expect(page.getByText('VS 王教练')).toBeVisible()
   // 得分分布（记分序列：rally_point 10 + serve_point 1；opp 球已撤销；
-  // 数值断言收紧到 .dist-count 节点 + 全等正则，防「11」子串误中「1」）
+  // R-FE-R2 适配：FE-P3-13 修复后 .dist-count 为「计数 (占比)」格式（如 10 (91%)），
+  // 全等正则同步带占比段（防「11」子串误中「1」的口径保持）
   await expect(page.locator('.distribution-list').getByText('相持得分')).toBeVisible()
-  await expect(page.locator('.distribution-list .dist-count').filter({ hasText: /^10$/ })).toBeVisible()
+  await expect(page.locator('.distribution-list .dist-count').filter({ hasText: /^10 \(\d+%\)$/ })).toBeVisible()
   await expect(page.locator('.distribution-list').getByText('发球得分')).toBeVisible()
-  await expect(page.locator('.distribution-list .dist-count').filter({ hasText: /^1$/ })).toBeVisible()
-  // 技术动作分解（正手攻球 9 / 正手拉球 1）
+  await expect(page.locator('.distribution-list .dist-count').filter({ hasText: /^1 \(\d+%\)$/ })).toBeVisible()
+  // 技术动作分解（正手攻球 9 / 正手拉球 1；FE-P3-13 百分比仅得分分布——技术分布保持纯计数）
   await expect(page.locator('.technique-list').getByText('正手攻球')).toBeVisible()
   await expect(page.locator('.technique-list .dist-count').filter({ hasText: /^9$/ })).toBeVisible()
   await expect(page.locator('.technique-list').getByText('正手拉球')).toBeVisible()

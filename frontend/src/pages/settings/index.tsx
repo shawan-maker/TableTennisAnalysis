@@ -12,7 +12,8 @@ import { View, Text } from '@tarojs/components'
 import { Cell, Switch, Button, Toast, Popup, Skeleton } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import { useUserStore } from '@/stores/userStore'
-import { NOTIF_ITEMS, NOTIF_STORAGE_PREFIX, APP_VERSION } from '@/constants/settings'
+import { useAuthStore } from '@/stores/authStore'
+import { NOTIF_ITEMS, NOTIF_STORAGE_PREFIX, APP_VERSION, URL_USER_AGREEMENT, URL_PRIVACY_POLICY } from '@/constants/settings'
 import './index.scss'
 
 export default function SettingsPage() {
@@ -123,6 +124,32 @@ export default function SettingsPage() {
     showToast(t('settings.feedbackComingSoon'))
   }
 
+  /**
+   * R-FE-R1 批次B（FE-P2-21）：协议页经 WebView 承载页打开
+   * （settings.md L524-525「pages/settings/webview?url=xxx」），
+   * 修复前仅 showToast「正在打开文档」实际无承载页
+   */
+  const openWebview = (url: string, title: string) => {
+    Taro.navigateTo({
+      url: `/pages/settings/webview/index?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`,
+    })
+  }
+
+  // R-FE-R1 批次B（FE-P2-2）：退出登录（01-auth frontend.md §10 L991
+  // 「登出：清除本地 Token → 跳转登录页」——修复前 authStore.logout 全 src 无调用方）
+  const handleLogout = () => {
+    Taro.showModal({
+      title: t('auth.logout'),
+      content: t('auth.logoutConfirm'),
+      success: async (res) => {
+        if (res.confirm) {
+          await useAuthStore.getState().logout()
+          Taro.reLaunch({ url: '/pages/auth/login/index' })
+        }
+      },
+    })
+  }
+
   return (
     <View className="settings-page">
       {/* ========== 1. 通知设置 ========== */}
@@ -190,16 +217,23 @@ export default function SettingsPage() {
       <View className="settings-section">
         <Text className="section-title">{t('settings.accountSection')}</Text>
         <View className="settings-group">
-          <Cell title={t('settings.appVersion')} extra={`v${APP_VERSION}`} />
+          {/* 附带观察①：appVersion 重复 Cell 去重（保留「关于」节实例） */}
+          {/* R-FE-R1 批次B（FE-P2-21）：协议页经 webview 承载，不再弹 toast 假打开 */}
           <Cell
             title={t('settings.userAgreement')}
             clickable
-            onClick={() => showToast(t('settings.openingDocument'))}
+            onClick={() => openWebview(URL_USER_AGREEMENT, t('settings.userAgreement'))}
           />
           <Cell
             title={t('settings.privacyPolicy')}
             clickable
-            onClick={() => showToast(t('settings.openingDocument'))}
+            onClick={() => openWebview(URL_PRIVACY_POLICY, t('settings.privacyPolicy'))}
+          />
+          {/* R-FE-R1 批次B（FE-P2-2）：退出登录 */}
+          <Cell
+            title={t('auth.logout')}
+            clickable
+            onClick={handleLogout}
           />
         </View>
       </View>

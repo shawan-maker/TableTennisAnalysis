@@ -2,10 +2,12 @@
   min-height: 100vh;
   background: var(--color-background); // #F8F9FA
 
-  .membership-scroll {
-    height: calc(100vh - 44px);
-    padding: var(--spacing-md);
-  }
+  /* R-FE-R1 批次C（FE-P3-12）：实现为单层 ScrollView（设计样例为 membership-page
+     包 membership-scroll 双层），嵌套选择器无匹配节点致 height/padding 永不生效、
+     全页贴边——按实际单层结构平铺间距与滚动高度 */
+  height: calc(100vh - 44px);
+  padding: var(--spacing-md);
+  box-sizing: border-box;
 }
 
 // === 当前会员状态卡 ===
@@ -95,6 +97,32 @@
       /* FS8-7: 深色头部上的强调文本用亮橙反色 */
       color: var(--color-accent-inverse);
       font-weight: bold;
+    }
+  }
+
+  /* R-FE-R1 批次C（FE-P2-20）：自动续费状态行（current-renewal） */
+  .current-renewal {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 13px;
+    opacity: 0.9;
+    margin-top: var(--spacing-xs);
+
+    .renewal-label {
+      opacity: 0.7;
+    }
+
+    .renewal-value {
+      font-weight: 500;
+    }
+
+    .renewal-on {
+      color: var(--color-accent-inverse);
+    }
+
+    .renewal-off {
+      opacity: 0.8;
     }
   }
 

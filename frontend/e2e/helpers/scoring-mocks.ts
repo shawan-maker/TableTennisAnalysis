@@ -78,6 +78,9 @@ function matchDetail(m: MatchState) {
     current_score: `${m.score_user}:${m.score_opp}`,
     current_server: m.current_server,
     current_game: m.current_game,
+    // R-FE-R1 批次B（FE-P1-6 跨栈）：MatchDetail 局分字段（镜像后端 schema）
+    games_won_user: m.games_won_user,
+    games_won_opp: m.games_won_opp,
     is_win: m.is_win,
     final_score: m.final_score,
     created_at: new Date().toISOString(),

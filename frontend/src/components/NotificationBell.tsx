@@ -12,6 +12,7 @@
 import { useEffect } from 'react'
 import Taro from '@tarojs/taro'
 import { View, Text } from '@tarojs/components'
+import { useTranslation } from 'react-i18next'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useWebSocket, buildWsUrl } from '@/hooks/useWebSocket'
 import { USER_TAB_INDEX } from '@/constants/membership'
@@ -27,6 +28,7 @@ interface NotificationBellProps {
  * 功能：未读计数红点、点击跳转通知列表、tabBar 角标同步。
  */
 function NotificationBell({ redirectTo = '/pages/notification/list/index' }: NotificationBellProps) {
+  const { t } = useTranslation()
   const unreadCount = useNotificationStore((s) => s.unreadCount)
   const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount)
 
@@ -56,7 +58,18 @@ function NotificationBell({ redirectTo = '/pages/notification/list/index' }: Not
   }
 
   return (
-    <View className="notif-bell" onClick={handleClick}>
+    <View
+      className="notif-bell"
+      onClick={handleClick}
+      /* R-FE-R1 批次C（FE-P2-26）：总览 §3.8 L449-460 交互元素三属性。
+         Taro A11yProps 为 camelCase（ariaRole/ariaLabel），weapp 编译期转原生
+         aria-role/aria-label 供读屏；accessible 在 Taro 无对应 prop（平台差异
+         由 ariaRole 承载，总览条款中的 accessible 不单独落） */
+      ariaRole="button"
+      ariaLabel={
+        unreadCount > 0 ? t('notification.ariaBell', { count: unreadCount }) : t('notification.title')
+      }
+    >
       <Text className="notif-bell-icon">🔔</Text>
       {unreadCount > 0 && (
         <View className="notif-bell-badge">

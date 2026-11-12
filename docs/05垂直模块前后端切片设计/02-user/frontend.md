@@ -352,8 +352,11 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   // X-24: 处理 export_completed WebSocket 事件
   // 当后端通过 WS 推送 export_completed 事件时，直接更新导出任务状态，
-  // 无需依赖轮询。调用方应在 profile 页面通过 useWebSocket.onMessage 监听
-  // msg.event === 'export_completed' 后调用此方法。
+  // 无需依赖轮询。
+  // R-FE-R2（FE-P2-3）注记：export_completed 已作为 useWebSocket 内置事件
+  // （12-notification 五件之一）由 handleBuiltinEvent 分支直调
+  // useUserStore.getState().handleExportCompleted(msg.data)——profile 页
+  // 无需单独挂 onMessage 监听；pollExportStatus 仅作 WS 不可达时降级兜底。
   handleExportCompleted: (data: ExportTaskState) => {
     set({ exportTask: data })
   },

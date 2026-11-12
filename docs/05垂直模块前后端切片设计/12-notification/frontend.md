@@ -216,7 +216,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 > ① **Token 传递**：样例 `?token=` query 参数 → 实现为 `Sec-WebSocket-Protocol` 子协议 `jwt.{access_token}`（API §14.1 P2 安全合规：Token 不进 URL，避免日志/代理/Referer 泄露；后端 ws.py Step 0 一致）；
 > ② **事件分发**：样例 `Taro.eventCenter.trigger` → 实现为 `sharedListeners` Set 分发（本工程无 eventCenter 分发层，领域 Hook 经 options.onMessage 直回调）；
 > ③ **单例结构**：模块级 sharedSocketTask + connectionCount 引用计数 + connectedSubscribers 连接状态广播（设计 §4 connectionCount 形态落地）；首个消费者挂载建立连接，最后一个卸载才关闭；scheduleReconnect 有 connectionCount===0 守卫（无消费者不重连）；
-> ④ **内置事件五件**（handleBuiltinEvent，连接级单次执行，防多页共存重复 addNotification 未读翻倍）：connected → setWsConnected(true)；notification → 合成完整 item（id=-Date.now() 负时间戳防 DB 主键冲突，is_read=false，created_at=now）头插；sync → data.unread_count 直取（缺失回退 fetchUnreadCount）；export_completed → fetchUnreadCount()（后端 tasks/user.py 直推不落库）；membership_downgrade → membershipStore.refreshAll()（10-membership §9）；
+> ④ **内置事件五件**（handleBuiltinEvent，连接级单次执行，防多页共存重复 addNotification 未读翻倍）：connected → setWsConnected(true)；notification → 合成完整 item（id=-Date.now() 负时间戳防 DB 主键冲突，is_read=false，created_at=now）头插；sync → data.unread_count 直取（缺失回退 fetchUnreadCount）；export_completed → fetchUnreadCount()（后端 tasks/user.py 直推不落库）**+ useUserStore.getState().handleExportCompleted(msg.data) 刷新导出状态（02-user X-24，R-FE-R2 FE-P2-3 接线，profile 页免挂监听）**；membership_downgrade → membershipStore.refreshAll()（10-membership §9）；
 > ⑤ 心跳 pong `token_expired=true` → authStore.refreshAccessToken 后重建连接（API §14.2）。
 
 ```typescript

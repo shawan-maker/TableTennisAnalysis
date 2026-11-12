@@ -87,6 +87,10 @@ class MatchDetail(BaseModel):
     current_score: Optional[str] = None  # R6-Scoring-2: API §5.3 current_score 字段
     current_server: Optional[str] = None
     current_game: int
+    # R-FE-R1 批次B（FE-P1-6 跨栈）：局分暴露——model 已有（games_won_user/opp），
+    # bo3/bo5 局结束清零后前端需展示大比分与当前局数（v1.0 L509「局1 11:7 1:0」）
+    games_won_user: int = 0
+    games_won_opp: int = 0
     is_win: Optional[bool] = None
     final_score: Optional[str] = None
     created_at: Optional[datetime] = None

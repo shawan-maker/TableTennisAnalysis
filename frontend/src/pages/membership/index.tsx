@@ -104,6 +104,17 @@ export default function MembershipCenter() {
             </Text>
           </View>
         )}
+        {/* R-FE-R1 批次C（FE-P2-20）：自动续费状态展示——CurrentMembershipData.auto_renew
+            修复前全工程零 UI 引用；「管理续费」操作依赖后端 auto-renew 端点（中期跨栈），
+            短期先按 v2.0 P5.5 展示状态标签 */}
+        {currentTier !== 'free' && current && (
+          <View className="current-renewal">
+            <Text className="renewal-label">{t('membership.autoRenew')}</Text>
+            <Text className={`renewal-value ${current.auto_renew ? 'renewal-on' : 'renewal-off'}`}>
+              {current.auto_renew ? t('membership.autoRenewOn') : t('membership.autoRenewOff')}
+            </Text>
+          </View>
+        )}
         {/* 到期提醒 banner */}
         {currentStatus === 'expiring_soon' && (
           <View className="expire-banner">

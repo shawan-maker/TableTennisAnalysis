@@ -11,6 +11,7 @@ import Taro from '@tarojs/taro'
 import { View, Text, Image, ScrollView } from '@tarojs/components'
 import { Cell, Button, Toast, Progress, Dialog, Popup, Tag, Skeleton, TextArea } from '@nutui/nutui-react'
 import { useUserStore } from '@/stores/userStore'
+import { useAuthStore } from '@/stores/authStore'
 import { useTranslation } from 'react-i18next'
 import './index.scss'
 
@@ -36,7 +37,11 @@ export default function ProfilePage() {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    fetchProfile()
+    // R-FE-R1 批次B（FE-P2-1）：未登录不拉档案——改为渲染登录引导卡
+    //（修复前未登录 fetchProfile 必 401，只能靠 request 拦截器被动 reLaunch 登录页）
+    if (useAuthStore.getState().isAuthenticated) {
+      fetchProfile()
+    }
     // R19-fix: 移除 fetchDeletionStatus() 调用
     // 原因：GET /users/account/deletion-status 端点未在后端 API 契约中定义
     // deletionState 仅由用户主动提交注销请求后由 store 写入
@@ -171,6 +176,32 @@ export default function ProfilePage() {
       })
     }
   }, [exportTask, t])
+
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+
+  // R-FE-R1 批次B（FE-P2-1）：未登录引导卡（01-auth frontend.md L12
+  // 「我的 Tab → 个人主页 → 登录引导」——修复前无此分支）
+  if (!isAuthenticated) {
+    return (
+      <View className="profile-page login-guide">
+        <View
+          className="login-guide-card"
+          onClick={() => Taro.navigateTo({ url: '/pages/auth/login/index' })}
+        >
+          <Image
+            className="avatar"
+            src="https://cdn.pingpongai.com/images/default-avatar.png"
+            mode="aspectFill"
+            alt={t('auth.loginPrompt')}
+          />
+          <View className="header-info">
+            <Text className="nickname">{t('auth.loginPrompt')}</Text>
+            <Text className="login-guide-desc">{t('auth.loginPromptDesc')}</Text>
+          </View>
+        </View>
+      </View>
+    )
+  }
 
   if (!profile) {
     return <View className="profile-loading"><Skeleton rows={3} animated /></View>

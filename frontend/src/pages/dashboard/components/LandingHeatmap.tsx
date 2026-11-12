@@ -6,14 +6,8 @@ import { View, Text } from '@tarojs/components'
 import { Skeleton } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import type { LandingHeatmapData } from '@/services/dashboard'
+import { GRID_CELL_LABELS } from '@/constants/dashboard'
 import './LandingHeatmap.scss'
-
-/** 九宫格标签（§7 GRID_CELL_LABELS 顺序） */
-const GRID_CELL_LABELS = [
-  'dashboard.cell.leftShort', 'dashboard.cell.midShort', 'dashboard.cell.rightShort',
-  'dashboard.cell.leftMid', 'dashboard.cell.midMid', 'dashboard.cell.rightMid',
-  'dashboard.cell.leftLong', 'dashboard.cell.midLong', 'dashboard.cell.rightLong',
-]
 
 interface Props {
   data: LandingHeatmapData | null
@@ -47,8 +41,9 @@ export default function LandingHeatmap({ data, loading }: Props) {
   const flatValues = grid.flat()
   const maxVal = Math.max(...flatValues)
 
-  // 主色 #E63946 RGB（JS 无法读 CSS 变量）
-  const PRIMARY_RGB = '230, 57, 70'
+  // 主色 #C92738 RGB（R-FE-R1 批次C FE-P3-10：FS8-7 深化后主色，JS 无法读 CSS 变量；
+  // 修复前为调色前旧值 #E63946）
+  const PRIMARY_RGB = '201, 39, 56'
   const getCellColor = (val: number) => {
     if (maxVal === 0) return `rgba(${PRIMARY_RGB}, 0)`
     const intensity = val / maxVal
@@ -78,27 +73,38 @@ export default function LandingHeatmap({ data, loading }: Props) {
           )}
         </View>
 
-        {/* 分布图例 */}
+        {/* 分布图例（R-FE-R1 批次C FE-P3-8：三色圆点 dist-dot，设计 L799-809） */}
         <View className="distribution-row">
-          <Text className="distribution-item">
-            {t('dashboard.forehand')} {(data.distribution.forehand * 100).toFixed(0)}%
-          </Text>
-          <Text className="distribution-item">
-            {t('dashboard.backhand')} {(data.distribution.backhand * 100).toFixed(0)}%
-          </Text>
-          <Text className="distribution-item">
-            {t('dashboard.middle')} {(data.distribution.middle * 100).toFixed(0)}%
-          </Text>
+          <View className="dist-item">
+            <View className="dist-dot" style={{ background: 'var(--color-primary)' }} />
+            <Text>
+              {t('dashboard.forehand')} {(data.distribution.forehand * 100).toFixed(0)}%
+            </Text>
+          </View>
+          <View className="dist-item">
+            <View className="dist-dot" style={{ background: 'var(--color-secondary)' }} />
+            <Text>
+              {t('dashboard.backhand')} {(data.distribution.backhand * 100).toFixed(0)}%
+            </Text>
+          </View>
+          <View className="dist-item">
+            <View className="dist-dot" style={{ background: 'var(--color-success)' }} />
+            <Text>
+              {t('dashboard.middle')} {(data.distribution.middle * 100).toFixed(0)}%
+            </Text>
+          </View>
         </View>
 
-        {/* 来源 */}
-        <View className="heatmap-footer">
-          <Text className="footer-item">
-            {t('dashboard.totalRallies')}: {data.total_rallies}
-          </Text>
-          <Text className="footer-item">
-            {t('dashboard.sourceReports')}: {data.source_reports_count}
-          </Text>
+        {/* 来源（R-FE-R1 批次C FE-P3-9：两端对齐 stat-row 两行，替代单行拼接） */}
+        <View className="heatmap-stats">
+          <View className="stat-row">
+            <Text className="stat-label">{t('dashboard.totalRallies')}</Text>
+            <Text className="stat-value">{data.total_rallies}</Text>
+          </View>
+          <View className="stat-row">
+            <Text className="stat-label">{t('dashboard.sourceReports')}</Text>
+            <Text className="stat-value">{data.source_reports_count}</Text>
+          </View>
         </View>
       </View>
     </View>

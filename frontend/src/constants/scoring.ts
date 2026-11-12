@@ -50,6 +50,20 @@ export const SCORE_METHODS: ScoreMethodOption[] = [
   { value: 'rally_point', labelKey: 'scoring.method.forehand_loop', technique: 'forehand_loop' },
 ]
 
+/**
+ * 每局目标分选项（R-FE-R1 批次C FE-P2-13：04-scoring v1.0 L478 承诺 21 分制；
+ * 后端契约 target_score 1-21，11/21 为需求承诺的预设切换项）
+ */
+export interface TargetScoreOption {
+  value: 11 | 21
+  labelKey: string
+}
+
+export const TARGET_SCORE_OPTIONS: TargetScoreOption[] = [
+  { value: 11, labelKey: 'scoring.targetScore11' },
+  { value: 21, labelKey: 'scoring.targetScore21' },
+]
+
 /** 比赛状态映射（列表筛选 + 状态标签） */
 export interface MatchStatusMeta {
   labelKey: string

@@ -11,6 +11,7 @@ import { View, Text } from '@tarojs/components'
 import { Button, Progress, Skeleton } from '@nutui/nutui-react'
 import { useVideoAnalysisStore } from '@/stores/videoAnalysisStore'
 import { useAnalysisProgress } from '@/hooks/useAnalysisProgress'
+import BadgeUnlockPopup from '@/components/BadgeUnlockPopup'
 import { useTranslation } from 'react-i18next'
 import './index.scss'
 
@@ -160,6 +161,11 @@ export default function ProgressPage() {
           </Button>
         </View>
       )}
+
+      {/* R-FE-R1 批次B（FE-P1-8）：徽章弹层补挂——分析完成触发「首分析/分析 N 次」
+          类徽章时用户正位于 processing 页（09-gamification L1039-1040「在首页或全局
+          布局中调用」；useBadgeUnlock 共享单例监听，多页挂载无重复连接风险） */}
+      <BadgeUnlockPopup />
     </View>
   )
 }

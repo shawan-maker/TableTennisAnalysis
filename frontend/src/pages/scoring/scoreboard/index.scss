@@ -15,6 +15,37 @@
   font-size: var(--fs-caption);
 }
 
+/* R-FE-R1 批次B（FE-P1-6）：局数/局分行（bo 多局模式大比分） */
+.game-info {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-card);
+  border-top: 1px solid var(--color-divider);
+
+  .game-number {
+    font-size: var(--fs-caption);
+    color: var(--color-text-secondary);
+  }
+
+  .games-score {
+    font-size: var(--fs-caption);
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+}
+
+/* R-FE-R1 批次B（FE-P2-7）：deuce 提示条（10:10 后「需领先 2 分」） */
+.deuce-hint {
+  padding: var(--spacing-sm);
+  background: var(--color-warning);
+  color: var(--color-text-inverse);
+  text-align: center;
+  font-size: var(--fs-caption);
+}
+
 /* 比分显示区 */
 .score-display {
   display: flex;

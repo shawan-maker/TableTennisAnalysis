@@ -99,6 +99,8 @@
   position: relative;
   width: 100%;
   height: 200px;
+  /* R-FE-R1 批次C（FE-P3-11）：补左轴线（设计 L102，修复前丢失） */
+  border-left: 1px solid var(--color-divider);
   border-bottom: 1px solid var(--color-divider);
 
   .target-line {
@@ -106,8 +108,10 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: var(--color-secondary);
-    border-top: 1px dashed var(--color-secondary);
+    /* R-FE-R1 批次C（FE-P3-11）：目标参考线改 --color-warning 橙
+       （设计 L1096-1098；修复前误用 secondary 深蓝与数据线同色系语义混淆） */
+    background: var(--color-warning);
+    border-top: 1px dashed var(--color-warning);
     z-index: 0;
 
     .target-label {
@@ -115,7 +119,7 @@
       right: 0;
       top: -18px;
       font-size: 10px;
-      color: var(--color-secondary);
+      color: var(--color-warning);
     }
   }
 

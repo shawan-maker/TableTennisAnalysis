@@ -65,6 +65,11 @@ export default {
     refuse: 'Refuse',
     consentRequired: 'You must agree to the privacy policy to continue',
     consentFailed: 'Consent recording failed, please retry',
+    // R-FE-R1 批次B（FE-P2-1/P2-2）：我的 Tab 登录引导 + 退出登录
+    loginPrompt: 'Tap to sign in',
+    loginPromptDesc: 'Sign in to view your profile, reports and orders',
+    logout: 'Sign Out',
+    logoutConfirm: 'Sign out of this account?',
   },
   user: {
     kqsRating: 'KQS Rating',
@@ -186,6 +191,8 @@ export default {
     losses: 'L',
     analysisCount: 'Analyses',
     streakDays: 'Streak',
+    trainingFreq: 'Training',
+    timesPerWeek: '/week',
     days: 'days',
     times: 'times',
     quickActions: 'Quick Actions',
@@ -260,6 +267,7 @@ export default {
     appVersion: 'App Version',
     userAgreement: 'Terms of Service',
     privacyPolicy: 'Privacy Policy',
+    webviewFallback: 'Web view is not supported in this environment',
     checkUpdate: 'Check for Updates',
     feedback: 'Feedback',
     alreadyLatest: 'You are on the latest version',
@@ -283,6 +291,10 @@ export default {
     matchType_friendly: 'Friendly',
     matchType_tournament: 'Tournament',
     matchType_training: 'Training',
+    // R-FE-R1 批次C（FE-P2-13）：每局目标分 11/21 切换（v1.0 L478 承诺）
+    targetScore: 'Points per Game',
+    targetScore11: '11 points',
+    targetScore21: '21 points',
     startMatch: 'Start Match',
     createFailed: 'Failed to create match',
     fillOpponentName: 'Please enter opponent name',
@@ -308,6 +320,18 @@ export default {
     resumeFailed: 'Resume failed',
     matchFinished: 'Match finished',
     wsDisconnected: 'Connection lost, reconnecting...',
+    // R-FE-R1 批次B（FE-P1-6/P2-7/P2-8）：局分显示 + deuce 提示 + 换边/关键分
+    gameNumber: 'Game {{game}}',
+    gamesScore: 'Games {{user}}:{{opp}}',
+    deuceHint: 'Deuce! Win by 2 points to take this game',
+    changeSides: 'Game over, please change sides',
+    keyPoint: 'Key point!',
+    // R-FE-R1 批次B（FE-P2-9/10/11 + FE-P3-28）：统计页赛后动作 + 关键分聚合
+    shareResult: 'Share Result',
+    linkVideoAnalysis: 'Link Video Analysis',
+    viewDashboard: 'Go to Dashboard',
+    shareCopied: 'Match result copied',
+    keyPointsSummary: 'Key points won {{won}}/{{total}} ({{pct}}%)',
     // Match statistics page
     youWin: 'You Win',
     youLose: 'You Lose',
@@ -362,6 +386,9 @@ export default {
     fillScore: 'Please enter scores',
     submit: 'Submit',
     switchToDetailed: 'Switch to Detailed Entry →',
+    // R-FE-R1 批次B（FE-P2-15/FE-P1-14）：双向切换 + 局分语义校验
+    switchToQuick: 'Switch to Quick Entry →',
+    invalidScoreByFormat: 'Scores for this format are games won (e.g. 3:1 for BO5), please check the format or score',
     selectMethod: 'Select Method',
     iScored: 'I Scored',
     opponentScored: 'Opponent Scored',
@@ -465,6 +492,7 @@ export default {
   // data_dashboard module (06-data_dashboard/frontend.md §7)
   dashboard: {
     title: 'Dashboard',
+    loadFailed: 'Failed to load data, please retry',
     winRate: 'Win Rate',
     wins: 'W',
     losses: 'L',
@@ -543,7 +571,9 @@ export default {
     ballSpeed: 'Ball Speed',
     scoreAnalysis: 'Score Analysis',
     avgRallyLength: 'Avg Rally Length',
+    maxRallyLength: 'Max Rally',
     avgBallSpeed: 'Avg Ball Speed',
+    maxBallSpeed: 'Max Ball Speed',
     winRate: 'Win Rate',
     period: {
       month: 'Last Month',
@@ -619,6 +649,11 @@ export default {
     trendAchieved: 'Achieved',
     trendNew: 'New',
     trendResolved: 'Resolved',
+    // R-FE-R2 (FE-P3-16): plan adjustment action keys (consumed by ADJUSTMENT_ACTION_MAP; batch D closure)
+    actionMaintain: 'Maintain',
+    actionAdjust: 'Adjust',
+    actionEscalate: 'Escalate',
+    actionNewGoal: 'New Goal',
     fetchAdviceFailed: 'Failed to get training advice',
     planReEvaluated: 'Plan re-evaluated',
     reEvaluateFailed: 'Re-evaluation failed',
@@ -695,6 +730,9 @@ export default {
     statusClosed: 'Closed',
     statusNone: 'Free User',
     expireAt: 'Expires',
+    autoRenew: 'Auto Renewal',
+    autoRenewOn: 'On',
+    autoRenewOff: 'Off',
     daysRemaining: '{{days}} days remaining',
     renewNow: 'Renew Now',
     expiringSoonBanner: 'Your membership expires in {{days}} days. Renew now to keep your benefits.',
@@ -737,6 +775,7 @@ export default {
     paidAt: 'Paid At',
     continuePay: 'Continue Payment',
     membershipActive: 'Membership Active',
+    manageRenewal: 'Manage Renewal',
     noOrders: 'No orders yet',
     tierMember: 'Member',
     tierPro: 'Pro',
@@ -769,15 +808,33 @@ export default {
     suffixYearly: '/yr',
     // 货币符号与实际支付币种一致（微信支付人民币计价），非英语地区符号
     currencySymbol: '¥',
+    tiersLoadFailed: 'Failed to load pricing, please retry',
   },
   notification: {
     title: 'Notifications',
+    ariaBell: 'Notifications, {{count}} unread',
     markAllRead: 'Mark All Read',
     empty: 'No notifications',
     types: { analysis_complete: 'Analysis Complete', payment_success: 'Payment Success', training_reminder: 'Training Reminder', score_update: 'Score Update', badge_unlocked: 'Badge Unlocked' },
     filterAll: 'All',
     filterUnread: 'Unread',
     filterRead: 'Read',
+  },
+  // R-FE-R1 批次B（FE-P2-22/23）：社区 Tab 预告占位页（14-tab-pages/community-tab.md §5）
+  // 12 key 逐字取自设计文档 §5 文案；功能 Phase 3+ 上线前以预告卡呈现
+  community: {
+    comingSoon: 'Coming Soon',
+    comingSoonDesc: 'Community features are under development, stay tuned',
+    previewTitle: 'Coming Features',
+    previewRanking: 'Rankings',
+    previewRankingDesc: 'View player rankings and find matched opponents',
+    previewCircle: 'Player Circle',
+    previewCircleDesc: 'Share training tips and match experiences',
+    previewChallenge: 'Challenges',
+    previewChallengeDesc: 'Join online challenges and earn badges',
+    previewShare: 'Highlights',
+    previewShareDesc: 'Share analysis videos and highlight reels',
+    footerHint: 'Follow us for launch notifications',
   },
   // technique domain reuses the FS1 top-level definition (favorite_shot labels;
   // its 9 keys cover the 7 keys listed in 03-video_analysis §7)

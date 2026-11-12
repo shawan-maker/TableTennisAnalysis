@@ -21,8 +21,9 @@
  *   无 id/is_read/created_at，此处合成完整 item；负时间戳 id 防与 DB 主键冲突）
  * - sync → setUnreadCount(data.unread_count)（后端 on_ws_reconnect 重连补偿，
  *   data 直接携带未读数；缺失时回退 fetchUnreadCount）
- * - export_completed → fetchUnreadCount()（实施计划 FS6 角标三事件之一；
- *   后端 tasks/user.py L216 直推不落库，幂等刷新角标）
+ * - export_completed → fetchUnreadCount() + userStore.handleExportCompleted(data)
+ *   （实施计划 FS6 角标三事件之一 + 02-user L353-359 导出状态即时刷新；
+ *   后端 tasks/user.py L216 直推不落库，幂等）
  * - membership_downgrade → membershipStore.refreshAll()（10-membership §9：
  *   后端 Beat 到期降级任务推送，静默刷新当前会员状态/额度）
  * - 其余事件（badge_unlocked / payment_success / analysis_* / score_update 等）
@@ -33,6 +34,7 @@ import Taro from '@tarojs/taro'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useMembershipStore } from '@/stores/membershipStore'
+import { useUserStore } from '@/stores/userStore'
 
 const RECONNECT_DELAYS = [1, 2, 4, 8, 16] // 秒，指数退避
 const HEARTBEAT_INTERVAL = 30000 // 30s
@@ -122,6 +124,11 @@ export function handleBuiltinEvent(msg: WsMessage): boolean {
     case 'export_completed':
       // 实施计划 FS6 角标三事件之一（后端直推不落库，幂等刷新角标）
       store.fetchUnreadCount()
+      // R-FE-R1 批次B（FE-P2-3）：导出弹窗即时刷新——userStore.handleExportCompleted
+      // 消费缺口接线（02-user frontend.md L353-359「WS 即时刷新替代轮询」；修复前
+      // 该分支仅刷角标，轮询上限 5×3s 耗尽后导出状态永久停留「处理中」；
+      // userStore 仅依赖 services/user，静态 import 无循环依赖）
+      useUserStore.getState().handleExportCompleted(msg.data)
       return true
     case 'membership_downgrade':
       // 后端 Beat 到期降级任务推送（10-membership §9：刷新会员状态/额度）

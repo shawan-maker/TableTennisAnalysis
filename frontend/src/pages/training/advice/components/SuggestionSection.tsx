@@ -5,37 +5,12 @@
 import { View, Text } from '@tarojs/components'
 import { useTranslation } from 'react-i18next'
 import type { SuggestionItem } from '@/services/training'
+// R-FE-R2（FE-P3-17）：SUGGESTION_TYPE 映射收敛至 constants/training（§7 L1870-1904）
+import { SUGGESTION_TYPE_MAP } from '@/constants/training'
 import './SuggestionSection.scss'
 
 interface Props {
   suggestions: SuggestionItem[]
-}
-
-/** 建议类型映射（§7 SUGGESTION_TYPE_MAP，labelKey 对应 i18n training.*） */
-const SUGGESTION_STYLE_MAP: Record<
-  string,
-  { icon: string; color: string; labelKey: string }
-> = {
-  progress_confirm: {
-    icon: '✅',
-    color: 'var(--color-success)',
-    labelKey: 'training.progressConfirm',
-  },
-  persistent_warning: {
-    icon: '⚠️',
-    color: 'var(--color-accent)',
-    labelKey: 'training.persistentWarning',
-  },
-  new_issue: {
-    icon: '🔴',
-    color: 'var(--color-primary)',
-    labelKey: 'training.newIssue',
-  },
-  first_analysis: {
-    icon: 'ℹ️',
-    color: 'var(--color-secondary)',
-    labelKey: 'training.firstAnalysis',
-  },
 }
 
 export default function SuggestionSection({ suggestions }: Props) {
@@ -56,7 +31,8 @@ export default function SuggestionSection({ suggestions }: Props) {
     <View className="suggestion-section">
       <Text className="section-title">🏋️ {t('training.suggestions')}</Text>
       {suggestions.map((item, i) => {
-        const style = SUGGESTION_STYLE_MAP[item.type] || SUGGESTION_STYLE_MAP.new_issue
+        // R-FE-R2（FE-P3-17）：映射外值兜底 new_issue（与原内联 SUGGESTION_STYLE_MAP 行为一致）
+        const style = SUGGESTION_TYPE_MAP[item.type] || SUGGESTION_TYPE_MAP.new_issue
 
         return (
           <View

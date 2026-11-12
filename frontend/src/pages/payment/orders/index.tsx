@@ -10,6 +10,7 @@
  * - Empty 组件按 NutUI 2.7.14 真实 API 用 title（样例 description 不存在）
  */
 import { useEffect, useState } from 'react'
+import Taro from '@tarojs/taro'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { Cell, Tag, Tabs, Empty, Skeleton } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
@@ -122,6 +123,15 @@ export default function OrderList() {
                 {order.status === 'paid' && order.product_type === 'membership' && (
                   <View className="order-actions">
                     <Text className="action-membership">{t('payment.membershipActive')}</Text>
+                    {/* R-FE-R1 批次C（FE-P2-20）：「管理续费」短期落地为会员中心入口引导
+                        （auto-renew 操作端点与订单关联字段属中期跨栈）；
+                        自动续费状态展示在会员页 current-card */}
+                    <Text
+                      className="action-renew"
+                      onClick={() => Taro.navigateTo({ url: '/pages/membership/index' })}
+                    >
+                      {t('payment.manageRenewal')}
+                    </Text>
                   </View>
                 )}
               </Cell>

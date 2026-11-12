@@ -1903,6 +1903,8 @@ export const ADJUSTMENT_ACTION_MAP = {
 } as const
 ```
 
+> **R-FE-R2 注记（批次 C，FE-P3-16/17）**：SEVERITY/TREND/SUGGESTION_TYPE/ADJUSTMENT_ACTION 四映射已收敛至 `constants/training.ts`（组件内联副本移除）。本表样例 labelKey 复用 TREND 键系（`training.trend.*`，复制痕迹、语义不通——「维持」≠「改善中」），实现按动作语义新增专用平铺键 `training.actionMaintain/actionAdjust/actionEscalate/actionNewGoal`（双语已备，批次 D 补齐），**以实现为准**。
+
 ---
 
 ## 8. 验证清单

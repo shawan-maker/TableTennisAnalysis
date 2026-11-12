@@ -12,6 +12,7 @@ import { Cell, Button, Input, Toast, Popup, Swipe } from '@nutui/nutui-react'
 import { useMatchDataStore } from '@/stores/matchDataStore'
 import { useTranslation } from 'react-i18next'
 import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS, SCORE_METHODS } from '@/constants/scoring'
+import { validateScoreByFormat } from '@/constants/matchData'
 import type { ScoreDetailItem } from '@/services/matchData'
 import './index.scss'
 
@@ -94,6 +95,13 @@ export default function DetailedEntry() {
     }
     if (myScore === oppScore) {
       showToast(t('matchData.scoreCannotBeEqual'))
+      return
+    }
+    // R-FE-R1 批次B（FE-P1-14）：局分语义前端预校验——明细为逐分记录但
+    // my_score/opponent_score 按后端契约为局分（bo5 → 3:1），逐分累计式
+    // 总分（≈40+）必 422；此处拦截并提示换算口径（自定义赛制不受限）
+    if (!validateScoreByFormat(parseInt(myScore, 10), parseInt(oppScore, 10), FORMAT_OPTIONS[formatIdx].value)) {
+      showToast(t('matchData.invalidScoreByFormat'))
       return
     }
 
@@ -249,6 +257,15 @@ export default function DetailedEntry() {
         <Button type="primary" block loading={isLoading} onClick={handleSubmit}>
           {t('matchData.submit')}
         </Button>
+      </View>
+
+      {/* R-FE-R1 批次B（FE-P2-15）：快速录入 ↔ 详细录入双向切换
+          （frontend.md L1322，修复前仅 quick→detailed 单向） */}
+      <View
+        className="entry-switch"
+        onClick={() => Taro.redirectTo({ url: '/pages/match-data/quick-entry/index' })}
+      >
+        <Text>{t('matchData.switchToQuick')}</Text>
       </View>
 
       {/* 得分方式选择弹窗（底部 Popup，2 列 Grid） */}

@@ -28,6 +28,10 @@ export interface MatchDetail {
   current_score?: string | null
   current_server?: 'user' | 'opponent' | null
   current_game: number
+  // R-FE-R1 批次B（FE-P1-6 跨栈）：局分（后端 MatchDetail schema 已暴露，
+  // app/schemas/scoring.py 镜像 model games_won_user/opp——bo3/bo5 大比分）
+  games_won_user?: number
+  games_won_opp?: number
   is_win?: boolean | null
   final_score?: string | null
   created_at?: string | null
@@ -88,6 +92,10 @@ interface ScoringState {
   currentStatistics: MatchStatistics | null
   isLoading: boolean
   isScoring: boolean
+  // R-FE-R1 批次B（FE-P2-8）：doScore 响应的 should_change_sides/is_key_point
+  // 消费缺口——修复前响应体被丢弃，换边/关键分提示全链路不可达
+  //（后端 ScoreResponse L115-117 早已返回，backend.md L1642「must 返回」）
+  lastScoreFlags: { should_change_sides: boolean; is_key_point: boolean } | null
 
   // Actions
   createMatch: (params: scoringApi.MatchCreateParams) => Promise<number>
@@ -101,6 +109,8 @@ interface ScoringState {
   fetchStatistics: (matchId: number) => Promise<void>
   /** WS score_update 乐观更新（随后由 fetchMatch 对账，双路径不冲突） */
   applyWsScoreUpdate: (matchId: number, data: WsScoreUpdateData) => void
+  /** R-FE-R1 批次B（FE-P2-8）：消费 score 响应提示标记（页面弹 Toast 后调用清空） */
+  consumeScoreFlags: () => void
   clearCurrent: () => void
 }
 
@@ -109,6 +119,7 @@ export const useScoringStore = create<ScoringState>((set, get) => ({
   currentStatistics: null,
   isLoading: false,
   isScoring: false,
+  lastScoreFlags: null,
 
   createMatch: async (params) => {
     set({ isLoading: true })
@@ -155,7 +166,18 @@ export const useScoringStore = create<ScoringState>((set, get) => ({
   doScore: async (matchId, params) => {
     set({ isScoring: true })
     try {
-      await scoringApi.score(matchId, params)
+      // R-FE-R1 批次B（FE-P2-8）：捕获 ScoreResponse 的 should_change_sides /
+      // is_key_point（修复前直接丢弃，全链路零消费）
+      const res: any = await scoringApi.score(matchId, params)
+      const data = res?.data?.data
+      if (data && (data.should_change_sides || data.is_key_point)) {
+        set({
+          lastScoreFlags: {
+            should_change_sides: !!data.should_change_sides,
+            is_key_point: !!data.is_key_point,
+          },
+        })
+      }
       // 重新拉取比赛详情
       await get().fetchMatch(matchId)
     } catch (error) {
@@ -252,6 +274,11 @@ export const useScoringStore = create<ScoringState>((set, get) => ({
         status: currentMatch.status, // 状态变化统一由 fetchMatch / match_finished 事件对账
       },
     })
+  },
+
+  /** R-FE-R1 批次B（FE-P2-8）：页面消费提示标记后清空（防重复弹 Toast） */
+  consumeScoreFlags: () => {
+    set({ lastScoreFlags: null })
   },
 
   clearCurrent: () => {

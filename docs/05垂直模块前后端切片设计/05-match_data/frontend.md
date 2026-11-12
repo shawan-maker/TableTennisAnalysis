@@ -550,6 +550,15 @@ export default function DetailedEntry() {
         </Button>
       </View>
 
+      {/* R-FE-R2（FE-P2-15）：快速录入 ↔ 详细录入双向切换
+          （修复前仅 quick→detailed 单向，与下方验证清单「双向可切换」自相矛盾） */}
+      <View
+        className="entry-switch"
+        onClick={() => Taro.redirectTo({ url: '/pages/match-data/quick-entry/index' })}
+      >
+        <Text>{t('matchData.switchToQuick')}</Text>
+      </View>
+
       {/* 得分方式选择弹窗（底部 Popup） */}
       <Popup
         visible={showMethodDialog}
@@ -1319,7 +1328,7 @@ cd frontend && npm run build:h5
 ### 功能验证
 - [ ] 快速录入：填写对手 + 比分 → 提交 → Toast 显示胜负 → 返回
 - [ ] 详细录入：添加得分 → 选择方式 → 自动更新比分 → 左滑删除 → 提交
-- [ ] 快速录入 ↔ 详细录入可切换
+- [ ] 快速录入 ↔ 详细录入可切换（R-FE-R2 FE-P2-15：detailed 页已补 entry-switch 反向切换（redirectTo quick），双向达成——修复前仅 quick→detailed 单向，与样例 L343 口径自相矛盾）
 - [ ] 比赛记录列表：按全部/胜场/负场筛选 → 点击进入详情
 - [ ] 详情页展示逐分明细（如有）
 - [ ] 上拉加载更多

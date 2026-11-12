@@ -12,14 +12,26 @@
  *    变更时将宿主 alt 同步到内部 img（幂等；alt 后置变化——如异步加载
  *    的用户昵称——由 attribute 监听覆盖）。
  *
+ * 3. aria-live 播报区（R-FE-R1 批次C FE-P2-26，总览 §3.8 L457「WS 推送
+ *    通知 aria-live="polite"」）：Taro A11yProps 无 ariaLive prop，未读角标
+ *    `.notif-bell-badge`（NotificationBell）的动态计数在此补 aria-live=polite，
+ *    读屏在未读数变化时播报。weapp 端微信原生无 aria-live（平台限制）。
+ *
  * weapp 端 Taro 编译期注入 TARO_ENV 常量，'h5' 分支被 tree-shake；
  * jest 环境 TARO_ENV 未注入时同走早退。
  */
 const FOCUSABLE_SCROLLABLE_SELECTOR = '.taro_page, .filter-bar'
+const LIVE_REGION_SELECTOR = '.notif-bell-badge'
 
 function patchScrollable(el: Element): void {
   if (!el.hasAttribute('tabindex')) {
     el.setAttribute('tabindex', '0')
+  }
+}
+
+function patchLiveRegion(el: Element): void {
+  if (!el.hasAttribute('aria-live')) {
+    el.setAttribute('aria-live', 'polite')
   }
 }
 
@@ -43,7 +55,11 @@ function patchNode(node: Element): void {
     if (node.matches?.(FOCUSABLE_SCROLLABLE_SELECTOR)) {
       patchScrollable(node)
     }
+    if (node.matches?.(LIVE_REGION_SELECTOR)) {
+      patchLiveRegion(node)
+    }
     node.querySelectorAll?.(FOCUSABLE_SCROLLABLE_SELECTOR).forEach(patchScrollable)
+    node.querySelectorAll?.(LIVE_REGION_SELECTOR).forEach(patchLiveRegion)
     node.querySelectorAll?.('taro-image-core').forEach(patchImageAlt)
   }
 }

@@ -32,6 +32,17 @@
     justify-content: space-between;
     padding: var(--spacing-sm-md);
     border-bottom: 1px solid var(--color-divider);
+    /* R-FE-R1 批次C（FE-P3-6）：胜负 4px 左边框（设计 L1220-1223，
+       修复前空规则注释「由结果标签承担」无设计豁免注记） */
+    border-left: 4px solid transparent;
+
+    &.card-win {
+      border-left-color: var(--color-success);
+    }
+
+    &.card-lose {
+      border-left-color: var(--color-primary);
+    }
 
     &:last-of-type {
       border-bottom: none;
@@ -88,7 +99,7 @@
     }
 
     &.card-win .record-result.win {
-      /* 胜场卡片高亮由结果标签承担，无额外背景 */
+      /* 胜场卡片高亮由 4px 左边框（card-win）承担，标签底色保留 */
     }
   }
 

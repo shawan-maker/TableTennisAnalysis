@@ -49,8 +49,9 @@ export default defineAppConfig({
     'pages/payment/orders/index',
     // ===== notification 域（1）=====
     'pages/notification/list/index',
-    // ===== 公共页面（3）=====
+    // ===== 公共页面（4）=====
     'pages/settings/index',       // 设置页
+    'pages/settings/webview/index', // 协议 WebView 承载页（R-FE-R1 批次B FE-P2-21）
     'pages/onboarding/index',     // 新用户引导首页
     'pages/onboarding/profile/index', // 新用户资料填写页
   ],

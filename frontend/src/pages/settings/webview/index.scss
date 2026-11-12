@@ -1,0 +1,36 @@
+/**
+ * 协议 WebView 承载页样式（R-FE-R1 批次B FE-P2-21）
+ * weapp 端 WebView 组件全屏覆盖（小程序 web-view 自动铺满），
+ * 本文件主要承载 H5 降级提示分支样式
+ */
+.settings-webview-page {
+  min-height: 100vh;
+  background: var(--color-background);
+}
+
+.webview-fallback {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+
+  .fallback-icon {
+    font-size: 32px; // 既有先例（ActionGuideCard 等 emoji 直接值，无 --fs-display token）
+    margin-bottom: var(--spacing-md);
+  }
+
+  .fallback-title {
+    font-size: var(--fs-title);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .fallback-text {
+    font-size: var(--fs-caption);
+    color: var(--color-text-secondary);
+    text-align: center;
+  }
+}

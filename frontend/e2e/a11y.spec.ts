@@ -1,7 +1,7 @@
 /**
  * FS8-7 axe 无障碍全量扫描（@axe-core/playwright 已装，本 spec 接线）
  *
- * 范围：39 页全量 + onboarding 双页（新用户态二遍扫描，须清 completed 预置）。
+ * 范围：40 页全量 + onboarding 双页（新用户态二遍扫描，须清 completed 预置）。
  * 规则集：wcag2a + wcag2aa（契约化标签，避免默认规则漂移）。
  * 分级口径（04-前端实施计划 FS8-7）：critical/serious 阻塞（本 spec 门禁），
  * moderate/light 记入报告不阻塞（全量落地成本高，按计划入报告）。
@@ -67,14 +67,16 @@ const PAGES: Array<[string, string]> = [
   ['/pages/payment/orders/index', ''],
   ['/pages/notification/list/index', ''],
   ['/pages/settings/index', ''],
+  // R-FE-R2（FE-P2-21）：协议 WebView 承载页——H5 走降级提示分支（weapp 分支 tree-shake）
+  ['/pages/settings/webview/index', '?url=https%3A%2F%2Fexample.com%2Fterms&title=%E7%94%A8%E6%88%B7%E5%8D%8F%E8%AE%AE'],
 ]
 
-test('FS8-7 axe 扫描：39 页 + onboarding 双态，critical/serious 零门禁', async ({ page }) => {
+test('FS8-7 axe 扫描：40 页 + onboarding 双态，critical/serious 零门禁', async ({ page }) => {
   test.setTimeout(300_000)
   const violations: ViolationSummary[] = []
   const pageStates: Array<{ page: string; text: string }> = []
 
-  // onboarding completed 预置（规避 39 页扫描时首页引导跳转）；onboarding 路由本身
+  // onboarding completed 预置（规避 40 页扫描时首页引导跳转）；onboarding 路由本身
   // 跳过预置 → 第二遍整页重载即新用户态（init script 在 setup goto 前注册，先于 auth 脚本）
   await page.addInitScript(() => {
     if (!/#\/pages\/onboarding/.test(location.href)) {
@@ -120,7 +122,7 @@ test('FS8-7 axe 扫描：39 页 + onboarding 双态，critical/serious 零门禁
     await collectAxe(route)
   }
 
-  // ── 第一遍：39 页（onboarding completed 预置，规避首页引导跳转）──
+  // ── 第一遍：40 页（onboarding completed 预置，规避首页引导跳转）──
   for (const [route, query] of PAGES) {
     await scanPage(route, query)
   }

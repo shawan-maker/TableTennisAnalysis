@@ -1,6 +1,9 @@
 /**
  * 会员状态管理（10-membership/frontend.md §3）
  * 三份数据独立 loading，互不阻塞；错误静默（页面以 Skeleton/空态兜底）。
+ *
+ * R-FE-R1 批次B（FE-P2-24）：tiers 加载失败补 tiersError 标志——
+ * 支付创建页据此渲染失败空态 + 禁用支付按钮，防 0 元订单提交。
  */
 import { create } from 'zustand'
 import * as membershipApi from '@/services/membership'
@@ -16,6 +19,8 @@ interface MembershipState {
   isLoadingTiers: boolean
   isLoadingCurrent: boolean
   isLoadingQuota: boolean
+  /** tiers 拉取失败标志（FE-P2-24：支付页失败空态 + 支付按钮守卫） */
+  tiersError: boolean
 
   // Actions
   fetchTiers: () => Promise<void>
@@ -32,14 +37,16 @@ export const useMembershipStore = create<MembershipState>((set) => ({
   isLoadingTiers: false,
   isLoadingCurrent: false,
   isLoadingQuota: false,
+  tiersError: false,
 
   fetchTiers: async () => {
-    set({ isLoadingTiers: true })
+    set({ isLoadingTiers: true, tiersError: false })
     try {
       const res = await membershipApi.getTiers()
       set({ tiers: res.data.data })
     } catch (error) {
       console.error('fetchTiers failed', error)
+      set({ tiersError: true })
     } finally {
       set({ isLoadingTiers: false })
     }

@@ -4,7 +4,12 @@
  * FS4-P3 契约修正（以后端为准）：
  * - trendDetail: 404/40415（无效指标）错误保留在 trendDetailError，页面渲染「指标不存在」分支
  * - problemChanges item 为结构化对象（ProblemChangeItem），渲染用 problem_name
+ *
+ * R-FE-R1 批次B（FE-P2-18）：除 trendDetail（页面级 error state 渲染引导分支）外，
+ * 各 fetch catch 恢复失败 Toast 提示（common.operationFailed，trainingStore 同先例）。
  */
+import Taro from '@tarojs/taro'
+import i18next from 'i18next'
 import { create } from 'zustand'
 import * as progressApi from '@/services/progress'
 import type {
@@ -64,6 +69,7 @@ export const useProgressStore = create<ProgressState>((set) => ({
       set({ snapshots: data.items, snapshotTotal: data.total })
     } catch (err: any) {
       console.error('Failed to fetch snapshots:', err)
+      Taro.showToast({ title: i18next.t('common.operationFailed'), icon: 'none' })
     } finally {
       set({ loading: false })
     }
@@ -76,6 +82,7 @@ export const useProgressStore = create<ProgressState>((set) => ({
       set({ trends: res.data.data.metrics })
     } catch (err: any) {
       console.error('Failed to fetch trends:', err)
+      Taro.showToast({ title: i18next.t('common.operationFailed'), icon: 'none' })
     } finally {
       set({ loading: false })
     }
@@ -101,6 +108,7 @@ export const useProgressStore = create<ProgressState>((set) => ({
       set({ comparison: res.data.data })
     } catch (err: any) {
       console.error('Failed to fetch comparison:', err)
+      Taro.showToast({ title: i18next.t('common.operationFailed'), icon: 'none' })
     } finally {
       set({ loading: false })
     }
@@ -113,6 +121,7 @@ export const useProgressStore = create<ProgressState>((set) => ({
       set({ summary: res.data.data })
     } catch (err: any) {
       console.error('Failed to fetch summary:', err)
+      Taro.showToast({ title: i18next.t('common.operationFailed'), icon: 'none' })
     } finally {
       set({ loading: false })
     }
@@ -125,6 +134,7 @@ export const useProgressStore = create<ProgressState>((set) => ({
       set({ problemChanges: res.data.data })
     } catch (err: any) {
       console.error('Failed to fetch problem changes:', err)
+      Taro.showToast({ title: i18next.t('common.operationFailed'), icon: 'none' })
     } finally {
       set({ loading: false })
     }

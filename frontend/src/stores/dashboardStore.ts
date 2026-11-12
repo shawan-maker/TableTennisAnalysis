@@ -21,19 +21,25 @@ interface DashboardState {
   // 概览
   overview: OverviewData | null
   overviewLoading: boolean
+  // R-FE-R1 批次B（FE-P2-16）：区块错误态（frontend.md L1460「网络错误显示错误提示」
+  // ——修复前五 fetch 均 catch 静默，失败区块永久空白无提示无重试）
+  overviewError: boolean
 
   // 战绩趋势
   winRateTrend: WinRateTrendData | null
   trendPeriod: TrendPeriod
   trendLoading: boolean
+  trendError: boolean
 
   // 技术统计
   techniqueStats: TechniqueStatsData | null
   techniqueLoading: boolean
+  techniqueError: boolean
 
   // 落点热图
   heatmap: LandingHeatmapData | null
   heatmapLoading: boolean
+  heatmapError: boolean
 
   // 比赛记录
   matchRecords: MatchRecordItem[]
@@ -43,6 +49,7 @@ interface DashboardState {
   matchFilter: ResultFilter
   matchLoading: boolean
   matchHasMore: boolean
+  matchError: boolean
 
   // Actions
   fetchOverview: () => Promise<void>
@@ -59,16 +66,20 @@ interface DashboardState {
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   overview: null,
   overviewLoading: false,
+  overviewError: false,
 
   winRateTrend: null,
   trendPeriod: 'month',
   trendLoading: false,
+  trendError: false,
 
   techniqueStats: null,
   techniqueLoading: false,
+  techniqueError: false,
 
   heatmap: null,
   heatmapLoading: false,
+  heatmapError: false,
 
   matchRecords: [],
   matchTotal: 0,
@@ -77,14 +88,16 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   matchFilter: 'all',
   matchLoading: false,
   matchHasMore: false,
+  matchError: false,
 
   fetchOverview: async () => {
-    set({ overviewLoading: true })
+    set({ overviewLoading: true, overviewError: false })
     try {
       const res = await dashboardApi.getOverview()
       set({ overview: res.data.data })
     } catch (err) {
       console.error('Failed to fetch overview:', err)
+      set({ overviewError: true })
     } finally {
       set({ overviewLoading: false })
     }
@@ -92,36 +105,39 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   fetchWinRateTrend: async (period?: TrendPeriod) => {
     const p = period ?? get().trendPeriod
-    set({ trendLoading: true })
+    set({ trendLoading: true, trendError: false })
     try {
       const res = await dashboardApi.getWinRateTrend(p)
       set({ winRateTrend: res.data.data, trendPeriod: p })
     } catch (err) {
       console.error('Failed to fetch win rate trend:', err)
+      set({ trendError: true })
     } finally {
       set({ trendLoading: false })
     }
   },
 
   fetchTechniqueStats: async () => {
-    set({ techniqueLoading: true })
+    set({ techniqueLoading: true, techniqueError: false })
     try {
       const res = await dashboardApi.getTechniqueStats()
       set({ techniqueStats: res.data.data })
     } catch (err) {
       console.error('Failed to fetch technique stats:', err)
+      set({ techniqueError: true })
     } finally {
       set({ techniqueLoading: false })
     }
   },
 
   fetchLandingHeatmap: async () => {
-    set({ heatmapLoading: true })
+    set({ heatmapLoading: true, heatmapError: false })
     try {
       const res = await dashboardApi.getLandingHeatmap()
       set({ heatmap: res.data.data })
     } catch (err) {
       console.error('Failed to fetch landing heatmap:', err)
+      set({ heatmapError: true })
     } finally {
       set({ heatmapLoading: false })
     }
@@ -130,7 +146,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   fetchMatchRecords: async (refresh: boolean = false) => {
     const { matchPage, matchPageSize, matchFilter } = get()
     const page = refresh ? 1 : matchPage
-    set({ matchLoading: true })
+    set({ matchLoading: true, matchError: false })
     try {
       const res = await dashboardApi.getMatchRecords(matchFilter, page, matchPageSize)
       const data: MatchRecordsData = res.data.data
@@ -142,6 +158,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       }))
     } catch (err) {
       console.error('Failed to fetch match records:', err)
+      set({ matchError: true })
     } finally {
       set({ matchLoading: false })
     }

@@ -1,0 +1,103 @@
+/**
+ * 社区 Tab 预告占位页样式（14-tab-pages/community-tab.md §3）
+ * 尺寸按 R18 CSS 变量体系 token 化（13px→--fs-small / 15px→--fs-body / 12px→--fs-caption），
+ * 24px 大标题无对应 token 按既有直接值先例保留
+ */
+.community-tab-page {
+  min-height: 100vh;
+  background: var(--color-background);
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+}
+
+.placeholder-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--spacing-lg) 0;
+  text-align: center;
+
+  .placeholder-image {
+    width: 200px;
+    height: 200px;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .coming-soon-title {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .coming-soon-desc {
+    font-size: var(--fs-small);
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    max-width: 280px;
+  }
+}
+
+.preview-section {
+  margin-top: var(--spacing-lg);
+
+  .section-title {
+    display: block;
+    font-size: var(--fs-body);
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-md);
+    text-align: center;
+  }
+
+  .preview-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-sm);
+  }
+
+  .preview-card {
+    background: var(--color-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    text-align: center;
+    box-shadow: var(--shadow-card);
+    /* R-FE-R2 a11y 修复：原 opacity: 0.7 弱化（预告感）将 preview-desc 的
+       text-secondary 对比度压至 3.2:1 触发 axe serious color-contrast；
+       改 dashed 虚线边框表达「未上线」状态，文字保持达标对比度 */
+    border: 1px dashed var(--color-divider);
+
+    .preview-icon {
+      font-size: 24px;
+      display: block;
+      margin-bottom: var(--spacing-xs);
+    }
+
+    .preview-name {
+      display: block;
+      font-size: var(--fs-small);
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: var(--spacing-xs);
+    }
+
+    .preview-desc {
+      display: block;
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      line-height: 1.4;
+    }
+  }
+}
+
+.footer-section {
+  margin-top: auto;
+  padding: var(--spacing-lg) 0;
+  text-align: center;
+
+  .footer-text {
+    font-size: var(--fs-caption);
+    color: var(--color-text-secondary);
+  }
+}

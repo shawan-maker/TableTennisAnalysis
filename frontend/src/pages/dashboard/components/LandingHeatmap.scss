@@ -38,38 +38,63 @@
       justify-content: center;
       gap: 2px;
 
+      /* R-FE-R1 批次C（FE-P3-7）：text-shadow 提升彩底可读性（设计 L1138/1144） */
       .cell-value {
         font-size: var(--fs-small);
         font-weight: 600;
         color: var(--color-text-inverse);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
       }
 
+      /* FE-P3-7：token 修正——设计为 inverse-secondary（修复前误用 inverse + opacity） */
       .cell-label {
         font-size: 10px;
-        color: var(--color-text-inverse);
-        opacity: 0.85;
+        color: var(--color-text-inverse-secondary);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
       }
     }
   }
 
+  /* R-FE-R1 批次C（FE-P3-8/9）：分布图例三色圆点 + border-top 分隔（设计 L1149-1182） */
   .distribution-row {
     display: flex;
-    justify-content: space-around;
-    margin-bottom: var(--spacing-sm-md);
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--color-divider);
 
-    .distribution-item {
-      font-size: var(--fs-small);
-      color: var(--color-text-primary);
+    .dist-item {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+
+      .dist-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
     }
   }
 
-  .heatmap-footer {
-    display: flex;
-    justify-content: space-between;
+  /* R-FE-R1 批次C（FE-P3-9）：统计行两端对齐（设计 L1149-1163，替代单行拼接） */
+  .heatmap-stats {
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      padding: var(--spacing-xs) 0;
 
-    .footer-item {
-      font-size: var(--fs-caption);
-      color: var(--color-text-secondary);
+      .stat-label {
+        font-size: var(--fs-small);
+        color: var(--color-text-secondary);
+      }
+
+      .stat-value {
+        font-size: var(--fs-small);
+        font-weight: bold;
+        color: var(--color-text-primary);
+      }
     }
   }
 }

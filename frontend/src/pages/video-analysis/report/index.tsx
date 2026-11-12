@@ -14,6 +14,7 @@ import Taro, { useRouter } from '@tarojs/taro'
 import { View, Text, ScrollView, Video } from '@tarojs/components'
 import { Button, Toast, Popup, Skeleton, TextArea } from '@nutui/nutui-react'
 import { useVideoAnalysisStore } from '@/stores/videoAnalysisStore'
+import BadgeUnlockPopup from '@/components/BadgeUnlockPopup'
 import { useTranslation } from 'react-i18next'
 import './index.scss'
 
@@ -313,6 +314,10 @@ export default function ReportPage() {
           </Button>
         </View>
       </Popup>
+
+      {/* R-FE-R1 批次B（FE-P1-8）：徽章弹层补挂（analysis N 次类徽章触发时
+          用户常位于报告页；useBadgeUnlock 共享单例监听无重复连接风险） */}
+      <BadgeUnlockPopup />
 
       <Toast visible={toastVisible} content={toastMsg} onClose={() => setToastVisible(false)} />
     </ScrollView>

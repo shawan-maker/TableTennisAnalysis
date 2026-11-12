@@ -437,11 +437,15 @@ export default function OverviewCards({ data, loading }: Props) {
         <Text className="card-sub">{t('home.times')}</Text>
       </View>
 
-      {/* 连续打卡天数 */}
+      {/* 连续打卡天数（R-FE-R2 FE-P2-4：card-sub 恢复训练频次，对齐 v2.0 §三概览第三卡
+          「训练频次」——streak 主数值保留，撤销原「无注记」悬空态） */}
       <View className="overview-card card-streak">
         <Text className="card-label">{t('home.streakDays')}</Text>
         <Text className="card-value">{data.streak_days}</Text>
-        <Text className="card-sub">{t('home.days')}</Text>
+        <Text className="card-sub">
+          {t('home.trainingFreq')} {data.training_frequency_per_week}
+          {t('home.timesPerWeek')}
+        </Text>
       </View>
     </View>
   )
