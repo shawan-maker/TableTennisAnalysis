@@ -942,6 +942,8 @@ export default function TemplateListPage() {
 
 ### 4.7 模板详情页
 
+> **R-FE-R2 批次F（FE-P2-17）注记：裁剪口径**——v1.0 P1.11 方案卡的「频率：每周3次 / 预期周期：4-6周 / [生成训练单（可打印）]」三项本节未落样例：模板 `template_data` 契约（goal/sessions/exercises/metrics）无 frequency/cycle 字段（字段级补齐需后端扩展，Phase 1 不做）；「生成训练单」意图的实际承接链路为 progress/summary 方案状态卡（training_plan_status.current_plan_id）→ plans/detail 训练单列表页（API §8.7），模板推荐卡的「使用模板」跳会员页升级流程不变；「可打印」在 weapp 无承载，删裁。
+
 ```tsx
 // frontend/src/pages/training/templates/detail.tsx
 import { useEffect } from 'react'

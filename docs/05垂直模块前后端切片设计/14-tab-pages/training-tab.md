@@ -286,6 +286,8 @@ export default {
 
 ### 常量定义
 
+> **R-FE-R2 批次F（FE-P3-18）注记：维持现状**——下方独立常量文件 `constants/trainingTab.ts` 未建，训练 Tab 入口常量内联于 `pages/training/index.tsx`（该页为唯一消费方，无跨页共享需求；内联处注释自证同构）。文件组织级偏差，无行为差异，Phase 1 不收敛；若后续他页需复用入口定义再抽文件。
+
 ```typescript
 // frontend/src/constants/trainingTab.ts
 

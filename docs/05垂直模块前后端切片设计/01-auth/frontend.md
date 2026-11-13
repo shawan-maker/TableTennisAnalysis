@@ -563,7 +563,11 @@ export default {
   pages: [
     'pages/home/index',
     'pages/auth/login/index',     // 新增
-    'pages/auth/h5-bridge/index', // 新增：H5 降级中转页
+    'pages/auth/h5-bridge/index', // H5 降级中转页
+                                    // R-FE-R2 批次F（FE-P1-1）注记：据实关闭——Phase 1 无 3D 教学
+                                    // 等重功能跳 H5 场景，本页不注册（app.config 40 页清单不含它），
+                                    // h5-token/h5-exchange 端点与 generateH5Token/exchangeH5Token
+                                    // service 契约保留待 Phase 2+ 启用时接线。
     'pages/auth/consent/index',   // R20-P1-3: 新增：隐私政策同意页（PIPL 合规＜br>
                                    // R20-P1-3: 需 requires_consent=true 时由 wechatLogin/phoneLogin/checkConsentStatus 跳转至此页
     // ... 其他页面

@@ -161,11 +161,14 @@ export default {
     deletionCancelFailed: '撤销失败，请稍后重试',
   },
   technique: {
-    // 技术标签（favorite_shot 显示；枚举以 game_score 技术标签为准）
-    forehand_loop: '正手弧圈',
-    backhand_loop: '反手弧圈',
-    forehand_drive: '正手快攻',
-    backhand_drive: '反手快攻',
+    // 分析语义技术标签（R-FE-R2 批次F FE-P3-26：报告页 technique_stats 图例 + big-data
+    // favorite_shot 消费；文案对齐 03-video_analysis/frontend.md §7 样例——修复前 zh 值
+    // 装的是记分枚举语义「正手快攻/弧圈」，与 en 侧及设计分析语义不一致；
+    // 记分语境独立走 scoring.method.* / scoring.technique.* 段，两段互不交叉）
+    forehand_loop: '正手拉球',
+    backhand_loop: '反手拉球',
+    forehand_drive: '正手攻球',
+    backhand_drive: '反手拨球',
     serve: '发球',
     push: '搓球',
     flip: '拧拉',

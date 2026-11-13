@@ -45,34 +45,16 @@
       font-weight: bold;
     }
 
+    /* R-FE-R2 批次F（FE-P3-35）：状态底色改由 MEMBERSHIP_STATUS_MAP.color 经内联
+     * style 注入（statusColor），本块四个状态类删除消除双源——
+     * FS8-7 口径保持：chip 位于深色头部，纯色底+白字（white on success 5.2:1） */
     .current-status {
       padding: var(--spacing-xs) 10px;
       border-radius: var(--radius-md);
 
       .status-text {
         font-size: 12px;
-      }
-
-      &.status-active {
-        /* FS8-7: 状态 chip 位于深色头部，透明混合底+彩色文本不达 4.5:1，
-         * 改纯色底+白字（white on success 5.2:1） */
-        background: var(--color-success);
-        .status-text { color: var(--color-text-inverse); }
-      }
-
-      &.status-warning {
-        background: var(--color-accent);
-        .status-text { color: var(--color-text-inverse); }
-      }
-
-      &.status-danger {
-        background: var(--color-primary);
-        .status-text { color: var(--color-text-inverse); }
-      }
-
-      &.status-default {
-        background: var(--color-text-secondary);
-        .status-text { color: var(--color-text-inverse); }
+        color: var(--color-text-inverse);
       }
     }
   }

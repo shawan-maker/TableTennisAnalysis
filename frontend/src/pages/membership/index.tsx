@@ -65,13 +65,14 @@ export default function MembershipCenter() {
     return config ? t(config.labelKey) : status
   }
 
-  /** 状态样式类名 */
-  const statusClass = (status: string): string => {
-    if (status === 'active') return 'status-active'
-    if (status === 'expiring_soon') return 'status-warning'
-    if (status === 'expired' || status === 'closed') return 'status-danger'
-    return 'status-default'
-  }
+  /**
+   * 状态 chip 底色（R-FE-R2 批次F FE-P3-35）：改读 MEMBERSHIP_STATUS_MAP.color 内联，
+   * 删 statusClass/scss 状态类双源——修复前两源已实际漂移（grace_period 落 default 灰
+   * 而映射为 accent 橙；closed 落 danger 红而映射为 secondary 灰）。六态色值以 §7
+   * 常量为唯一权威源，未登记状态兜底 secondary。
+   */
+  const statusColor = (status: string): string =>
+    MEMBERSHIP_STATUS_MAP[status]?.color ?? 'var(--color-text-secondary)'
 
   return (
     <ScrollView scrollY className="membership-page">
@@ -91,7 +92,10 @@ export default function MembershipCenter() {
           <Text className="current-tier-name">
             {t(`membership.tierName.${currentTier}`)}
           </Text>
-          <View className={`current-status ${statusClass(currentStatus)}`}>
+          <View
+            className="current-status"
+            style={{ background: statusColor(currentStatus) }}
+          >
             <Text className="status-text">{statusText(currentStatus)}</Text>
           </View>
         </View>
