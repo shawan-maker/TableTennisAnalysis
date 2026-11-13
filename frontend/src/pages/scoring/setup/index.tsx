@@ -9,7 +9,7 @@ import { Cell, Button, Input, Toast } from '@nutui/nutui-react'
 import { useScoringStore } from '@/stores/scoringStore'
 import { useUserStore } from '@/stores/userStore'
 import { useTranslation } from 'react-i18next'
-import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS, TARGET_SCORE_OPTIONS } from '@/constants/scoring'
+import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS, OPPONENT_STYLE_OPTIONS, TARGET_SCORE_OPTIONS } from '@/constants/scoring'
 import './index.scss'
 
 export default function MatchSetup() {
@@ -19,6 +19,9 @@ export default function MatchSetup() {
   const userProfile = useUserStore((s) => s.profile)
   const [opponentName, setOpponentName] = useState('')
   const [opponentRating, setOpponentRating] = useState('')
+  // R-FE-R2 批次G（FE-P2-14）：对手打法四选项（v1.0 L487）；
+  // idx 0 = 未选择不传（后端 Optional Literal），1-4 映射四打法
+  const [styleIdx, setStyleIdx] = useState(0)
   const [formatIdx, setFormatIdx] = useState(2) // 默认 bo5
   const [typeIdx, setTypeIdx] = useState(0) // 默认 friendly
   // R-FE-R1 批次C（FE-P2-13）：每局目标分（v1.0 L478 21 分制承诺；后端契约 1-21）
@@ -40,6 +43,8 @@ export default function MatchSetup() {
       const matchId = await createMatch({
         opponent_name: opponentName.trim(),
         opponent_rating: opponentRating ? parseInt(opponentRating, 10) : undefined,
+        opponent_playing_style:
+          styleIdx > 0 ? OPPONENT_STYLE_OPTIONS[styleIdx - 1].value : undefined,
         format: FORMAT_OPTIONS[formatIdx].value,
         match_type: MATCH_TYPE_OPTIONS[typeIdx].value,
         target_score: TARGET_SCORE_OPTIONS[targetScoreIdx].value,
@@ -49,7 +54,7 @@ export default function MatchSetup() {
     } catch (err: any) {
       showToast(err?.message || t('scoring.createFailed'))
     }
-  }, [opponentName, opponentRating, formatIdx, typeIdx, targetScoreIdx, createMatch, t])
+  }, [opponentName, opponentRating, styleIdx, formatIdx, typeIdx, targetScoreIdx, createMatch, t])
 
   return (
     <View className="match-setup">
@@ -94,6 +99,26 @@ export default function MatchSetup() {
             maxLength={4}
             onChange={(val: string) => setOpponentRating(val)}
           />
+        }
+      />
+
+      {/* 对手打法（R-FE-R2 批次G FE-P2-14：v1.0 L487 四选项，选填 idx 0 不传） */}
+      <Cell
+        title={t('scoring.opponentPlayingStyle')}
+        extra={
+          <Picker
+            mode="selector"
+            range={[
+              t('scoring.playStyle_unselected'),
+              ...OPPONENT_STYLE_OPTIONS.map((o) => t(o.labelKey)),
+            ]}
+            value={styleIdx}
+            onChange={(e: any) => setStyleIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">
+              {styleIdx > 0 ? t(OPPONENT_STYLE_OPTIONS[styleIdx - 1].labelKey) : t('scoring.playStyle_unselected')}
+            </View>
+          </Picker>
         }
       />
 

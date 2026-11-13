@@ -27,6 +27,8 @@ describe('services/scoring 契约（10 端点）', () => {
     const params: scoringApi.MatchCreateParams = {
       opponent_name: '张三',
       opponent_rating: 1800,
+      // R-FE-R2 批次G（FE-P2-14）：对手打法透传
+      opponent_playing_style: 'loop_drive',
       format: 'bo5',
       match_type: 'friendly',
       target_score: 11,

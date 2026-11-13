@@ -199,14 +199,26 @@ interface ReportDetail {
   is_llm_generated: boolean
   result_data: {
     video_info?: { duration_sec: number; fps: number; resolution: string }
-    rally_analysis?: { total_rallies: number; avg_rally_length: number; max_rally_length: number }
+    rally_analysis?: {
+      total_rallies: number
+      avg_rally_length: number
+      max_rally_length: number
+      /** R-FE-R2 批次G（FE-P2-5）：每回合时长（秒），节奏曲线消费 */
+      rally_tempo?: number[]
+    }
     landing_points?: {
       nine_grid: number[][]
       distribution: { forehand: number; backhand: number; middle: number }
     }
+    /** R-FE-R2 批次G（FE-P1-3）：热图双源（我的/对手九宫格） */
+    landing_heatmap?: { nine_grid: number[][]; opponent_nine_grid?: number[][] }
     technique_stats?: Record<string, number>
     ball_speed?: { avg_speed_mps: number; max_speed_mps: number; speed_range: [number, number] }
-    score_analysis?: { final_score: string; key_points: any[] }
+    /** R-FE-R2 批次G（FE-P2-6）：timestamp 为视频相对秒（marker 点击 seek 消费） */
+    score_analysis?: {
+      final_score: string
+      key_points: { seq: number; score: string; winner: string; timestamp?: number }[]
+    }
   } | null
   report_text: {
     summary: string
@@ -983,16 +995,52 @@ export default function ReportPage() {
         </View>
       )}
 
-      {/* 视频回放 */}
+      {/* 回合节奏曲线（R-FE-R2 批次G FE-P2-5：rally_tempo 折线，v2.0 T2.3 承诺；
+          weapp 无 svg 支持，按 conic 先例用 View 旋转线段绘制） */}
+      {tempoSegments.length > 0 && (
+        <View className="tempo-section">
+          <View className="section-title">{t('analysis.tempoCurve')}</View>
+          <View className="tempo-chart">
+            {tempoSegments.map((seg) => (
+              <View key={seg.key} className="tempo-segment" style={{
+                left: `${seg.left}px`, top: `${seg.top}px`, width: `${seg.width}px`,
+                transform: `rotate(${seg.angle}deg)`,
+              }} />
+            ))}
+            {tempoPts.map((p, i) => (
+              <View key={`dot-${i}`} className="tempo-dot" style={{ left: `${p.x}px`, top: `${p.y}px` }} />
+            ))}
+          </View>
+          <Text className="tempo-hint">{t('analysis.tempoHint')}</Text>
+        </View>
+      )}
+
+      {/* 视频回放（R-FE-R2 批次G FE-P2-6：关键分 marker 点击 seek） */}
       {reportDetail.annotated_video_url && (
         <View className="video-section">
           <View className="section-title">{t('analysis.videoPlayback')}</View>
           <Video
+            id="annotated-video"
             src={reportDetail.annotated_video_url}
             controls
             autoplay={false}
             className="annotated-video"
           />
+          {keyPoints.length > 0 && (
+            <View className="keypoint-list">
+              <Text className="keypoint-title">
+                {t('analysis.keyPoints')} · {t('analysis.keyPointSeek')}
+              </Text>
+              <ScrollView scrollX enhanced showScrollbar={false} className="keypoint-scroll">
+                {keyPoints.map((kp) => (
+                  <View key={`kp-${kp.seq}`} className="keypoint-chip" onClick={() => seekTo(kp.timestamp)}>
+                    <Text className="chip-score">{kp.score}</Text>
+                    <Text className="chip-meta">#{kp.seq} · {formatTime(kp.timestamp)}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       )}
 
@@ -1508,6 +1556,62 @@ export default function ReportListPage() {
   margin-top: var(--spacing-sm);
 }
 
+/* R-FE-R2 批次G（FE-P2-5）：回合节奏曲线（View 旋转线段折线，300×120 画布居中） */
+.tempo-chart {
+  position: relative;
+  width: 300px;
+  height: 120px;
+  margin: 0 auto;
+  overflow: hidden;
+
+  .tempo-segment {
+    position: absolute;
+    height: 2px;
+    background: var(--color-primary);
+    transform-origin: 0 50%;
+  }
+
+  .tempo-dot {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    margin: -2px 0 0 -3px;
+    border-radius: 50%;
+    background: var(--color-primary);
+  }
+}
+
+.tempo-hint {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--color-text-secondary);
+  margin-top: var(--spacing-sm);
+}
+
+/* R-FE-R2 批次G（FE-P2-6）：关键分 marker（横向滚动 chip 列表） */
+.keypoint-title {
+  display: block;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-top: var(--spacing-sm-md);
+}
+
+.keypoint-scroll {
+  white-space: nowrap;
+  margin-top: var(--spacing-sm);
+
+  .keypoint-chip {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    margin-right: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    background: var(--color-background);
+  }
+}
+
 .technique-chart {
   display: flex;
   align-items: center;
@@ -1854,6 +1958,10 @@ export default {
     "myLanding": "我的落点",
     "opponentLanding": "对手落点",
     "landingHint": "正手使用率 {{forehand}}%",
+    "tempoCurve": "回合节奏曲线",
+    "tempoHint": "横轴为回合序号，纵轴为回合时长（秒），曲线走低代表节奏加快",
+    "keyPoints": "关键分",
+    "keyPointSeek": "点击回放",
     "techniqueDistribution": "技术动作分布",
     "ballSpeed": "击球球速",
     "speedHint": "球速为估算范围值，误差 20-30%",
@@ -1938,9 +2046,13 @@ export default {
     "avgRallyLength": "Avg Rally",
     "maxRallyLength": "Max Rally",
     "landingDistribution": "Landing Distribution",
-    "myLanding": "My Landing",
-    "opponentLanding": "Opponent",
+    "myLanding": "My Landings",
+    "opponentLanding": "Opponent Landings",
     "landingHint": "Forehand {{forehand}}%",
+    "tempoCurve": "Rally Tempo Curve",
+    "tempoHint": "X: rally index, Y: rally duration (s). Lower points mean faster tempo",
+    "keyPoints": "Key Points",
+    "keyPointSeek": "Tap to replay",
     "techniqueDistribution": "Technique Distribution",
     "ballSpeed": "Ball Speed",
     "speedHint": "Estimated range, 20-30% error margin",
@@ -2110,13 +2222,16 @@ cd frontend && npm run build:h5
 - [ ] 视频回放组件正常加载和播放
 - [ ] 反馈按钮：准确使用成功色 `#2A9D8F`，不准使用主色 `#E63946`
 - [ ] 分享按钮固定在底部
+- [ ] 节奏曲线折线渲染正确（点数=回合数，低时长点位低）<!-- R-FE-R2 批次G FE-P2-5 -->
+- [ ] 关键分 chip 显示比分+序号+时刻（m:ss）<!-- R-FE-R2 批次G FE-P2-6 -->
 
 ### 功能验证
 - [ ] 选择/拍摄视频 → 校验格式/大小 → 获取上传凭证 → OSS 直传 → 确认上传 → 创建任务
 - [ ] 进度页 WebSocket 实时推送 + 轮询兜底
 - [ ] 分析完成后自动跳转报告页
-- [ ] 报告页展示：核心数据 → 热图 → 技术统计 → 球速 → 结论 → 视频回放 → 反馈 → 分享
+- [ ] 报告页展示：核心数据 → 热图 → 技术统计 → 节奏曲线 → 球速 → 结论 → 视频回放 → 反馈 → 分享
 - [ ] 落点热图可切换"我的落点"/"对手落点"
+- [ ] 点击关键分 chip 视频跳转到对应时刻（marker seek）<!-- R-FE-R2 批次G FE-P2-6 -->
 - [ ] 反馈弹窗底部弹出，提交后显示"已提交"
 - [ ] 分享链接复制到剪贴板
 

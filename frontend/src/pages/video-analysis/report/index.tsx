@@ -9,7 +9,7 @@
  * - NutUI 2.7.14 文本域组件为 TextArea（设计样例 Textarea 为 1.x 命名）
  * - is_readonly（会员到期降级，R15）展示分支归 FS6 会员 Sprint 消费
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Taro, { useRouter } from '@tarojs/taro'
 import { View, Text, ScrollView, Video } from '@tarojs/components'
 import { Button, Toast, Popup, Skeleton, TextArea } from '@nutui/nutui-react'
@@ -32,6 +32,10 @@ export default function ReportPage() {
   const [toastMsg, setToastMsg] = useState('')
   const [feedbackPopupVisible, setFeedbackPopupVisible] = useState(false)
   const [feedbackComment, setFeedbackComment] = useState('')
+  // R-FE-R2 批次G（FE-P1-3）：落点热图双源切换（03 frontend.md §4.3 L873-886）
+  const [landingView, setLandingView] = useState<'mine' | 'opponent'>('mine')
+  // R-FE-R2 批次G（FE-P2-6）：视频上下文懒建（marker 点击 seek 消费）
+  const videoCtxRef = useRef<ReturnType<typeof Taro.createVideoContext> | null>(null)
 
   useEffect(() => {
     if (reportId) fetchReportDetail(reportId)
@@ -79,13 +83,73 @@ export default function ReportPage() {
   const ballSpeed = result?.ball_speed
   const rally = result?.rally_analysis
 
+  // R-FE-R2 批次G（FE-P1-3）：热图双源——优先 landing_heatmap（含对手侧），
+  // 旧报告回落 landing_points.nine_grid；对手侧缺省不渲染 toggle（向后兼容）
+  const heatmap = result?.landing_heatmap
+  const myGrid = heatmap?.nine_grid?.length ? heatmap.nine_grid : landing?.nine_grid
+  const oppGrid = heatmap?.opponent_nine_grid?.length ? heatmap.opponent_nine_grid : null
+  const activeGrid = landingView === 'opponent' ? oppGrid : myGrid
+
   // 九宫格热图颜色深浅（主色 #E63946 RGB，JS 无法读 CSS 变量）
   const PRIMARY_RGB = '230, 57, 70'
-  const maxLanding = landing ? Math.max(...landing.nine_grid.flat()) : 1
+  const maxLanding = activeGrid ? Math.max(...activeGrid.flat()) : 1
   const getHeatColor = (val: number) => {
     const ratio = maxLanding > 0 ? val / maxLanding : 0
     const alpha = 0.2 + ratio * 0.8
     return `rgba(${PRIMARY_RGB}, ${alpha})`
+  }
+
+  // R-FE-R2 批次G（FE-P2-5）：节奏曲线几何——weapp 不支持 <svg>，按 conic 先例
+  // 用绝对定位 View 旋转线段绘折线（300×120 画布居中，段端点按数据归一化计算）
+  const tempo = rally?.rally_tempo ?? []
+  const TEMPO_W = 300
+  const TEMPO_H = 120
+  const TEMPO_PAD = 14
+  const tempoPts = tempo.length > 1
+    ? tempo.map((v, i) => {
+        const minV = Math.min(...tempo)
+        const maxV = Math.max(...tempo)
+        const span = maxV - minV || 1
+        return {
+          x: TEMPO_PAD + (i * (TEMPO_W - 2 * TEMPO_PAD)) / (tempo.length - 1),
+          y: TEMPO_H - TEMPO_PAD - ((v - minV) / span) * (TEMPO_H - 2 * TEMPO_PAD),
+        }
+      })
+    : []
+  const tempoSegments = tempoPts.slice(0, -1).map((p, i) => {
+    const q = tempoPts[i + 1]
+    const dx = q.x - p.x
+    const dy = q.y - p.y
+    return {
+      key: `seg-${i}`,
+      left: p.x,
+      top: p.y,
+      width: Math.sqrt(dx * dx + dy * dy),
+      angle: (Math.atan2(dy, dx) * 180) / Math.PI,
+    }
+  })
+
+  // R-FE-R2 批次G（FE-P2-6）：关键分 marker（timestamp 为视频相对秒，
+  // 旧报告无时间戳的条目不渲染——marker 语义即点击回放）
+  const keyPoints =
+    result?.score_analysis?.key_points?.filter(
+      (kp): kp is typeof kp & { timestamp: number } => kp.timestamp != null
+    ) ?? []
+
+  /** marker 点击 → 视频跳转到关键分时刻 */
+  const seekTo = (sec: number) => {
+    if (!videoCtxRef.current) {
+      videoCtxRef.current = Taro.createVideoContext('annotated-video')
+    }
+    videoCtxRef.current?.seek(sec)
+    videoCtxRef.current?.play()
+  }
+
+  /** 关键分时刻格式化（m:ss） */
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    return `${m}:${String(s).padStart(2, '0')}`
   }
 
   // 技术统计环形图（conic-gradient 分段 + 内圆挖洞）
@@ -142,12 +206,28 @@ export default function ReportPage() {
         </View>
       </View>
 
-      {/* 落点九宫格热图 */}
-      {landing && (
+      {/* 落点九宫格热图（R-FE-R2 批次G FE-P1-3：mine/opponent 双源切换，§4.3 L873-886） */}
+      {activeGrid && (
         <View className="heatmap-section">
           <View className="section-title">{t('analysis.landingDistribution')}</View>
+          {oppGrid && (
+            <View className="heatmap-toggle">
+              <View
+                className={`toggle-btn ${landingView === 'mine' ? 'active' : ''}`}
+                onClick={() => setLandingView('mine')}
+              >
+                <Text>{t('analysis.myLanding')}</Text>
+              </View>
+              <View
+                className={`toggle-btn ${landingView === 'opponent' ? 'active' : ''}`}
+                onClick={() => setLandingView('opponent')}
+              >
+                <Text>{t('analysis.opponentLanding')}</Text>
+              </View>
+            </View>
+          )}
           <View className="heatmap-grid" role="img" aria-label={t('analysis.landingDistribution')}>
-            {landing.nine_grid.map((row, ri) =>
+            {activeGrid.map((row, ri) =>
               row.map((val, ci) => (
                 <View
                   key={`${ri}-${ci}`}
@@ -159,12 +239,15 @@ export default function ReportPage() {
               ))
             )}
           </View>
-          {/* R23-P2-1：仅传入 forehand 参数（资源文件无 {{side}} 占位符） */}
-          <Text className="heatmap-hint">
-            {t('analysis.landingHint', {
-              forehand: ((landing.distribution.forehand || 0) * 100).toFixed(0),
-            })}
-          </Text>
+          {/* R23-P2-1：仅传入 forehand 参数（资源文件无 {{side}} 占位符）；
+              distribution 属我的落点语境，对手视图不渲染 */}
+          {landingView === 'mine' && landing && (
+            <Text className="heatmap-hint">
+              {t('analysis.landingHint', {
+                forehand: ((landing.distribution.forehand || 0) * 100).toFixed(0),
+              })}
+            </Text>
+          )}
         </View>
       )}
 
@@ -217,6 +300,32 @@ export default function ReportPage() {
         </View>
       )}
 
+      {/* 回合节奏曲线（R-FE-R2 批次G FE-P2-5：v2.0 T2.3；rally_tempo 序列，
+          weapp 无 svg 支持按 conic 先例用 View 旋转线段绘折线） */}
+      {tempoSegments.length > 0 && (
+        <View className="tempo-section">
+          <View className="section-title">{t('analysis.tempoCurve')}</View>
+          <View className="tempo-chart">
+            {tempoSegments.map((seg) => (
+              <View
+                key={seg.key}
+                className="tempo-segment"
+                style={{
+                  left: `${seg.left}px`,
+                  top: `${seg.top}px`,
+                  width: `${seg.width}px`,
+                  transform: `rotate(${seg.angle}deg)`,
+                }}
+              />
+            ))}
+            {tempoPts.map((p, i) => (
+              <View key={`dot-${i}`} className="tempo-dot" style={{ left: `${p.x}px`, top: `${p.y}px` }} />
+            ))}
+          </View>
+          <Text className="tempo-hint">{t('analysis.tempoHint')}</Text>
+        </View>
+      )}
+
       {/* 分析结论 */}
       {reportText && (
         <View className="conclusion-section">
@@ -243,16 +352,36 @@ export default function ReportPage() {
         </View>
       )}
 
-      {/* 视频回放 */}
+      {/* 视频回放（R-FE-R2 批次G FE-P2-6：关键分 marker 点击 seek 回放） */}
       {reportDetail.annotated_video_url && (
         <View className="video-section">
           <View className="section-title">{t('analysis.videoPlayback')}</View>
           <Video
+            id="annotated-video"
             src={reportDetail.annotated_video_url}
             controls
             autoplay={false}
             className="annotated-video"
           />
+          {keyPoints.length > 0 && (
+            <View className="keypoint-list">
+              <Text className="keypoint-title">
+                {t('analysis.keyPoints')} · {t('analysis.keyPointSeek')}
+              </Text>
+              <ScrollView scrollX enhanced showScrollbar={false} className="keypoint-scroll">
+                {keyPoints.map((kp) => (
+                  <View
+                    key={`kp-${kp.seq}`}
+                    className="keypoint-chip"
+                    onClick={() => seekTo(kp.timestamp)}
+                  >
+                    <Text className="chip-score">{kp.score}</Text>
+                    <Text className="chip-meta">#{kp.seq} · {formatTime(kp.timestamp)}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       )}
 

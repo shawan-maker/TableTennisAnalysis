@@ -84,10 +84,22 @@ export const a11yMocks: MockRoute[] = [
       is_readonly: false,
       result_data: {
         video_info: { duration_sec: 125, fps: 30, resolution: '1920x1080' },
-        rally_analysis: { total_rallies: 48, avg_rally_length: 5.2, max_rally_length: 12 },
+        rally_analysis: {
+          total_rallies: 48,
+          avg_rally_length: 5.2,
+          max_rally_length: 12,
+          // R-FE-R2 批次G（FE-P2-5）：节奏序列（a11y 扫描折线区块渲染）
+          rally_tempo: [8.2, 12.1, 6.4, 15.3, 9.8, 11.2, 7.5, 13.6, 10.4, 8.9, 12.8, 9.1, 14.2, 6.8, 11.5, 10.2, 7.9, 13.1, 9.6, 8.4],
+        },
         landing_points: {
           nine_grid: [[2, 3, 1], [4, 8, 2], [3, 5, 2]],
           distribution: { forehand: 0.6, backhand: 0.25, middle: 0.15 },
+        },
+        // R-FE-R2 批次G（FE-P1-3）：对手侧九宫格（a11y 扫描 toggle 渲染；
+        // annotated_video_url 保持 null——video 无 track 会触发 axe video-caption）
+        landing_heatmap: {
+          nine_grid: [[2, 3, 1], [4, 8, 2], [3, 5, 2]],
+          opponent_nine_grid: [[3, 1, 2], [5, 2, 4], [2, 6, 1]],
         },
         technique_stats: { loop: 30, smash: 12, push: 8, block: 10 },
         ball_speed: { avg_speed_mps: 12.5, max_speed_mps: 18.2, speed_range: [8.1, 18.2] },

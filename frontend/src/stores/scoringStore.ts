@@ -19,6 +19,8 @@ export interface MatchDetail {
   id: number
   opponent_name: string | null
   opponent_rating?: number | null
+  /** R-FE-R2 批次G（FE-P2-14）：对手打法回显（后端 MatchDetail 已暴露） */
+  opponent_playing_style?: string | null
   format: string
   match_type: string
   target_score: number

@@ -306,6 +306,13 @@ export default {
     targetScore: '每局目标分',
     targetScore11: '11 分制',
     targetScore21: '21 分制',
+    // R-FE-R2 批次G（FE-P2-14）：对手打法四选项（v1.0 L487 承诺）
+    opponentPlayingStyle: '对手打法',
+    playStyle_unselected: '未选择',
+    playStyle_fast_attack: '快攻',
+    playStyle_loop_drive: '弧圈',
+    playStyle_chop: '削球',
+    playStyle_all_round: '全面',
     startMatch: '开始比赛',
     createFailed: '创建比赛失败',
     fillOpponentName: '请填写对手姓名',
@@ -464,6 +471,15 @@ export default {
     maxRallyLength: '最长回合',
     landingDistribution: '落点分布',
     landingHint: '正手使用率 {{forehand}}%',
+    // R-FE-R2 批次G（FE-P1-3）：落点热图双源切换（03 frontend.md §4.3 L873-886）
+    myLanding: '我的落点',
+    opponentLanding: '对手落点',
+    // R-FE-R2 批次G（FE-P2-5）：回合节奏曲线（v2.0 T2.3 承诺）
+    tempoCurve: '回合节奏曲线',
+    tempoHint: '横轴为回合序号，纵轴为回合时长（秒），曲线走低代表节奏加快',
+    // R-FE-R2 批次G（FE-P2-6）：关键分标记（v2.0 T2.3「视频回放带关键帧标记」）
+    keyPoints: '关键分',
+    keyPointSeek: '点击回放',
     techniqueDistribution: '技术动作分布',
     ballSpeed: '击球球速',
     speedHint: '球速为估算范围值，误差 20-30%',

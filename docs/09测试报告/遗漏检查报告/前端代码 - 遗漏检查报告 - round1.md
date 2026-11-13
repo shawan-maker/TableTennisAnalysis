@@ -314,7 +314,7 @@
 
 FE-P1-1（h5-bridge 注册或据实关闭）、~~FE-P1-9（PointsCard 首页嵌入或注记）~~（✅ R-FE-R1 已按「嵌入首页」落地）、FE-P2-4（训练频次卡口径）、FE-P2-13（21 分制）、FE-P2-14（对手打法）、FE-P2-17（生成训练单）、FE-P3-14（48px 大比分）、FE-P3-23（导航标题硬编码豁免）、FE-P3-26（technique 文案口径）、FE-P3-35（状态色双源）、FE-P3-39/40（性能规范豁免）、FE-P3-42（10MB 降级口径）——裁决后统一以「R-FE-P3 注记」格式回写设计文档。
 
-> **状态（2026-11-12 R-FE-R2 / 批次F 补充 2026-11-13）**：FE-P2-4（训练频次）已按补代码落地、FE-P2-13（21 分制）已实现、FE-P1-9 前轮已裁决、FE-P1-1/FE-P2-17/FE-P3-14/18/23/26/35/39/40/41/42 全部 ✅（批次 F 2026-11-13 用户拍板：9 注记 + 2 代码修复，见 §10.5 批次 F 表）——裁决类清零，余项仅批次 G 跨栈 4 项。
+> **状态（2026-11-12 R-FE-R2 / 批次F 补充 2026-11-13 / 批次G 收敛 2026-11-13）**：FE-P2-4（训练频次）已按补代码落地、FE-P2-13（21 分制）已实现、FE-P1-9 前轮已裁决、FE-P1-1/FE-P2-17/FE-P3-14/18/23/26/35/39/40/41/42 全部 ✅（批次 F 2026-11-13 用户拍板：9 注记 + 2 代码修复，见 §10.5 批次 F 表）——裁决类清零；**批次 G 跨栈 4 项（含裁决类遗项 FE-P2-14）亦于 2026-11-13 用户拍板「前后端一起修」全部落地 ✅（见 §10.5 批次 G 表）——原始 85 项发现全部闭环；修复账目累计 87 项（85 项发现 + 过程伴生增量，各批次表含明细），与 §10.5 收敛口径一致**。
 
 ### 修复验证纪律（每批次完成后全量执行）
 
@@ -488,15 +488,17 @@ tsc 零错误 ✓ | eslint 0 error / 93 warning（≤200 预算，较基线 +2 �
 
 > **批次 F 过程注记**：P3-26/P3-35 两项在逐字核实（消费方 grep + 设计样例比对 + 后端键集对照）后从「注记类」改判为小代码修复——P3-26 是 zh 侧真实文案偏差（en 已正确）、P3-35 双源已产生实际色值漂移（grace_period/closed 两态），注记会掩盖已发生的行为缺陷；核实型审计的价值点：**裁决前先查消费方与双源是否已漂移，再决定「注记 vs 修码」**。
 
-**批次 G：跨栈契约类 4 项（依赖后端排期协调，前端就绪度高）**
+**批次 G：跨栈契约类 4 项 —— ✅ 已完成（2026-11-13，前后端一起修，用户拍板）**
 
-| 项 | 后端缺口 | 前端就绪度 |
-|----|----------|-----------|
-| FE-P1-3 | ReportDetail 补对手侧 nine_grid | toggle 双按钮 + §5.3 样式设计已备 |
-| FE-P2-5 | result_data 补节奏序列（如 rally_tempo） | 区块样式可参考 conic 先例 |
-| FE-P2-6 | **先核验 key_points 是否已含时间戳**——含则纯前端可实现（marker 点击 seek），不含则后端补 | Video seek 能力待真机验证 |
-| FE-P2-14 | MatchCreateRequest/Match 补 opponent_playing_style | 四选项 Picker 设计已备 |
+| 项 | 后端落地 | 前端落地 | 状态 |
+|----|----------|-----------|------|
+| FE-P1-3 | report_generator `landing_heatmap` 补 `opponent_nine_grid`（step 5 缺省 mock 兜底） | 报告页 `landingView` state + 双按钮 toggle（§5.3 样式），旧报告回落 `landing_points.nine_grid`；对手视图不渲染我的正手率 hint | ✅ |
+| FE-P2-5 | report_generator `rally_analysis` 补 `rally_tempo` 序列（step 8 可下发覆盖 mock） | 报告页节奏曲线区块（weapp 无 svg 支持，按 conic 先例用 View 旋转线段绘折线，300×120 画布） | ✅ |
+| FE-P2-6 | 核验后确认**两侧均无时间戳**：scoring statistics `key_points` 补 `timestamp`（ScoreRecord.created_at 墙钟 ISO）+ report_generator mock 补视频相对秒 4 条 | 报告页关键分 marker chip 列表（横向滚动，`#seq 比分 m:ss`），点击 `Taro.createVideoContext('annotated-video')` seek 回放 | ✅ |
+| FE-P2-14 | Match model + schema + scoring_service（create/detail 双 return）+ 迁移 `c7d8e9f0a1b2` 补 `opponent_playing_style`（Literal 四枚举，迁移链 head b8c9d0e1f2a3 之上） | setup 页四选项 Picker（idx 0 = 未选择不传）+ OPPONENT_STYLE_OPTIONS 常量 + 类型链（MatchCreateParams/MatchDetail）+ i18n 双语 6 键 | ✅ |
 
-> FE-P2-20 中期部分（auto-renew 操作端点 + 订单关联报告字段）同批协调。四项均可先文档注记降级。
+> **批次 G 验证门禁（全绿 ✅ 2026-11-13）**：tsc 零错误 / eslint 0 error 107 warning（较基线 +7，均为新代码 hooks/a11y warn 类，维持批次 F「warn 不阻塞」口径）/ Jest 30 套件 285 用例全绿 / H5 重建 + E2E 7 spec 全过 2.3m（a11y 40 页零违规——report 页新增 toggle/节奏曲线/marker 区块复扫无回归）/ 后端受影响域 4 文件 86 passed（scoring/ai_pipeline/match_data/dashboard，新增测试 2：`test_create_match_with_opponent_playing_style` 四断言组 + `test_statistics_key_points_timestamp` bo1/1 分关键分极简构造；`test_generate_cross_stack_fields` 三字段 + step 8 覆盖路径）/ weapp 构建通过（setup/report 页产物就绪）。
 
-**收敛口径**：批次 D/E/F 已完成（累计 83 项：批次 D 闭环 53 + 收尾增量 3 + 批次 E 16 + 批次 F 11），余批次 G 跨栈类 4 项（+ FE-P2-20 中期部分，依赖后端排期协调；四项均可先文档注记降级）；批次 G 完成后前端设计→实现契约面宣告收敛；届时按惯例执行 **Round 2 全量遗漏复审**（方法学同本轮 11 代理比对，重点：已修复 83 项的断言级回归 + 新增注记自洽性——尤其批次 F 九处注记与实现的双向核对 + 本轮新增代码（webview 页/community 页/常量文件/DeletionCoolingBanner 公共组件/membership statusColor 内联色）的设计文档反向同步）。
+> **批次 G 过程注记**：① key_points 时间戳语义分层——记分侧无视频参照系用墙钟 ISO、分析侧用视频相对秒，API 设计已注记防混用；② E2E mock 三方镜像同步（a11y-mocks `annotated_video_url` 保持 null 防 axe video-caption 违规，analysis-flow 用真 URL 驱动 marker 点击）；③ setup 页打法 Picker 插入对手信息区致 `.picker-value`/「确定」DOM 序错位（scoring-flow `.first()` 全链错位实证失败），spec 改语义定位（按当前值文本 `5局3胜` 定位 + `:visible` 过滤弹层控件）；④ report 页 edit 工具在含脱敏 key 行的 oldString 上半匹配留孤儿 JSX 块（tsc 立即暴露，Python 锚点补丁定点删除 9 行——FS4 教训复现，批量 edit 后必须 tsc+diff 双核对）。
+
+**收敛口径（终态）**：批次 D/E/F/G 全部完成（累计 **87 项**：批次 D 闭环 53 + 收尾增量 3 + 批次 E 16 + 批次 F 11 + 批次 G 4），前端设计→实现契约面宣告收敛（FE-P2-20 中期部分未含——auto-renew 操作端点归后端排期，前端消费层已在批次 D 铺垫）。下一步执行 **Round 2 全量遗漏复审**（方法学同本轮 11 代理比对，重点：已修复 87 项的断言级回归 + 新增注记自洽性——尤其批次 F 九处注记与实现的双向核对 + 本轮新增代码（webview 页/community 页/常量文件/DeletionCoolingBanner 公共组件/membership statusColor 内联色/report 页三新区块/setup 页打法 Picker）的设计文档反向同步与批次 G 跨栈契约一致性）。

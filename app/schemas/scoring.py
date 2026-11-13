@@ -21,6 +21,10 @@ class MatchCreateRequest(BaseModel):
 
     opponent_name: str = Field(..., min_length=1, max_length=64, description="对手名")
     opponent_rating: Optional[int] = Field(default=None, ge=500, le=3000, description="对手积分")
+    # R-FE-R2 批次G（FE-P2-14）：对手打法（快攻/弧圈/削球/全面，v1.0 L487）
+    opponent_playing_style: Optional[Literal["fast_attack", "loop_drive", "chop", "all_round"]] = Field(
+        default=None, description="对手打法"
+    )
     format: Literal["bo1", "bo3", "bo5", "bo7", "custom"] = Field(default="bo5", description="赛制")
     match_type: Literal["friendly", "tournament", "training"] = Field(default="friendly", description="比赛类型")
     target_score: int = Field(default=11, ge=1, le=21, description="目标分")
@@ -78,6 +82,8 @@ class MatchDetail(BaseModel):
     id: int
     opponent_name: Optional[str] = None
     opponent_rating: Optional[int] = None
+    # R-FE-R2 批次G（FE-P2-14）：对手打法回显
+    opponent_playing_style: Optional[str] = None
     format: str
     match_type: str
     target_score: int

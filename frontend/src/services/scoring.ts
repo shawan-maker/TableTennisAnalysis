@@ -21,6 +21,8 @@ import request from './request'
 export interface MatchCreateParams {
   opponent_name: string
   opponent_rating?: number
+  /** R-FE-R2 批次G（FE-P2-14）：对手打法（v1.0 L487 四选项，后端 Literal 枚举） */
+  opponent_playing_style?: 'fast_attack' | 'loop_drive' | 'chop' | 'all_round'
   format: 'bo1' | 'bo3' | 'bo5' | 'bo7' | 'custom'
   match_type: 'friendly' | 'tournament' | 'training'
   target_score: number

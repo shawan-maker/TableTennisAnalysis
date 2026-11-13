@@ -301,6 +301,13 @@ export default {
     targetScore: 'Points per Game',
     targetScore11: '11 points',
     targetScore21: '21 points',
+    // R-FE-R2 批次G（FE-P2-14）：对手打法四选项（v1.0 L487 承诺）
+    opponentPlayingStyle: 'Opponent Style',
+    playStyle_unselected: 'Not set',
+    playStyle_fast_attack: 'Fast Attack',
+    playStyle_loop_drive: 'Loop Drive',
+    playStyle_chop: 'Chop',
+    playStyle_all_round: 'All Round',
     startMatch: 'Start Match',
     createFailed: 'Failed to create match',
     fillOpponentName: 'Please enter opponent name',
@@ -459,6 +466,15 @@ export default {
     maxRallyLength: 'Max Rally',
     landingDistribution: 'Landing Distribution',
     landingHint: 'Forehand {{forehand}}%',
+    // R-FE-R2 批次G（FE-P1-3）：落点热图双源切换（03 frontend.md §4.3 L873-886）
+    myLanding: 'My Landings',
+    opponentLanding: 'Opponent Landings',
+    // R-FE-R2 批次G（FE-P2-5）：回合节奏曲线（v2.0 T2.3 承诺）
+    tempoCurve: 'Rally Tempo Curve',
+    tempoHint: 'X: rally index, Y: rally duration (s). Lower points mean faster tempo',
+    // R-FE-R2 批次G（FE-P2-6）：关键分标记（v2.0 T2.3「视频回放带关键帧标记」）
+    keyPoints: 'Key Points',
+    keyPointSeek: 'Tap to replay',
     techniqueDistribution: 'Technique Distribution',
     ballSpeed: 'Ball Speed',
     speedHint: 'Estimated range, 20-30% error margin',

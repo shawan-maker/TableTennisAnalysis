@@ -1238,14 +1238,24 @@
     "is_llm_generated": true,
     "result_data": {
       "video_info": {"duration_sec": 180, "fps": 30, "resolution": "1920x1080"},
-      "rally_analysis": {"total_rallies": 23, "avg_rally_length": 5.2, "max_rally_length": 18},
+      "rally_analysis": {
+        "total_rallies": 23, "avg_rally_length": 5.2, "max_rally_length": 18,
+        "rally_tempo": [8.2, 12.1, 6.4]
+      },
       "landing_points": {
         "nine_grid": [[2,5,3],[4,8,6],[1,3,2]],
         "distribution": {"forehand": 0.68, "backhand": 0.25, "middle": 0.07}
       },
+      "landing_heatmap": {
+        "nine_grid": [[2,5,3],[4,8,6],[1,3,2]],
+        "opponent_nine_grid": [[3,1,2],[5,2,4],[2,6,1]]
+      },
       "technique_stats": {"forehand_drive": 45, "backhand_drive": 18, "forehand_loop": 12, "serve": 23},
       "ball_speed": {"avg_speed_mps": 18.5, "max_speed_mps": 25.3, "speed_range": [15.2, 22.1]},
-      "score_analysis": {"final_score": "11:8", "key_points": [...]}
+      "score_analysis": {
+        "final_score": "11:8",
+        "key_points": [{"seq": 20, "score": "10:10", "winner": "user", "timestamp": 95.4}]
+      }
     },
     "report_text": {
       "summary": "本局正手使用率 68%，落点偏反手区域...",
@@ -1454,11 +1464,14 @@
 {
   "opponent_name": "张某",
   "opponent_rating": 1480,
+  "opponent_playing_style": "loop_drive",
   "format": "bo5",
   "match_type": "friendly",
   "target_score": 11
 }
 ```
+
+> R-FE-R2 批次G（FE-P2-14）：`opponent_playing_style` 选填，枚举 `fast_attack/loop_drive/chop/all_round`（v1.0 L487 对手打法四选项）。
 
 #### Response Body
 
@@ -1469,7 +1482,8 @@
   "data": {
     "match_id": 2001,
     "status": "setup",
-    "current_server": "user"
+    "current_server": "user",
+    "opponent_playing_style": "loop_drive"
   },
   "timestamp": "..."
 }
@@ -1481,6 +1495,7 @@
 |------|------|------|
 | 422 | format 值不在枚举中 | 赛制不合法 |
 | 422 | target_score 不在合理范围 | 目标分不合法 |
+| 422 | opponent_playing_style 值不在枚举中 | 对手打法不合法 |
 
 ### 5.2 GET /scoring/matches
 
@@ -1695,13 +1710,15 @@
     "match_id": 2001,
     "stats_data": {
       "score_distribution": {"serve_point": 15, "rally_point": 20, "opponent_error": 8},
-      "key_points": [{"seq": 20, "score": "10:10", "winner": "user", "method": "rally_point"}],
+      "key_points": [{"seq": 20, "score": "10:10", "winner": "user", "method": "rally_point", "timestamp": "2026-10-10T12:04:31+00:00"}],
       "technique_breakdown": {"forehand_drive": 25, "backhand_drive": 10, "forehand_loop": 8}
     }
   },
   "timestamp": "..."
 }
 ```
+
+> R-FE-R2 批次G（FE-P2-6）：key_points 条目补 `timestamp`（ScoreRecord.created_at 墙钟 ISO——记分场景无视频参照系；视频报告 result_data 同名字段为视频相对秒，前端按场景区分消费）。
 
 #### 错误情况
 

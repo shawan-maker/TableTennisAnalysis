@@ -69,6 +69,7 @@
 .heatmap-section,
 .technique-section,
 .ball-speed-section,
+.tempo-section,
 .conclusion-section,
 .video-section,
 .feedback-section {
@@ -112,6 +113,97 @@
   font-size: var(--fs-small);
   color: var(--color-text-secondary);
   margin-top: var(--spacing-sm);
+}
+
+/* R-FE-R2 批次G（FE-P1-3）：落点双源切换（03 frontend.md §5.3 L1462-1481 样式） */
+.heatmap-toggle {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm-md);
+
+  .toggle-btn {
+    flex: 1;
+    text-align: center;
+    padding: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-small);
+    background: var(--color-background);
+    color: var(--color-text-secondary);
+
+    &.active {
+      background: var(--color-primary);
+      color: var(--color-text-inverse);
+    }
+  }
+}
+
+/* R-FE-R2 批次G（FE-P2-5）：回合节奏曲线（View 旋转线段折线，300×120 画布） */
+.tempo-chart {
+  position: relative;
+  width: 300px;
+  height: 120px;
+  margin: 0 auto;
+  overflow: hidden;
+
+  .tempo-segment {
+    position: absolute;
+    height: 2px;
+    background: var(--color-primary);
+    border-radius: 1px;
+    transform-origin: 0 50%;
+  }
+
+  .tempo-dot {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    margin: -2px 0 0 -3px;
+    border-radius: 50%;
+    background: var(--color-primary);
+  }
+}
+
+.tempo-hint {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--color-text-secondary);
+  margin-top: var(--spacing-sm);
+}
+
+/* R-FE-R2 批次G（FE-P2-6）：关键分 marker（横向滚动 chip 列表） */
+.keypoint-title {
+  display: block;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-top: var(--spacing-sm-md);
+}
+
+.keypoint-scroll {
+  white-space: nowrap;
+  margin-top: var(--spacing-sm);
+
+  .keypoint-chip {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    margin-right: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    background: var(--color-background);
+
+    .chip-score {
+      font-size: var(--fs-body);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    .chip-meta {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      margin-top: 2px;
+    }
+  }
 }
 
 .technique-chart {

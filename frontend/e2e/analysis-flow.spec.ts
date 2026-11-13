@@ -94,7 +94,13 @@ const analysisMocks: MockRoute[] = [
       is_readonly: false,
       result_data: {
         video_info: { duration_sec: 125, fps: 30, resolution: '1920x1080' },
-        rally_analysis: { total_rallies: 48, avg_rally_length: 5.2, max_rally_length: 12 },
+        rally_analysis: {
+          total_rallies: 48,
+          avg_rally_length: 5.2,
+          max_rally_length: 12,
+          // R-FE-R2 批次G（FE-P2-5）：节奏序列（报告页折线区块消费）
+          rally_tempo: [8.2, 12.1, 6.4, 15.3, 9.8, 11.2, 7.5, 13.6, 10.4, 8.9, 12.8, 9.1, 14.2, 6.8, 11.5, 10.2, 7.9, 13.1, 9.6, 8.4],
+        },
         landing_points: {
           nine_grid: [
             [2, 3, 1],
@@ -103,15 +109,36 @@ const analysisMocks: MockRoute[] = [
           ],
           distribution: { forehand: 0.6, backhand: 0.25, middle: 0.15 },
         },
+        // R-FE-R2 批次G（FE-P1-3）：热图双源（对手侧九宫格）
+        landing_heatmap: {
+          nine_grid: [
+            [2, 3, 1],
+            [4, 8, 2],
+            [3, 5, 2],
+          ],
+          opponent_nine_grid: [
+            [3, 1, 2],
+            [5, 2, 4],
+            [2, 6, 1],
+          ],
+        },
         technique_stats: { loop: 30, smash: 12, push: 8, block: 10 },
         ball_speed: { avg_speed_mps: 12.5, max_speed_mps: 18.2, speed_range: [8.1, 18.2] },
+        // R-FE-R2 批次G（FE-P2-6）：关键分带视频相对秒（marker seek 消费）
+        score_analysis: {
+          final_score: '11:8',
+          key_points: [
+            { seq: 20, score: '10:10', winner: 'user', timestamp: 95.4 },
+            { seq: 23, score: '11:10', winner: 'opponent', timestamp: 112.8 },
+          ],
+        },
       },
       report_text: {
         summary: '正手进攻效率不错，反手稳定性待加强',
         issues: ['反手击球点偏晚', '步法移动偏慢'],
         suggestions: ['加强反手推挡多球训练', '组合步法练习提升移动'],
       },
-      annotated_video_url: null,
+      annotated_video_url: 'https://cdn.test-videos.local/annotated.mp4',
       cover_image_url: null,
       report_images: null,
     },
@@ -173,6 +200,20 @@ test('E2E-01 新用户分析全流程：登录→consent→上传→分析→报
   await expect(
     page.locator('.suggestion-item').filter({ hasText: '加强反手推挡多球训练' })
   ).toBeVisible()
+
+  // R-FE-R2 批次G（FE-P2-5）：节奏曲线区块渲染
+  await expect(page.getByText('回合节奏曲线')).toBeVisible()
+  await expect(page.locator('.tempo-segment').first()).toBeVisible()
+
+  // R-FE-R2 批次G（FE-P1-3）：对手落点 toggle 切换（对手 grid 无 8 值，切换后消失）
+  await expect(page.locator('.cell-value').filter({ hasText: /^8$/ })).toHaveCount(1)
+  await page.getByText('对手落点').click()
+  await expect(page.locator('.toggle-btn.active')).toHaveText(/对手落点/)
+  await expect(page.locator('.cell-value').filter({ hasText: /^8$/ })).toHaveCount(0)
+
+  // R-FE-R2 批次G（FE-P2-6）：关键分 marker 渲染 + 点击 seek（无崩溃即通过）
+  await expect(page.locator('.keypoint-chip').filter({ hasText: '10:10' })).toBeVisible()
+  await page.locator('.keypoint-chip').filter({ hasText: '10:10' }).click()
 
   // 10. 返回首页 → 训练提醒横幅（latest_advice_summary）→ 训练建议页
   await page.goBack()

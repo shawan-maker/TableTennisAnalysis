@@ -28,14 +28,23 @@ export interface ReportDetail {
   is_readonly: boolean
   result_data: {
     video_info?: { duration_sec: number; fps: number; resolution: string }
-    rally_analysis?: { total_rallies: number; avg_rally_length: number; max_rally_length: number }
+    rally_analysis?: {
+      total_rallies: number
+      avg_rally_length: number
+      max_rally_length: number
+      /** R-FE-R2 批次G（FE-P2-5）：每回合时长（秒），报告页节奏曲线消费 */
+      rally_tempo?: number[]
+    }
     landing_points?: {
       nine_grid: number[][]
       distribution: { forehand: number; backhand: number; middle: number }
     }
+    /** R-FE-R2 批次G（FE-P1-3）：热图双源——mine/opponent 两侧九宫格 */
+    landing_heatmap?: { nine_grid: number[][]; opponent_nine_grid?: number[][] }
     technique_stats?: Record<string, number>
     ball_speed?: { avg_speed_mps: number; max_speed_mps: number; speed_range: [number, number] }
-    score_analysis?: { final_score: string; key_points: any[] }
+    /** R-FE-R2 批次G（FE-P2-6）：key_points.timestamp 为视频相对秒，marker 点击 seek 消费 */
+    score_analysis?: { final_score: string; key_points: KeyPoint[] }
   } | null
   report_text: {
     summary: string
@@ -45,6 +54,14 @@ export interface ReportDetail {
   annotated_video_url: string | null
   cover_image_url: string | null
   report_images: { heatmap: string; technique_chart: string } | null
+}
+
+/** 关键分条目（分析侧 timestamp 为视频相对秒；记分侧为墙钟 ISO 字符串，报告页不消费） */
+export interface KeyPoint {
+  seq: number
+  score: string
+  winner: string
+  timestamp?: number
 }
 
 /** 反馈历史条目（API §3.7 GET /video-analysis/reports/{report_id}/feedbacks） */

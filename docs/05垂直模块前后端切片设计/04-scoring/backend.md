@@ -372,6 +372,8 @@ class Match(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), comment="创建者用户ID")  # R26-P3-26: 移除冗余 index=True（idx_match_user_created 已覆盖）
     opponent_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="对手姓名")
     opponent_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="对手积分")
+    # R-FE-R2 批次G（FE-P2-14）：对手打法 fast_attack/loop_drive/chop/all_round（迁移 c7d8e9f0a1b2）
+    opponent_playing_style: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, comment="对手打法")
     format: Mapped[str] = mapped_column(String(20), default="bo5", comment="赛制: bo1/bo3/bo5/bo7/custom")
     match_type: Mapped[str] = mapped_column(String(20), default="friendly", comment="比赛类型: friendly/tournament/training")
     target_score: Mapped[int] = mapped_column(Integer, default=11, comment="每局目标分")
@@ -471,6 +473,8 @@ class MatchCreateRequest(BaseModel):
     """创建比赛请求。"""
     opponent_name: str = Field(..., min_length=1, max_length=64, description="对手姓名")
     opponent_rating: Optional[int] = Field(default=None, ge=500, le=3000, description="对手积分")
+    # R-FE-R2 批次G（FE-P2-14）：对手打法四选项（v1.0 L487 承诺），选填
+    opponent_playing_style: Optional[Literal["fast_attack", "loop_drive", "chop", "all_round"]] = Field(default=None, description="对手打法")
     format: Literal["bo1", "bo3", "bo5", "bo7", "custom"] = Field(default="bo5", description="赛制")
     match_type: Literal["friendly", "tournament", "training"] = Field(default="friendly", description="比赛类型")
     target_score: int = Field(default=11, ge=1, le=21, description="每局目标分")
@@ -509,6 +513,8 @@ class MatchDetail(BaseModel):
     id: int
     opponent_name: str
     opponent_rating: Optional[int] = None
+    # R-FE-R2 批次G（FE-P2-14）：对手打法回显
+    opponent_playing_style: Optional[str] = None
     format: str
     match_type: str
     target_score: int
@@ -710,6 +716,7 @@ class ScoringService:
                 user_id=user_id,
                 opponent_name=req.opponent_name,
                 opponent_rating=req.opponent_rating,
+                opponent_playing_style=req.opponent_playing_style,  # R-FE-R2 批次G（FE-P2-14）
                 format=req.format,
                 match_type=req.match_type,
                 target_score=req.target_score,
@@ -734,6 +741,8 @@ class ScoringService:
                 "match_id": match.id,
                 "status": match.status,
                 "current_server": match.current_server,
+                # R-FE-R2 批次G（FE-P2-14）：打法回显（setup 页创建即消费）
+                "opponent_playing_style": match.opponent_playing_style,
             }
 
     @staticmethod
@@ -1144,16 +1153,26 @@ class ScoringService:
         score_distribution = {"serve_point": 0, "rally_point": 0, "opponent_error": 0}
         technique_breakdown = {}
         key_points = []
+        user_score = 0
+        opp_score = 0
 
         for r in records:
+            if r.scorer == "user":
+                user_score += 1
+            else:
+                opp_score += 1
             score_distribution[r.score_method] = score_distribution.get(r.score_method, 0) + 1
             if r.technique_action:
                 technique_breakdown[r.technique_action] = technique_breakdown.get(r.technique_action, 0) + 1
             if r.is_key_point:
                 key_points.append({
                     "seq": r.sequence,
-                    "scorer": r.scorer,
-                    "score_method": r.score_method,
+                    "score": f"{user_score}:{opp_score}",
+                    "winner": r.scorer,
+                    "method": r.score_method,
+                    # R-FE-R2 批次G（FE-P2-6）：关键分墙钟时间（ScoreRecord.created_at ISO，
+                    # 记分场景无视频参照系；分析侧 result_data 同字段为视频相对秒）
+                    "timestamp": r.created_at.isoformat() if r.created_at else None,
                 })
 
         return {

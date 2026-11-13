@@ -39,6 +39,8 @@ class Match(Base):
     )
     opponent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     opponent_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # R-FE-R2 批次G（FE-P2-14）：对手打法（快攻/弧圈/削球/全面，v1.0 L487 承诺）
+    opponent_playing_style: Mapped[str | None] = mapped_column(String(20), nullable=True)
     format: Mapped[str] = mapped_column(String(20), default="bo5", nullable=False)  # bo1/bo3/bo5/bo7/custom
     # friendly/tournament/training
     match_type: Mapped[str] = mapped_column(String(20), default="friendly", nullable=False)

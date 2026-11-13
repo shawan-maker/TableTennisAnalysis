@@ -106,6 +106,7 @@ class ScoringService:
                 user_id=user_id,
                 opponent_name=req.opponent_name,
                 opponent_rating=req.opponent_rating,
+                opponent_playing_style=req.opponent_playing_style,  # R-FE-R2 批次G FE-P2-14
                 format=req.format,
                 match_type=req.match_type,
                 target_score=req.target_score,
@@ -131,6 +132,8 @@ class ScoringService:
                 "match_id": match.id,
                 "status": "setup",
                 "current_server": "user",
+                # R-FE-R2 批次G（FE-P2-14）：打法回显（setup 页创建后立即消费）
+                "opponent_playing_style": match.opponent_playing_style,
             }
 
     @staticmethod
@@ -205,6 +208,7 @@ class ScoringService:
                 "id": match.id,
                 "opponent_name": match.opponent_name,
                 "opponent_rating": match.opponent_rating,
+                "opponent_playing_style": match.opponent_playing_style,  # R-FE-R2 批次G FE-P2-14
                 "format": match.format,
                 "match_type": match.match_type,
                 "target_score": match.target_score,
@@ -657,6 +661,8 @@ class ScoringService:
                     "score": f"{user_score}:{opp_score}",
                     "winner": r.scorer,
                     "method": r.score_method,
+                    # R-FE-R2 批次G（FE-P2-6）：关键分墙钟时间（记分场景无视频参照系）
+                    "timestamp": r.created_at.isoformat() if r.created_at else None,
                 })
 
         return {

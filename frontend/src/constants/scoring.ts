@@ -60,8 +60,24 @@ export interface TargetScoreOption {
 }
 
 export const TARGET_SCORE_OPTIONS: TargetScoreOption[] = [
-  { value: 11, labelKey: 'scoring.targetScore11' },
-  { value: 21, labelKey: 'scoring.targetScore21' },
+  { value: 11, labelKey: '[REDACTED:sha256:e8d3ff06e978]' },
+  { value: 21, labelKey: '[REDACTED:sha256:1abb7c04fb17]' },
+]
+
+/**
+ * 对手打法四选项（R-FE-R2 批次G FE-P2-14：v1.0 L487「打法：[快攻][弧圈][削球][全面]」；
+ * 值镜像后端 MatchCreateRequest Literal 枚举，选填不勾不传）
+ */
+export interface OpponentStyleOption {
+  value: 'fast_attack' | 'loop_drive' | 'chop' | 'all_round'
+  labelKey: string
+}
+
+export const OPPONENT_STYLE_OPTIONS: OpponentStyleOption[] = [
+  { value: 'fast_attack', labelKey: 'scoring.playStyle_fast_attack' },
+  { value: 'loop_drive', labelKey: 'scoring.playStyle_loop_drive' },
+  { value: 'chop', labelKey: 'scoring.playStyle_chop' },
+  { value: 'all_round', labelKey: 'scoring.playStyle_all_round' },
 ]
 
 /** 比赛状态映射（列表筛选 + 状态标签） */

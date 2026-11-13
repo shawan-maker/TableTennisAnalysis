@@ -51,6 +51,8 @@ import request from './request'
 export interface MatchCreateParams {
   opponent_name: string
   opponent_rating?: number
+  /** R-FE-R2 批次G（FE-P2-14）：对手打法（v1.0 L487 四选项，选填不勾不传） */
+  opponent_playing_style?: 'fast_attack' | 'loop_drive' | 'chop' | 'all_round'
   format: 'bo1' | 'bo3' | 'bo5' | 'bo7' | 'custom'
   match_type: 'friendly' | 'tournament' | 'training'
   target_score: number
@@ -140,6 +142,8 @@ export interface MatchDetail {
   id: number
   opponent_name: string
   opponent_rating?: number
+  /** R-FE-R2 批次G（FE-P2-14）：对手打法回显 */
+  opponent_playing_style?: string
   format: string
   match_type: string
   target_score: number
@@ -298,6 +302,8 @@ export default function MatchSetup() {
   const { createMatch, isLoading } = useScoringStore()
   const [opponentName, setOpponentName] = useState('')
   const [opponentRating, setOpponentRating] = useState('')
+  // R-FE-R2 批次G（FE-P2-14）：对手打法 idx 0 = 未选择不传（v1.0 L487）
+  const [styleIdx, setStyleIdx] = useState(0)
   const [formatIdx, setFormatIdx] = useState(2) // 默认 bo5
   const [typeIdx, setTypeIdx] = useState(0)     // 默认 friendly
   const [toastVisible, setToastVisible] = useState(false)
@@ -317,6 +323,7 @@ export default function MatchSetup() {
       const matchId = await createMatch({
         opponent_name: opponentName.trim(),
         opponent_rating: opponentRating ? parseInt(opponentRating) : undefined,
+        opponent_playing_style: styleIdx > 0 ? OPPONENT_STYLE_OPTIONS[styleIdx - 1].value : undefined,
         format: FORMAT_OPTIONS[formatIdx].value,
         match_type: MATCH_TYPE_OPTIONS[typeIdx].value,
         target_score: 11,
@@ -326,7 +333,7 @@ export default function MatchSetup() {
     } catch (err: any) {
       showToast(err?.message || t('scoring.createFailed'))
     }
-  }, [opponentName, opponentRating, formatIdx, typeIdx, createMatch, t])
+  }, [opponentName, opponentRating, styleIdx, formatIdx, typeIdx, createMatch, t])
 
   return (
     <View className="match-setup">
@@ -353,6 +360,20 @@ export default function MatchSetup() {
           maxlength={4}
           onChange={(val) => setOpponentRating(val)}
         />
+      </Cell>
+
+      {/* 对手打法（R-FE-R2 批次G FE-P2-14：四选项 Picker，选填 idx 0 不传） */}
+      <Cell title={t('scoring.opponentPlayingStyle')}>
+        <Picker
+          mode="selector"
+          range={[t('scoring.playStyle_unselected'), ...OPPONENT_STYLE_OPTIONS.map((o) => t(o.labelKey))]}
+          value={styleIdx}
+          onChange={(e: any) => setStyleIdx(parseInt(e.detail.value, 10))}
+        >
+          <View className="picker-value">
+            {styleIdx > 0 ? t(OPPONENT_STYLE_OPTIONS[styleIdx - 1].labelKey) : t('scoring.playStyle_unselected')}
+          </View>
+        </Picker>
       </Cell>
 
       {/* 赛制选择 */}
@@ -1233,6 +1254,12 @@ export const MATCH_STATUS_MAP: Record<string, { labelKey: string; color: string 
     "opponentNamePlaceholder": "请输入对手姓名",
     "opponentRating": "对手积分",
     "opponentRatingPlaceholder": "选填",
+    "opponentPlayingStyle": "对手打法",
+    "playStyle_unselected": "未选择",
+    "playStyle_fast_attack": "快攻",
+    "playStyle_loop_drive": "弧圈",
+    "playStyle_chop": "削球",
+    "playStyle_all_round": "全面",
     "format": "赛制",
     "matchType": "比赛类型",
     "format_bo1": "1局1胜",
@@ -1304,6 +1331,12 @@ export const MATCH_STATUS_MAP: Record<string, { labelKey: string; color: string 
     "opponentNamePlaceholder": "Enter opponent name",
     "opponentRating": "Opponent Rating",
     "opponentRatingPlaceholder": "Optional",
+    "opponentPlayingStyle": "Opponent Style",
+    "playStyle_unselected": "Not set",
+    "playStyle_fast_attack": "Fast Attack",
+    "playStyle_loop_drive": "Loop Drive",
+    "playStyle_chop": "Chop",
+    "playStyle_all_round": "All Round",
     "format": "Format",
     "matchType": "Match Type",
     "format_bo1": "BO1",

@@ -113,20 +113,44 @@ class ReportGenerator:
             "avg_rally_length": 5.2,
             "max_rally_length": 18,
         })
+        # R-FE-R2 批次G（FE-P2-5）：节奏序列——每回合时长（秒），报告页节奏曲线
+        # 消费（v2.0 T2.3 承诺）；真实流水线 step 8 可下发同名字段覆盖 mock。
+        if "rally_tempo" not in rally:
+            rally = {
+                **rally,
+                "rally_tempo": [8.2, 12.1, 6.4, 15.3, 9.8, 11.2, 7.5, 13.6, 10.4, 8.9,
+                                12.8, 9.1, 14.2, 6.8, 11.5, 10.2, 7.9, 13.1, 9.6, 8.4],
+            }
 
         # 比分分析
+        # R-FE-R2 批次G（FE-P2-6）：key_points 补 timestamp（视频相对秒），
+        # 报告页视频回放 marker 点击 seek 消费（v2.0 T2.3「视频回放带关键帧标记」）。
         score_analysis = {
             "final_score": "11:8",
             "key_points": [
-                {"seq": 20, "score": "10:10", "winner": "user"}
+                {"seq": 20, "score": "10:10", "winner": "user", "timestamp": 95.4},
+                {"seq": 23, "score": "11:10", "winner": "opponent", "timestamp": 112.8},
+                {"seq": 26, "score": "11:11", "winner": "user", "timestamp": 128.6},
+                {"seq": 29, "score": "12:11", "winner": "user", "timestamp": 143.2},
             ],
         }
+
+        # R-FE-R2 批次G（FE-P1-3）：落点热图补对手侧九宫格——mine/opponent 双侧
+        # 数据（报告页「我的/对手落点」toggle 消费，03 frontend.md §4.3 承诺）。
+        # 真实流水线 step 5 可下发 opponent_nine_grid，缺省回落 mock。
+        nine_grid = landing.get("nine_grid", [[2, 5, 3], [4, 8, 6], [1, 3, 2]])
+        opponent_nine_grid = landing.get(
+            "opponent_nine_grid", [[3, 1, 2], [5, 2, 4], [2, 6, 1]]
+        )
 
         return {
             "video_info": video_info,
             "rally_analysis": rally,
             "landing_points": landing,
-            "landing_heatmap": {"nine_grid": landing.get("nine_grid", [])},
+            "landing_heatmap": {
+                "nine_grid": nine_grid,
+                "opponent_nine_grid": opponent_nine_grid,
+            },
             "technique_stats": technique,
             "technique_distribution": technique,  # dashboard 兼容字段
             "metrics": {  # dashboard 兼容字段

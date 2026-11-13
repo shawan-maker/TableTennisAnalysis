@@ -20,11 +20,11 @@ from app.models.video_analysis import AnalysisReport, FileRecord, PipelineStep, 
 # 辅助：种子数据
 # =============================================================================
 
-async def _create_task(db, user_id, status="queued"):
+async def _create_task(db, user_id, status="queued", key_suffix=""):
     """创建 FileRecord + VideoTask（commit 使生产代码内部独立 session 可见）"""
     file_record = FileRecord(
         user_id=user_id,
-        oss_key=f"test/pipeline/{user_id}",
+        oss_key=f"test/pipeline/{user_id}{key_suffix}",
         file_size=10 * 1024 * 1024,
         file_type="mp4",
         status="uploaded",
@@ -453,6 +453,66 @@ class TestIsLLMGenerated:
 
         report = await db_session.get(AnalysisReport, task.id)
         assert report.is_llm_generated is False  # 实际走模板，非配置值 True
+
+    async def test_generate_cross_stack_fields(self, db_session, test_user, monkeypatch):
+        """R-FE-R2 批次G：result_data 补三跨栈契约字段（FE-P1-3/P2-5/P2-6）
+
+        - landing_heatmap.opponent_nine_grid：对手侧 3×3 矩阵（step 5 缺省回落 mock）
+        - rally_analysis.rally_tempo：节奏序列（step 8 缺省回落 mock，>=2 点可绘折线）
+        - score_analysis.key_points[].timestamp：视频相对秒（marker seek 消费）
+        """
+        from app.ai_pipeline.report_generator import ReportGenerator
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "LLM_ENABLED", False)
+
+        task = await _create_task(db_session, test_user.id, status="processing")
+        from app.ai_pipeline.progress import transition_task_status
+        async with async_session_factory() as db:
+            await transition_task_status(db, task.id, "processing")
+            await db.commit()
+
+        # step 5/8 均不下发 → 全部走 mock 兜底分支
+        await ReportGenerator.generate(task.id, {
+            1: {"video_info": {"duration_sec": 90, "fps": 30, "resolution": "1080p"}},
+        })
+
+        report = await db_session.get(AnalysisReport, task.id)
+        rd = report.result_data
+
+        # P1-3：对手侧九宫格
+        hm = rd["landing_heatmap"]
+        assert len(hm["nine_grid"]) == 3 and len(hm["nine_grid"][0]) == 3
+        opp = hm["opponent_nine_grid"]
+        assert len(opp) == 3 and all(isinstance(v, int) for row in opp for v in row)
+
+        # P2-5：节奏序列
+        tempo = rd["rally_analysis"]["rally_tempo"]
+        assert len(tempo) >= 2
+        assert all(isinstance(v, float) for v in tempo)
+
+        # P2-6：关键分视频相对秒
+        kps = rd["score_analysis"]["key_points"]
+        assert len(kps) >= 1
+        for kp in kps:
+            assert set(kp.keys()) == {"seq", "score", "winner", "timestamp"}
+            assert isinstance(kp["timestamp"], float)
+            assert 0 < kp["timestamp"] < 3600  # 视频相对秒量纲
+
+        # step 8 显式下发 rally_tempo → 覆盖 mock（真实流水线路径）
+        task2 = await _create_task(db_session, test_user.id, status="processing", key_suffix="-s8")
+        async with async_session_factory() as db:
+            await transition_task_status(db, task2.id, "processing")
+            await db.commit()
+        await ReportGenerator.generate(task2.id, {
+            1: {"video_info": {"duration_sec": 60}},
+            8: {"rally_analysis": {
+                "total_rallies": 5, "avg_rally_length": 3.0,
+                "max_rally_length": 7, "rally_tempo": [5.5, 6.0],
+            }},
+        })
+        report2 = await db_session.get(AnalysisReport, task2.id)
+        assert report2.result_data["rally_analysis"]["rally_tempo"] == [5.5, 6.0]
 
 
 # =====================================================================

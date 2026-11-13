@@ -55,6 +55,47 @@ async def test_create_match_invalid_format(client, auth_headers):
     assert resp.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_create_match_with_opponent_playing_style(client, auth_headers):
+    """R-FE-R2 批次G（FE-P2-14）：对手打法四选项 — 创建回显 + detail 回显 + 非法值 422"""
+    resp = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={
+            "opponent_name": "打法对手",
+            "opponent_playing_style": "loop_drive",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["opponent_playing_style"] == "loop_drive"
+    match_id = data["match_id"]
+
+    # detail 回显
+    resp2 = await client.get(
+        f"/api/v1/scoring/matches/{match_id}", headers=auth_headers
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["data"]["opponent_playing_style"] == "loop_drive"
+
+    # 不传 → None（选填）
+    resp3 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "无打法对手"},
+    )
+    assert resp3.status_code == 200
+    assert resp3.json()["data"]["opponent_playing_style"] is None
+
+    # 非法枚举 → 422（Literal 校验）
+    resp4 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "对手", "opponent_playing_style": "spin"},
+    )
+    assert resp4.status_code == 422
+
+
 # =================================================================
 # 比赛列表
 # =================================================================
@@ -304,6 +345,46 @@ async def test_get_statistics(client, auth_headers):
     assert data["stats_data"]["total_points"] == 2
     assert data["stats_data"]["score_distribution"]["serve_point"] == 1
     assert data["stats_data"]["score_distribution"]["rally_point"] == 1
+
+
+@pytest.mark.asyncio
+async def test_statistics_key_points_timestamp(client, auth_headers):
+    """R-FE-R2 批次G（FE-P2-6）：关键分条目携带墙钟 timestamp（created_at ISO）
+
+    bo1 + target_score=1 → 首分即局点（_is_key_point：score == target-1）
+    """
+    resp1 = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "关键分对手", "format": "bo1", "target_score": 1},
+    )
+    match_id = resp1.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/score",
+        headers=auth_headers,
+        json={"scorer": "user", "score_method": "serve_point"},
+    )
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/finish", headers=auth_headers
+    )
+
+    resp2 = await client.get(
+        f"/api/v1/scoring/matches/{match_id}/statistics", headers=auth_headers
+    )
+    assert resp2.status_code == 200
+    stats = resp2.json()["data"]["stats_data"]
+    key_points = stats["key_points"]
+    assert len(key_points) >= 1
+    kp = key_points[0]
+    assert kp["seq"] == 1
+    assert kp["score"] == "1:0"
+    assert kp["winner"] == "user"
+    # timestamp 为 ScoreRecord.created_at 的 ISO 字符串（墙钟，记分场景无视频参照系）
+    assert kp["timestamp"] is not None
+    assert "T" in kp["timestamp"]
 
 
 # =================================================================

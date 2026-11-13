@@ -41,9 +41,11 @@ async function scorePoint(page: Page, scorer: 'user' | 'opponent', methodLabel: 
  */
 async function dragPickerWheel(page: Page, deltaY: number) {
   // 等待弹层动画稳定（点击触发后 modal 有 ~300ms transition，立即拖动坐标失效）
-  await page.locator('.weui-picker__group').first().waitFor({ state: 'visible' })
+  // R-FE-R2 批次G：setup 页新增打法 Picker（DOM 序第一枚）后，滚轮/确定均需
+  // :visible 过滤到「当前打开」弹层——常驻 DOM 的关闭弹层滚轮不可见会错位
+  await page.locator('.weui-picker__group:visible').first().waitFor()
   await page.waitForTimeout(400)
-  const box = await page.locator('.weui-picker__group').first().boundingBox()
+  const box = await page.locator('.weui-picker__group:visible').first().boundingBox()
   if (!box) throw new Error('weui-picker__group not found')
   const x = box.x + box.width / 2
   const y = box.y + box.height / 2
@@ -67,11 +69,16 @@ test('E2E-02 记分牌全流程：创建→记分→多设备WS同步→撤销�
   await setup(page, routes, { auth: true, open: '/pages/scoring/setup/index' })
   await page.locator('input[placeholder="请输入对手姓名"]').fill(OPPONENT_NAME)
   // 赛制默认 bo5（idx2）→ 选 bo3（idx1，测试计划 §7.2 步骤 1）：滚轮向下拖一格
-  //（两枚 Picker 的弹层均常驻 DOM，取 DOM 序第一枚 = 赛制 Picker 的「确定」）
-  await page.locator('.picker-value').first().click()
+  // R-FE-R2 批次G（FE-P2-14）：打法 Picker 插入对手信息区后 .picker-value DOM 序
+  // 错位——改按当前值文本语义定位（bo5 显示「5局3胜」），确定按钮按可见性过滤
+  await page.locator('.picker-value').filter({ hasText: '5局3胜' }).click()
   await dragPickerWheel(page, 34)
-  await page.getByText('确定').first().click()
-  await expect(page.locator('.picker-value').first()).toHaveText('3局2胜')
+  await page
+    .getByText('确定', { exact: true })
+    .and(page.locator(':visible'))
+    .first()
+    .click()
+  await expect(page.locator('.picker-value').filter({ hasText: '3局2胜' })).toBeVisible()
   await page.getByRole('button', { name: '开始比赛' }).click()
 
   // ── 步骤 2：跳转记分页，setup 态自动 start（X-21）→ in_progress ──
