@@ -377,7 +377,10 @@ import { View, Text, Image, ScrollView } from '@tarojs/components'
 import { Cell, Button, Toast, Progress, Dialog, Popup, Tag, Skeleton, Textarea } from '@nutui/nutui-react'
 import { useUserStore } from '@/stores/userStore'
 import { useAuthStore } from '@/stores/authStore'
-import { useTranslation } from 'react-i18next'
+// R-FE-R2 批次E（FE-P3-33）+R2-P3-21（批次J）回写：注销冷静期横幅已抽取为
+// 公共组件（settings 页同款消费，组件契约见 components/DeletionCoolingBanner）
+import DeletionCoolingBanner from '@/components/DeletionCoolingBanner'
+
 import './index.scss'
 
 export default function ProfilePage() {
@@ -396,7 +399,8 @@ export default function ProfilePage() {
   // X-23: 注销弹窗状态
   const [deletionDialogVisible, setDeletionDialogVisible] = useState(false)
   const [deletionReason, setDeletionReason] = useState('')
-  const [deletionCountdown, setDeletionCountdown] = useState('')
+  // R2-P3-21（批次J）：deletionCountdown 状态已随公共组件抽取移除（原内联倒计时删除）
+
 
   // X-24: 数据导出弹窗状态
   const [exportPopupVisible, setExportPopupVisible] = useState(false)
@@ -409,27 +413,10 @@ export default function ProfilePage() {
     // deletionState 仅由用户主动提交注销请求后由 store 写入
   }, [])
 
-  // X-23: 注销冷静期倒计时
-  useEffect(() => {
-    if (deletionState?.status === 'cooling' && deletionState.cooling_ends_at) {
-      const updateCountdown = () => {
-        const endsAt = new Date(deletionState.cooling_ends_at!).getTime()
-        const now = Date.now()
-        const diff = endsAt - now
-        if (diff <= 0) {
-          setDeletionCountdown(t('user.deletionExecuted'))
-          return
-        }
-        const hours = Math.floor(diff / (1000 * 60 * 60))
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000)
-        setDeletionCountdown(`${hours}h ${minutes}m ${seconds}s`)
-      }
-      updateCountdown()
-      const timer = setInterval(updateCountdown, 1000)
-      return () => clearInterval(timer)
-    }
-  }, [deletionState, t])
+  // X-23: 注销冷静期倒计时——R2-P3-21（批次J）：倒计时 effect 已随批次E 抽取
+  // 进 DeletionCoolingBanner 公共组件（秒级 setInterval + cooling_ends_at 临近
+  // 切换「已执行」文案，见 components/DeletionCoolingBanner/index.tsx），
+  // 本页不再持有 deletionCountdown 状态（原内联 effect 移除）
 
   // X-24: 导出轮询清理
   useEffect(() => {
@@ -657,28 +644,14 @@ export default function ProfilePage() {
         />
       </View>
 
-      {/* X-23: 注销冷静期状态（如果存在） */}
-      {deletionState?.status === 'cooling' && (
-        <View className="deletion-status-banner">
-          <View className="banner-icon-row">
-            <Text className="banner-icon">⚠️</Text>
-            <Text className="banner-title">{t('user.deletionCoolingTitle')}</Text>
-          </View>
-          <Text className="banner-desc">{t('user.deletionCoolingDesc')}</Text>
-          <View className="countdown-row">
-            <Text className="countdown-label">{t('user.deletionCountdown')}</Text>
-            <Text className="countdown-value">{deletionCountdown}</Text>
-          </View>
-          <Button
-            size="small"
-            type="primary"
-            loading={deletionLoading}
-            onClick={handleCancelDeletion}
-          >
-            {t('user.cancelDeletion')}
-          </Button>
-        </View>
-      )}
+      {/* X-23: 注销冷静期状态——R2-P3-21（批次J）：内联横幅已抽取为公共组件
+          （status!=='cooling' 时组件自渲染 null，本页无需条件包裹；撤销回调与
+          loading 由 props 传入；配色契约 primary 8% 底 + 20% 边框见组件 scss） */}
+      <DeletionCoolingBanner
+        deletionState={deletionState}
+        loading={deletionLoading}
+        onCancel={handleCancelDeletion}
+      />
 
       {/* X-23: 注销账号入口（冷静期不显示） */}
       {deletionState?.status !== 'cooling' && (
@@ -1361,58 +1334,10 @@ export default function RatingHistoryPage() {
   box-shadow: var(--shadow-card);
 }
 
-/* X-23: 注销冷静期状态横幅 */
-.deletion-status-banner {
-  margin: var(--spacing-sm-md) var(--spacing-md);
-  padding: var(--spacing-md);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
-  border-radius: var(--radius-md);
-
-  .banner-icon-row {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-
-    .banner-icon {
-      font-size: 18px;
-    }
-
-    .banner-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--color-primary);
-    }
-  }
-
-  .banner-desc {
-    display: block;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    line-height: 1.5;
-    margin-bottom: var(--spacing-sm-md);
-  }
-
-  .countdown-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--spacing-sm-md);
-
-    .countdown-label {
-      font-size: 13px;
-      color: var(--color-text-secondary);
-    }
-
-    .countdown-value {
-      font-size: 18px;
-      font-weight: bold;
-      color: var(--color-primary);
-      font-variant-numeric: tabular-nums;
-    }
-  }
-}
+/* X-23: 注销冷静期状态横幅——R2-P3-21（批次J）：随公共组件抽取移入
+   components/DeletionCoolingBanner/index.scss（primary 8% 底 + 20% 边框 +
+   banner-row/desc/countdown-row 结构，R2-P3-2 批次I 已回归设计口径），
+   profile 页不再持有本组样式 */
 
 /* X-23: 注销入口（危险区域） */
 .danger-section {

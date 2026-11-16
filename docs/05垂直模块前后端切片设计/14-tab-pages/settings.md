@@ -30,6 +30,8 @@ import { View, Text } from '@tarojs/components'
 import { Cell, Switch, Button, Toast, Popup, Skeleton } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import { useUserStore } from '@/stores/userStore'
+// R-FE-R2 批次E（FE-P3-33）+R2-P3-21（批次J）：注销冷静期公共横幅组件
+import DeletionCoolingBanner from '@/components/DeletionCoolingBanner'
 import './index.scss'
 
 /** 通知开关存储 Key 前缀 */
@@ -194,24 +196,18 @@ export default function SettingsPage() {
             onClick={handleExport}
           />
 
-          {/* 注销冷静期状态（如果存在） */}
+          {/* 注销冷静期状态——R-FE-R2 批次E（FE-P3-33）：改公共 DeletionCoolingBanner
+              补秒级倒计时（本页 L620 反幻觉约束「冷静期必须显示倒计时」，修复前仅
+              图标+撤销按钮；组件契约见 components/DeletionCoolingBanner，02-user
+              同款消费——R2-P3-21 批次J 回写） */}
           {deletionLoading && !deletionState ? (
-            <Skeleton rows={2} loading={deletionLoading} />
+            <Skeleton rows={2} visible={deletionLoading} />
           ) : deletionState?.status === 'cooling' ? (
-            <View className="deletion-cooling-banner">
-              <View className="banner-row">
-                <Text className="banner-icon">⚠️</Text>
-                <Text className="banner-text">{t('user.deletionCoolingTitle')}</Text>
-              </View>
-              <Button
-                size="small"
-                type="primary"
-                loading={deletionLoading}
-                onClick={handleCancelDeletion}
-              >
-                {t('user.cancelDeletion')}
-              </Button>
-            </View>
+            <DeletionCoolingBanner
+              deletionState={deletionState}
+              loading={deletionLoading}
+              onCancel={handleCancelDeletion}
+            />
           ) : (
             <Cell
               title={t('user.deleteAccount')}
@@ -529,6 +525,13 @@ export default {
 }
 ```
 
+> **R2-P3-19（批次J）端差异说明（按实现回写，webview/index.tsx 头注）**：webview
+> 承载页为**双端降级设计**——weapp 端用 Taro `WebView` 组件加载在线 https 页
+> （业务域名白名单内）；H5 端虽存在 iframe 实现，但本地/E2E 环境无真实协议站点、
+> 空白 iframe 会引入 axe frame-title 风险，故 H5 渲染**降级提示**（icon + 标题 +
+> `settings.webviewFallback` 文案，`process.env.TARO_ENV === 'weapp' && url` 分支
+> 控制）。v2.0 §十降级策略仅含 App→小程序维度，此 H5 分支由本节承载。
+
 > 设置页不是 TabBar 页面，由个人主页（`pages/user/profile/index`）通过 `Taro.navigateTo({ url: '/pages/settings/index' })` 进入。
 
 ---
@@ -536,6 +539,10 @@ export default {
 ## 5. 常量与 i18n
 
 ### i18n 条目
+
+> **R2-P3-19（批次J）**：实际 i18n 方案为 `.ts` 模块（总览 §3.7 权威口径），下方为
+> 历史 `.json` 样例形态，键面以实现文件为权威。本节按实现补 webviewFallback 键
+> （webview 承载页 H5 降级分支文案，见 §4 端差异说明）。
 
 ```json
 // frontend/src/locales/zh-CN.json（新增 settings 段）
@@ -555,7 +562,8 @@ export default {
     "feedback": "反馈意见",
     "alreadyLatest": "当前已是最新版本",
     "feedbackComingSoon": "反馈功能即将上线",
-    "openingDocument": "正在打开文档..."
+    "openingDocument": "正在打开文档...",
+    "webviewFallback": "当前环境不支持网页查看，请在小程序中打开"
   }
 }
 ```
@@ -578,7 +586,8 @@ export default {
     "feedback": "Feedback",
     "alreadyLatest": "You are on the latest version",
     "feedbackComingSoon": "Feedback feature coming soon",
-    "openingDocument": "Opening document..."
+    "openingDocument": "Opening document...",
+    "webviewFallback": "Web view is not supported in this environment"
   }
 }
 ```

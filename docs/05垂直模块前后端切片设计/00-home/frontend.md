@@ -262,6 +262,8 @@ import QuickGrid from './components/QuickGrid'
 import CheckinCalendar from './components/CheckinCalendar'
 import LatestReportCard from './components/LatestReportCard'
 import AdviceBanner from './components/AdviceBanner'
+// 训练积分卡（R-FE-R1 批次A FE-P1-9，契约由 09-gamification/frontend.md §4.1 承载）
+import PointsCard from '@/pages/gamification/components/PointsCard'
 import './index.scss'
 
 export default function HomePage() {
@@ -303,6 +305,11 @@ export default function HomePage() {
 
           {/* 快捷操作宫格 */}
           <QuickGrid />
+
+          {/* 训练积分卡（R-FE-R1 批次A FE-P1-9：09-gamification §4.1「嵌入首页
+              Dashboard」；组件契约由 09-gamification/frontend.md §4.1 承载——
+              R2-P3-18 批次J 回写挂载点，布局权威以本清单为准） */}
+          <PointsCard />
 
           {/* 训练打卡日历（周视图） */}
           <CheckinCalendar
@@ -605,6 +612,12 @@ export default function CheckinCalendar({ data, loading }: Props) {
         })}
       </View>
 
+      {/* R-FE-R2 批次E（FE-P3-20）：周训练计数（v2.0 L244「本周已训练5次」，
+          buildWeekView days 直接统计）——R2-P3-18（批次J）回写 */}
+      <Text className="week-count">
+        {t('home.weeklyCount', { count: data.days.filter((d) => d.checked_in).length })}
+      </Text>
+
       <View
         className={`checkin-btn ${data.today_checked_in ? 'done' : ''}`}
         onClick={handleCheckin}
@@ -612,6 +625,16 @@ export default function CheckinCalendar({ data, loading }: Props) {
         <Text>
           {data.today_checked_in ? t('home.todayCheckedIn') : t('home.checkinNow')}
         </Text>
+      </View>
+
+      {/* R-FE-R1 批次A（FE-P0-3）：徽章墙入口（09-gamification §6 首页 → 徽章列表）
+          ——R2-P3-18（批次J）回写 */}
+      <View
+        className="badges-link"
+        onClick={() => Taro.navigateTo({ url: '/pages/gamification/badges/index' })}
+      >
+        <Text className="badges-link-text">🎖️ {t('gamification.myBadges')}</Text>
+        <Text className="badges-link-arrow" aria-hidden="true">›</Text>
       </View>
     </View>
   )
@@ -744,6 +767,9 @@ export default function AdviceBanner({ advice, loading }: Props) {
       <Text className="banner-time">
         {new Date(advice.latest_report_at).toLocaleDateString()}
       </Text>
+      {/* R-FE-R2 批次E（FE-P3-21）：可见 CTA 文本（v2.0 L258「[查看训练方案 →]」，
+          修复前整卡可点但无 CTA）——R2-P3-18（批次J）回写 */}
+      <Text className="banner-cta">{t('home.viewPlan')}</Text>
     </View>
   )
 }

@@ -174,7 +174,9 @@ export default function ReportPage() {
     Object.values(stats).forEach((val, idx) => {
       const pct = (val / techniqueTotal) * 100
       // 显式色值百分比插值（conic-gradient 变量在 weapp WebView 支持不稳，改用固定色板）
-      const colorHex = ['#E63946', '#2A9D8F', '#F4A261', '#457B9D'][idx % 4]
+      // R2-P3-1（批次J 补齐）：首色旧红 #E63946 收敛至 #C92738（与 --color-primary
+      // 同值；其余三色为固定分段色板维持不变）
+      const colorHex = ['#C92738', '#2A9D8F', '#F4A261', '#457B9D'][idx % 4]
       stops.push(`${colorHex} ${acc}%, ${colorHex} ${acc + pct}%`)
       acc += pct
     })

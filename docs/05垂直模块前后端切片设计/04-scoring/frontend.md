@@ -342,7 +342,9 @@ export default function MatchSetup() {
         target_score: TARGET_SCORE_OPTIONS[targetScoreIdx].value,
       })
       // 跳转到实时记分页
-      Taro.navigateTo({ url: `/pages/scoring/scoreboard/index?matchId=${matchId}` })
+      // R2-P3-17（批次J）：按实现改 redirectTo——防页面栈残留（setup 返回后栈内
+      // 不应再留存 setup 页；记分页检测 status=setup 时自动调 start，后端 X-21）
+      Taro.redirectTo({ url: `/pages/scoring/scoreboard/index?matchId=${matchId}` })
     } catch (err: any) {
       showToast(err?.message || t('scoring.createFailed'))
     }
@@ -356,74 +358,96 @@ export default function MatchSetup() {
       </View>
 
       {/* 对手信息 */}
-      <Cell title={t('scoring.opponentName')}>
-        <Input
-          placeholder={t('scoring.opponentNamePlaceholder')}
-          value={opponentName}
-          maxLength={64}
-          onChange={(val) => setOpponentName(val)}
-        />
-      </Cell>
+      {/* R2-P3-16（批次J）：NutUI Cell 右侧内容用 extra prop（原样例 children
+          形态 2.x 不支持）；Input 长度 prop 为 maxLength 驼峰——按实现回写 */}
+      <Cell
+        title={t('scoring.opponentName')}
+        extra={
+          <Input
+            className="cell-input"
+            placeholder={t('scoring.opponentNamePlaceholder')}
+            value={opponentName}
+            maxLength={64}
+            onChange={(val) => setOpponentName(val)}
+          />
+        }
+      />
 
-      <Cell title={t('scoring.opponentRating')}>
-        <Input
-          type="number"
-          placeholder={t('scoring.opponentRatingPlaceholder')}
-          value={opponentRating}
-          maxlength={4}
-          onChange={(val) => setOpponentRating(val)}
-        />
-      </Cell>
+      <Cell
+        title={t('scoring.opponentRating')}
+        extra={
+          <Input
+            className="cell-input"
+            type="number"
+            placeholder={t('scoring.opponentRatingPlaceholder')}
+            value={opponentRating}
+            maxLength={4}
+            onChange={(val) => setOpponentRating(val)}
+          />
+        }
+      />
 
       {/* 对手打法（R-FE-R2 批次G FE-P2-14：四选项 Picker，选填 idx 0 不传） */}
-      <Cell title={t('scoring.opponentPlayingStyle')}>
-        <Picker
-          mode="selector"
-          range={[t('scoring.playStyle_unselected'), ...OPPONENT_STYLE_OPTIONS.map((o) => t(o.labelKey))]}
-          value={styleIdx}
-          onChange={(e: any) => setStyleIdx(parseInt(e.detail.value, 10))}
-        >
-          <View className="picker-value">
-            {styleIdx > 0 ? t(OPPONENT_STYLE_OPTIONS[styleIdx - 1].labelKey) : t('scoring.playStyle_unselected')}
-          </View>
-        </Picker>
-      </Cell>
+      <Cell
+        title={t('scoring.opponentPlayingStyle')}
+        extra={
+          <Picker
+            mode="selector"
+            range={[t('scoring.playStyle_unselected'), ...OPPONENT_STYLE_OPTIONS.map((o) => t(o.labelKey))]}
+            value={styleIdx}
+            onChange={(e: any) => setStyleIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">
+              {styleIdx > 0 ? t(OPPONENT_STYLE_OPTIONS[styleIdx - 1].labelKey) : t('scoring.playStyle_unselected')}
+            </View>
+          </Picker>
+        }
+      />
 
       {/* 赛制选择 */}
-      <Cell title={t('scoring.format')}>
-        <Picker
-          mode="selector"
-          range={FORMAT_OPTIONS.map(o => t(o.labelKey))}
-          value={formatIdx}
-          onChange={(e: any) => setFormatIdx(parseInt(e.detail.value))}
-        >
-          <View className="picker-value">{t(FORMAT_OPTIONS[formatIdx].labelKey)}</View>
-        </Picker>
-      </Cell>
+      <Cell
+        title={t('scoring.format')}
+        extra={
+          <Picker
+            mode="selector"
+            range={FORMAT_OPTIONS.map((o) => t(o.labelKey))}
+            value={formatIdx}
+            onChange={(e: any) => setFormatIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">{t(FORMAT_OPTIONS[formatIdx].labelKey)}</View>
+          </Picker>
+        }
+      />
 
       {/* 比赛类型 */}
-      <Cell title={t('scoring.matchType')}>
-        <Picker
-          mode="selector"
-          range={MATCH_TYPE_OPTIONS.map(o => t(o.labelKey))}
-          value={typeIdx}
-          onChange={(e: any) => setTypeIdx(parseInt(e.detail.value))}
-        >
-          <View className="picker-value">{t(MATCH_TYPE_OPTIONS[typeIdx].labelKey)}</View>
-        </Picker>
-      </Cell>
+      <Cell
+        title={t('scoring.matchType')}
+        extra={
+          <Picker
+            mode="selector"
+            range={MATCH_TYPE_OPTIONS.map((o) => t(o.labelKey))}
+            value={typeIdx}
+            onChange={(e: any) => setTypeIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">{t(MATCH_TYPE_OPTIONS[typeIdx].labelKey)}</View>
+          </Picker>
+        }
+      />
 
       {/* 每局目标分（R-FE-R1 批次C FE-P2-13：11/21 切换，替代硬编码 11） */}
-      <Cell title={t('scoring.targetScore')}>
-        <Picker
-          mode="selector"
-          range={TARGET_SCORE_OPTIONS.map((o) => t(o.labelKey))}
-          value={targetScoreIdx}
-          onChange={(e: any) => setTargetScoreIdx(parseInt(e.detail.value, 10))}
-        >
-          <View className="picker-value">{t(TARGET_SCORE_OPTIONS[targetScoreIdx].labelKey)}</View>
-        </Picker>
-      </Cell>
+      <Cell
+        title={t('scoring.targetScore')}
+        extra={
+          <Picker
+            mode="selector"
+            range={TARGET_SCORE_OPTIONS.map((o) => t(o.labelKey))}
+            value={targetScoreIdx}
+            onChange={(e: any) => setTargetScoreIdx(parseInt(e.detail.value, 10))}
+          >
+            <View className="picker-value">{t(TARGET_SCORE_OPTIONS[targetScoreIdx].labelKey)}</View>
+          </Picker>
+        }
+      />
 
       {/* 创建按钮 */}
       <View className="setup-actions">
@@ -454,7 +478,8 @@ export default function MatchSetup() {
 import { useState, useEffect, useCallback } from 'react'
 import Taro, { useRouter } from '@tarojs/taro'
 import { View, Text } from '@tarojs/components'
-import { Button, Popup, Toast, Skeleton } from '@nutui/nutui-react'
+// R2-P3-16（批次J）：确认弹窗用 Dialog（实现侧同款 import），Popup 仅用于底部抽屉
+import { Button, Popup, Dialog, Toast, Skeleton } from '@nutui/nutui-react'
 import { useScoringStore } from '@/stores/scoringStore'
 import { useMatchSync } from '@/hooks/useMatchSync'
 import { useTranslation } from 'react-i18next'
@@ -475,8 +500,8 @@ export default function Scoreboard() {
 
   const [showMethodSheet, setShowMethodSheet] = useState(false)
   const [pendingScorer, setPendingScorer] = useState<'user' | 'opponent'>('user')
-  const [showFinishPopup, setShowFinishPopup] = useState(false)
-  const [showAbandonPopup, setShowAbandonPopup] = useState(false)
+  const [showFinishDialog, setShowFinishDialog] = useState(false)
+  const [showAbandonDialog, setShowAbandonDialog] = useState(false)
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
@@ -531,11 +556,13 @@ export default function Scoreboard() {
 
   /** 结束比赛 */
   const handleFinish = useCallback(async () => {
-    setShowFinishPopup(false)
+    setShowFinishDialog(false)
     try {
       await finishMatch(matchId)
       // 跳转到统计页
-      Taro.navigateTo({ url: `/pages/scoring/statistics/index?matchId=${matchId}` })
+      // R2-P3-17（批次J）：按实现改 redirectTo——终态页防栈残留；另实现侧
+      // status=finished 的 WS 同步分支同样 redirectTo（scoreboard L72-74）
+      Taro.redirectTo({ url: `/pages/scoring/statistics/index?matchId=${matchId}` })
     } catch (err: any) {
       showToast(err?.message || t('scoring.finishFailed'))
     }
@@ -543,7 +570,7 @@ export default function Scoreboard() {
 
   /** 放弃比赛（X-26：abandoned → 24h 内可经 resumeMatch 恢复） */
   const handleAbandon = useCallback(async () => {
-    setShowAbandonPopup(false)
+    setShowAbandonDialog(false)
     try {
       await abandonMatch(matchId)
       Taro.navigateBack()
@@ -646,7 +673,7 @@ export default function Scoreboard() {
         <Button
           className="btn-action btn-finish"
           size="small"
-          onClick={() => setShowFinishPopup(true)}
+          onClick={() => setShowFinishDialog(true)}
           disabled={isScoring}
         >
           {t('scoring.finishMatch')}
@@ -654,7 +681,7 @@ export default function Scoreboard() {
         <Button
           className="btn-action btn-abandon"
           size="small"
-          onClick={() => setShowAbandonPopup(true)}
+          onClick={() => setShowAbandonDialog(true)}
         >
           {t('scoring.abandonMatch')}
         </Button>
@@ -682,22 +709,31 @@ export default function Scoreboard() {
       </Popup>
 
       {/* 结束比赛确认弹窗 */}
-      <Popup
-        visible={showFinishPopup}
+      {/* R2-P3-16（批次J）：确认弹窗按实现回写为 Dialog——NutUI Popup 无
+          onConfirm/onCancel/title/content props（确认流弹窗须用 Dialog，
+          实现侧 scoreboard/index.tsx L300-321）；Popup 仅用于底部抽屉 */}
+      <Dialog
         title={t('scoring.confirmFinish')}
-        content={t('scoring.confirmFinishDesc')}
+        visible={showFinishDialog}
         onConfirm={handleFinish}
-        onCancel={() => setShowFinishPopup(false)}
-      />
+        onCancel={() => setShowFinishDialog(false)}
+        confirmText={t('scoring.finishMatch')}
+        cancelText={t('common.cancel')}
+      >
+        <Text className="dialog-desc">{t('scoring.confirmFinishDesc')}</Text>
+      </Dialog>
 
       {/* 放弃比赛确认（R-FE-R1 批次B X-26） */}
-      <Popup
-        visible={showAbandonPopup}
+      <Dialog
         title={t('scoring.confirmAbandon')}
-        content={t('scoring.confirmAbandonDesc')}
+        visible={showAbandonDialog}
         onConfirm={handleAbandon}
-        onCancel={() => setShowAbandonPopup(false)}
-      />
+        onCancel={() => setShowAbandonDialog(false)}
+        confirmText={t('scoring.abandonMatch')}
+        cancelText={t('common.cancel')}
+      >
+        <Text className="dialog-desc">{t('scoring.confirmAbandonDesc')}</Text>
+      </Dialog>
 
       <Toast
         visible={toastVisible}
@@ -799,11 +835,28 @@ export default function MatchStatistics() {
         <Text className="section-title">{t('scoring.scoreDistribution')}</Text>
         <View className="distribution-list">
           {Object.entries(score_distribution).map(([method, count]) => (
-            <Cell key={method} title={t(`scoring.method.${method}`)}>
-              <Text className="dist-count">{count}</Text>
-            </Cell>
+            <Cell
+              key={method}
+              title={t(`scoring.method.${method}`)}
+              extra={<Text className="dist-count">{count}</Text>}
+            />
           ))}
         </View>
+      </View>
+
+      {/* 技术动作分解 */}
+      <View className="stats-section">
+        <Text className="section-title">{t('scoring.techniqueBreakdown')}</Text>
+        <View className="technique-list">
+          {Object.entries(technique_breakdown).map(([tech, count]) => (
+            <Cell
+              key={tech}
+              title={t(`scoring.technique.${tech}`)}
+              extra={<Text className="dist-count">{count}</Text>}
+            />
+          ))}
+        </View>
+      </View>
       </View>
 
       {/* 技术动作分解 */}
@@ -997,7 +1050,9 @@ export default function MatchList() {
       {/* 上拉加载更多 */}
       {hasMore && (
         <View className="load-more" onClick={() => load(page + 1)}>
-          {loading ? <Skeleton width="60%" height="16px" animated /> : <Text>{t('common.loadMore')}</Text>}
+          {/* R2-P3-16（批次J）：按实现回写——NutUI Skeleton 无 width/height props
+              （仅 rows/animated 等），实现侧加载更多为纯文本态，非骨架占位 */}
+          <Text>{loading ? t('common.loading') : t('common.loadMore')}</Text>
         </View>
       )}
     </View>

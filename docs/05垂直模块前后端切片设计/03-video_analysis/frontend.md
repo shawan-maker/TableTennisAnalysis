@@ -163,13 +163,19 @@ interface TaskItem {
 
 interface TaskDetail {
   task_id: string
+  // R2-P3-15（批次J）：以下四键按实现/后端契约回写（backend.md R13-P3 VA-9
+  // 已注记 error_message 透出，此前 frontend.md 未跟）——task_uuid 供 H5 分享/
+  // 深链定位；error_message 供 §4.2 失败分支展示；current_step/created_at 可空
+  // （创建初期/后端缺省场景）
+  task_uuid: string
   status: string
-  current_step: number
+  current_step: number | null
   total_steps: number
   step_name: string | null
   progress: number
   estimated_remaining_seconds: number | null
-  created_at: string
+  error_message: string | null
+  created_at: string | null
   report_id: number | null
 }
 
@@ -195,7 +201,13 @@ interface FeedbackHistoryItem {
 interface ReportDetail {
   id: number
   task_id: string
-  created_at: string
+  // R2-P3-15（批次J）：task_uuid/is_readonly 按实现回写——backend.md R13-P3 与
+  // API §4.6 均已注记，此前 frontend.md 未跟；is_readonly 为会员到期降级标记
+  // （R15，Redis downgrade:report:readonly:{uid}），展示分支归 FS6 会员 Sprint 消费；
+  // created_at 可空（旧报告缺省场景）
+  task_uuid: string | null
+  created_at: string | null
+  is_readonly: boolean
   is_llm_generated: boolean
   result_data: {
     video_info?: { duration_sec: number; fps: number; resolution: string }
@@ -564,10 +576,14 @@ export default function UploadPage() {
         <View className="uploading-content">
           <Text className="uploading-icon">📹</Text>
           <Text className="uploading-text">{t('analysis.uploading')}</Text>
+          {/* R2-P3-14（批次J）：NutUI 2.7.14 Progress 属性为 percent（原样例
+              percentage 为 1.x 命名）；strokeWidth 为带单位字符串；aria-label 为
+              axe 门禁必需（E2E-01 上传态可访问名） */}
           <Progress
-            percentage={uploadProgress}
+            percent={uploadProgress}
             color="var(--color-primary)"
-            strokeWidth={8}
+            strokeWidth="8px"
+            aria-label={t('analysis.uploading')}
           />
         </View>
       </View>
@@ -747,6 +763,11 @@ export default function ProgressPage() {
       {taskDetail.status === 'failed' && (
         <View className="failed-section">
           <Text className="failed-text">{t('analysis.analysisFailed')}</Text>
+          {/* R2-P3-15（批次J）：失败分支按实现补 error_message 展示——后端透出
+              失败原因（backend.md R13-P3 VA-9），无原因时仅展示通用文案 */}
+          {taskDetail.error_message && (
+            <Text className="failed-error">{taskDetail.error_message}</Text>
+          )}
           <Button
             type="primary"
             block
@@ -765,10 +786,12 @@ export default function ProgressPage() {
 
 ```tsx
 // frontend/src/pages/video-analysis/report.tsx
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Taro, { useRouter } from '@tarojs/taro'
 import { View, Text, ScrollView, Video } from '@tarojs/components'
-import { Button, Toast, Popup, Skeleton, Textarea } from '@nutui/nutui-react'
+// R2-P3-14（批次J）：NutUI 2.7.14 文本域组件为 TextArea（原样例 Textarea 为 1.x
+// 命名——与实现侧 FS3-P3 头注对齐）；组件清单以实现为准
+import { Button, Toast, Popup, Skeleton, TextArea } from '@nutui/nutui-react'
 import { useVideoAnalysisStore } from '@/stores/videoAnalysisStore'
 import { useTranslation } from 'react-i18next'
 import './report.scss'
@@ -786,6 +809,8 @@ export default function ReportPage() {
   const [feedbackPopupVisible, setFeedbackPopupVisible] = useState(false)
   const [feedbackComment, setFeedbackComment] = useState('')
   const [landingView, setLandingView] = useState<'mine' | 'opponent'>('mine')
+  // R-FE-R2 批次G（FE-P2-6）：视频上下文懒建（marker 点击 seek 消费）
+  const videoCtxRef = useRef<ReturnType<typeof Taro.createVideoContext> | null>(null)
 
   useEffect(() => {
     if (reportId) {
@@ -801,7 +826,12 @@ export default function ReportPage() {
   /** 提交反馈 */
   const handleFeedback = async (isCorrect: boolean) => {
     try {
-      await submitFeedback(reportId, isCorrect, feedbackComment || undefined)
+      // R2-P3-3（批次I/批次J 同步）：is_correct=true 一律不带 comment——评论仅来自
+      // 「不准」弹窗输入；「准确」按钮侧已 setFeedbackComment('')（见 §4.4 清空承诺），
+      // 此处为行为级兜底：setFeedbackComment 异步更新不阻断当次闭包读值，仅按钮侧
+      // 清空属假修复——按本样例重实现须保留兜底，否则取消弹窗后残留文字会随提交
+      const comment = isCorrect ? undefined : feedbackComment || undefined
+      await submitFeedback(reportId, isCorrect, comment)
       setFeedbackPopupVisible(false)
       showToast(isCorrect ? t('analysis.feedbackCorrect') : t('analysis.feedbackIncorrect'))
     } catch (err: any) {
@@ -832,19 +862,101 @@ export default function ReportPage() {
   const ballSpeed = result?.ball_speed
   const rally = result?.rally_analysis
 
-  // 九宫格热图颜色深浅（根据值大小）
-  // --color-primary #C92738（R2-P3-1 批次I：FS8-7 调色后现值），JS 中无法直接使用
-  // CSS 变量，统一引用主色 RGB 值（与 dashboard LandingHeatmap 同源派生）
+  // R2-P3-9（批次J）：批次G 派生逻辑按实现回写补齐（原样例仅引用未定义）——
+  // 落点双源（FE-P1-3）/环形图 conic 几何/节奏曲线（FE-P2-5）/关键分（FE-P2-6）
+  // 热图双源：优先 landing_heatmap（含对手侧），旧报告回落 landing_points.nine_grid
+  const heatmap = result?.landing_heatmap
+  const myGrid = heatmap?.nine_grid?.length ? heatmap.nine_grid : landing?.nine_grid
+  const oppGrid = heatmap?.opponent_nine_grid?.length ? heatmap.opponent_nine_grid : null
+  const activeGrid = landingView === 'opponent' ? oppGrid : myGrid
+
+  // 九宫格热图颜色深浅（主色 #C92738 RGB，JS 无法读 CSS 变量——与 dashboard
+  // LandingHeatmap 同源派生；R2-P3-1（批次I）：旧 #E63946 残留收敛）
   const PRIMARY_RGB = '201, 39, 56'
-  const maxLanding = landing ? Math.max(...landing.nine_grid.flat()) : 1
+  const maxLanding = activeGrid ? Math.max(...activeGrid.flat()) : 1
   const getHeatColor = (val: number) => {
-    const ratio = val / maxLanding
+    const ratio = maxLanding > 0 ? val / maxLanding : 0
     const alpha = 0.2 + ratio * 0.8
     return `rgba(${PRIMARY_RGB}, ${alpha})`
   }
 
-  // 技术统计环形图数据
-  const techniqueTotal = techniques ? Object.values(techniques).reduce((a, b) => a + b, 0) : 1
+  // 技术统计环形图（conic-gradient 分段 + 内圆挖洞；R2-P3-14：原 clipPath polygon
+  // 样例为同弧度模板，多分段数学不正确——对齐实现侧 FS3-P3 修正）
+  const techniqueTotal = techniques
+    ? Object.values(techniques).reduce((a, b) => a + b, 0)
+    : 1
+  // 图例沿用语义 token；donut 分段用固定 hex——conic-gradient 插值串内 CSS 变量
+  // 在 weapp WebView 支持不稳；首色 #C92738 与 --color-primary 同值（R2-P3-1 批次J）
+  const SEGMENT_COLORS = [
+    'var(--color-primary)',
+    'var(--color-secondary)',
+    'var(--color-accent)',
+    'var(--color-success)',
+  ]
+  const buildDonutGradient = (stats: Record<string, number>): string => {
+    let acc = 0
+    const stops: string[] = []
+    Object.values(stats).forEach((val, idx) => {
+      const pct = (val / techniqueTotal) * 100
+      const colorHex = ['#C92738', '#2A9D8F', '#F4A261', '#457B9D'][idx % 4]
+      stops.push(`${colorHex} ${acc}%, ${colorHex} ${acc + pct}%`)
+      acc += pct
+    })
+    return `conic-gradient(${stops.join(', ')})`
+  }
+
+  // 节奏曲线几何——weapp 不支持 <svg>，按 conic 先例用绝对定位 View 旋转线段绘折线
+  // （300×120 画布居中，段端点按数据归一化计算；FE-P2-5）
+  const tempo = rally?.rally_tempo ?? []
+  const TEMPO_W = 300
+  const TEMPO_H = 120
+  const TEMPO_PAD = 14
+  const tempoPts = tempo.length > 1
+    ? tempo.map((v, i) => {
+        const minV = Math.min(...tempo)
+        const maxV = Math.max(...tempo)
+        const span = maxV - minV || 1
+        return {
+          x: TEMPO_PAD + (i * (TEMPO_W - 2 * TEMPO_PAD)) / (tempo.length - 1),
+          y: TEMPO_H - TEMPO_PAD - ((v - minV) / span) * (TEMPO_H - 2 * TEMPO_PAD),
+        }
+      })
+    : []
+  const tempoSegments = tempoPts.slice(0, -1).map((p, i) => {
+    const q = tempoPts[i + 1]
+    const dx = q.x - p.x
+    const dy = q.y - p.y
+    return {
+      key: `seg-${i}`,
+      left: p.x,
+      top: p.y,
+      width: Math.sqrt(dx * dx + dy * dy),
+      angle: (Math.atan2(dy, dx) * 180) / Math.PI,
+    }
+  })
+
+  // 关键分 marker（timestamp 为视频相对秒，旧报告无时间戳的条目不渲染——
+  // marker 语义即点击回放；FE-P2-6）
+  const keyPoints =
+    result?.score_analysis?.key_points?.filter(
+      (kp): kp is typeof kp & { timestamp: number } => kp.timestamp != null
+    ) ?? []
+
+  /** marker 点击 → 视频跳转到关键分时刻 */
+  const seekTo = (sec: number) => {
+    if (!videoCtxRef.current) {
+      videoCtxRef.current = Taro.createVideoContext('annotated-video')
+    }
+    videoCtxRef.current?.seek(sec)
+    videoCtxRef.current?.play()
+  }
+
+  /** 关键分时刻格式化（m:ss） */
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    return `${m}:${String(s).padStart(2, '0')}`
+  }
 
   return (
     <ScrollView scrollY className="report-page">
@@ -931,27 +1043,27 @@ export default function ReportPage() {
         <View className="technique-section">
           <View className="section-title">{t('analysis.techniqueDistribution')}</View>
           <View className="technique-chart">
-            {/* CSS 环形图实现 */}
-            <View className="donut-chart">
-              {Object.entries(techniques).map(([key, val], idx) => {
-                const pct = (val / techniqueTotal) * 100
-                const colors = ['var(--color-primary)', 'var(--color-secondary)', 'var(--color-accent)', 'var(--color-success)']
-                const color = colors[idx % colors.length]
-                return (
-                  <View key={key} className="donut-segment" style={{
-                    background: color,
-                    clipPath: `polygon(50% 50%, ${50 + 50 * Math.cos(0)}% ${50 + 50 * Math.sin(0)}%, ${50 + 50 * Math.cos(pct / 100 * 2 * Math.PI)}% ${50 + 50 * Math.sin(pct / 100 * 2 * Math.PI)}%)`,
-                  }} />
-                )
-              })}
+            {/* R2-P3-14（批次J）：环形图按实现回写——conic-gradient 分段 +
+                donut-hole 内圆挖洞（原 clipPath polygon 样例为同弧度模板，多分段
+                数学不正确，对应实现侧 FS3-P3 注记）；分段色为固定 hex（见
+                buildDonutGradient 注释），图例沿用语义 token */}
+            <View
+              className="donut-chart"
+              style={{ background: buildDonutGradient(techniques) }}
+              role="img"
+              aria-label={t('analysis.techniqueDistribution')}
+            >
+              <View className="donut-hole" />
             </View>
             <View className="technique-legend">
               {Object.entries(techniques).map(([key, val], idx) => {
                 const pct = ((val / techniqueTotal) * 100).toFixed(0)
-                const colors = ['var(--color-primary)', 'var(--color-secondary)', 'var(--color-accent)', 'var(--color-success)']
                 return (
                   <View key={key} className="legend-item">
-                    <View className="legend-dot" style={{ background: colors[idx % colors.length] }} />
+                    <View
+                      className="legend-dot"
+                      style={{ background: SEGMENT_COLORS[idx % SEGMENT_COLORS.length] }}
+                    />
                     <Text className="legend-label">{t(`technique.${key}`)}</Text>
                     <Text className="legend-value">{pct}%</Text>
                   </View>
@@ -962,6 +1074,8 @@ export default function ReportPage() {
           {reportText && reportText.issues.length > 0 && (
             <Text className="technique-hint">{reportText.issues[0]}</Text>
           )}
+        </View>
+      )}
         </View>
       )}
 
@@ -1430,6 +1544,14 @@ export default function ReportListPage() {
     display: block;
     margin-bottom: var(--spacing-md);
   }
+
+  /* R2-P3-15（批次J）：失败原因透出样式按实现补（processing/index.scss L119-124） */
+  .failed-error {
+    display: block;
+    font-size: var(--fs-caption);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-md);
+  }
 }
 ```
 
@@ -1500,6 +1622,8 @@ export default function ReportListPage() {
 .heatmap-section,
 .technique-section,
 .ball-speed-section,
+/* R2-P3-10（批次J）：tempo-section 按实现补入分区卡片组（index.scss L72-75） */
+.tempo-section,
 .conclusion-section,
 .video-section,
 .feedback-section {
@@ -1578,6 +1702,8 @@ export default function ReportListPage() {
     position: absolute;
     height: 2px;
     background: var(--color-primary);
+    /* R2-P3-10（批次J）：border-radius:1px 按实现补——旋转线段端部直角视觉收敛 */
+    border-radius: 1px;
     transform-origin: 0 50%;
   }
 
@@ -1619,6 +1745,19 @@ export default function ReportListPage() {
     margin-right: var(--spacing-sm);
     border-radius: var(--radius-sm);
     background: var(--color-background);
+
+    /* R2-P3-10（批次J）：chip 子样式按实现补（index.scss L195-204） */
+    .chip-score {
+      font-size: var(--fs-body);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    .chip-meta {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      margin-top: 2px;
+    }
   }
 }
 
@@ -1927,6 +2066,11 @@ export default {
 
 ### i18n 条目
 
+> **R2-P3-11/25（批次J）格式注记**：实际 i18n 方案为 `.ts` 模块（`src/locales/zh-CN.ts`
+> / `en-US.ts`，总览 §3.7 权威口径），下方为历史 `.json` 样例形态，键面以实现文件为
+> 权威。本节按实现补齐批次E 新增五键（quotaRemaining/bonusRemaining/confirming/
+> creatingTask/viewAdvice——viewAdvice 承接训练闭环跳转，07 切片已注记）。
+
 ```json
 // frontend/src/locales/zh-CN.json（新增）
 {
@@ -1943,11 +2087,15 @@ export default {
     "noticeSize": "视频文件不能超过 500MB",
     "noticeDuration": "建议视频时长 1-5 分钟",
     "freeQuotaHint": "免费用户每日可分析 3 次，会员无限分析",
+    "quotaRemaining": "今日免费额度剩余 {{count}} 次",
+    "bonusRemaining": "付费分析包剩余 {{count}} 次",
     "chooseVideo": "选择/拍摄视频",
     "invalidFormat": "仅支持 MP4/MOV 格式",
     "fileTooLarge": "视频文件不能超过 500MB",
     "chooseFailed": "选择视频失败",
     "uploading": "视频上传中...",
+    "confirming": "正在确认上传...",
+    "creatingTask": "正在创建分析任务...",
     "uploadFailed": "上传失败，请重试",
     "taskCreated": "分析任务已创建",
     "taskCreateFailed": "创建分析任务失败",
@@ -1957,6 +2105,7 @@ export default {
     "backToHome": "返回首页，稍后查看",
     "analysisComplete": "分析完成！",
     "viewReport": "查看报告",
+    "viewAdvice": "查看训练建议",
     "analysisFailed": "分析失败，请重试",
     "retry": "重试",
     "aiGenerated": "AI 生成",
@@ -2013,7 +2162,9 @@ export default {
     "backhand_loop": "反手拉球",
     "serve": "发球",
     "push": "搓球",
-    "block": "挡球"
+    "block": "挡球",
+    "flip": "拧拉",
+    "smash": "扣杀"
   }
 }
 ```
@@ -2034,11 +2185,15 @@ export default {
     "noticeSize": "Max 500MB",
     "noticeDuration": "Recommended 1-5 minutes",
     "freeQuotaHint": "Free users: 3 analyses/day, members: unlimited",
+    "quotaRemaining": "Free quota remaining today: {{count}}",
+    "bonusRemaining": "Paid analysis pack remaining: {{count}}",
     "chooseVideo": "Choose/Record Video",
     "invalidFormat": "Only MP4/MOV supported",
     "fileTooLarge": "File exceeds 500MB",
     "chooseFailed": "Failed to choose video",
     "uploading": "Uploading video...",
+    "confirming": "Confirming upload...",
+    "creatingTask": "Creating analysis task...",
     "uploadFailed": "Upload failed, please retry",
     "taskCreated": "Analysis task created",
     "taskCreateFailed": "Failed to create task",
@@ -2048,6 +2203,7 @@ export default {
     "backToHome": "Back to home",
     "analysisComplete": "Analysis complete!",
     "viewReport": "View Report",
+    "viewAdvice": "View Training Advice",
     "analysisFailed": "Analysis failed, please retry",
     "retry": "Retry",
     "aiGenerated": "AI",
@@ -2104,7 +2260,9 @@ export default {
     "backhand_loop": "Backhand Loop",
     "serve": "Serve",
     "push": "Push",
-    "block": "Block"
+    "block": "Block",
+    "flip": "Flip",
+    "smash": "Smash"
   }
 }
 ```
@@ -2232,14 +2390,14 @@ cd frontend && npm run build:h5
 - [ ] 视频回放组件正常加载和播放
 - [ ] 反馈按钮：准确使用 NutUI Button `type="success"`、不准使用 `type="danger"`（R2-P3-1 批次I：实现经 NutUI 主题色非裸 token；原清单 #2A9D8F/#E63946 为 FS8-7 调色前旧值）
 - [ ] 分享按钮固定在底部
-- [ ] 节奏曲线折线渲染正确（点数=回合数，低时长点位低）<!-- R-FE-R2 批次G FE-P2-5 -->
+- [ ] 节奏曲线折线渲染正确（点数=rally_tempo 序列长度，低时长点位低）<!-- R-FE-R2 批次G FE-P2-5；R2-P3-13（批次J）：原「点数=回合数」口径与 mock 不自洽——演示数据 rally_tempo 20 值 ≠ total_rallies 23，真实流水线 step 8 可下发同名字段覆盖，验收以序列长度为准 -->
 - [ ] 关键分 chip 显示比分+序号+时刻（m:ss）<!-- R-FE-R2 批次G FE-P2-6 -->
 
 ### 功能验证
 - [ ] 选择/拍摄视频 → 校验格式/大小 → 获取上传凭证 → OSS 直传 → 确认上传 → 创建任务
 - [ ] 进度页 WebSocket 实时推送 + 轮询兜底
 - [ ] 分析完成后自动跳转报告页
-- [ ] 报告页展示：核心数据 → 热图 → 技术统计 → 节奏曲线 → 球速 → 结论 → 视频回放 → 反馈 → 分享
+- [ ] 报告页展示：核心数据 → 热图 → 技术统计 → 球速 → 结论 → 节奏曲线 → 视频回放 → 反馈 → 分享<!-- R2-P3-12（批次J）：区块顺序按实现修正——样例/实现为「球速→结论→节奏曲线」，原「节奏曲线→球速」顺序失实 -->
 - [ ] 落点热图可切换"我的落点"/"对手落点"
 - [ ] 点击关键分 chip 视频跳转到对应时刻（marker seek）<!-- R-FE-R2 批次G FE-P2-6 -->
 - [ ] 反馈弹窗底部弹出，提交后显示"已提交"

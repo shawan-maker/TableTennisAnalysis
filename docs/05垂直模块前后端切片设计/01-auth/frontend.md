@@ -141,8 +141,13 @@ interface AuthState {
   isLoading: boolean
 
   // Actions
-  wechatLogin: (code: string, nickname?: string, avatarUrl?: string) => Promise<void>
-  phoneLogin: (phone: string, code: string) => Promise<void>
+  // R2-P3-26（批次J）：login action 契约按实现回写——FS8-P1-1（E2E-01 抓获）后
+  // 返回 Promise<boolean>：true=needsConsent（store 内已 navigateTo 同意页，调用方
+  // 不得再 switchTab home，否则同意页被立即切走、PIPL 同意链路断裂）；false=已同意
+  // 可直接进首页。原 Promise<void> + 页面无条件 switchTab 为修复前旧契约——
+  // 按旧文档重实现会复现已修 P1 缺陷（实施计划 L381 已记录，切片此前未跟）
+  wechatLogin: (code: string, nickname?: string, avatarUrl?: string) => Promise<boolean>
+  phoneLogin: (phone: string, code: string) => Promise<boolean>
   refreshAccessToken: () => Promise<boolean>
   fetchMe: () => Promise<void>
   logout: () => Promise<void>
@@ -320,8 +325,12 @@ export default function Login() {
   const handleWechatLogin = useCallback(async () => {
     try {
       const { code } = await Taro.login()
-      await wechatLogin(code)
-      Taro.switchTab({ url: '/pages/home/index' })
+      // R2-P3-26（批次J）：needsConsent=true 时 store 已 navigateTo 同意页，
+      // 页面不得再 switchTab home（否则同意页被立即切走，PIPL 链路断裂）
+      const needsConsent = await wechatLogin(code)
+      if (!needsConsent) {
+        Taro.switchTab({ url: '/pages/home/index' })
+      }
     } catch (err: any) {
       showToast(err?.message || t('auth.loginFailed'))
     }
@@ -359,8 +368,11 @@ export default function Login() {
       return
     }
     try {
-      await phoneLogin(phone, smsCode)
-      Taro.switchTab({ url: '/pages/home/index' })
+      // R2-P3-26（批次J）：needsConsent=true 时 store 已 navigateTo 同意页，勿再 switchTab
+      const needsConsent = await phoneLogin(phone, smsCode)
+      if (!needsConsent) {
+        Taro.switchTab({ url: '/pages/home/index' })
+      }
     } catch (err: any) {
       showToast(err?.message || t('auth.loginFailed'))
     }
@@ -582,49 +594,58 @@ export default {
 
 ### i18n 条目
 
-```json
-// frontend/src/locales/zh-CN.json（新增）
-{
-  "auth": {
-    "wechatLogin": "微信一键登录",
-    "orPhoneLogin": "或手机号登录",
-    "phonePlaceholder": "请输入手机号",
-    "codePlaceholder": "请输入验证码",
-    "sendCode": "发送验证码",
-    "login": "登录",
-    "loginFailed": "登录失败，请重试",
-    "invalidPhone": "请输入正确的手机号",
-    "smsSent": "验证码已发送",
-    "smsSendFailed": "验证码发送失败",
-    "fillAllFields": "请填写手机号和验证码",
-    "agreementPrefix": "登录即表示同意",
-    "userAgreement": "《用户协议》",
-    "and": "和",
-    "privacyPolicy": "《隐私政策》"
-  }
+> **R2-P3-25（批次J）格式注记**：实际 i18n 方案为 `.ts` 模块（`src/locales/zh-CN.ts` /
+> `en-US.ts`，总览 §3.7 权威口径；模块级 import 支持类型推导与键守卫测试），非本节
+> 旧样例的 `.json` 文件。下方样例已按实现格式回写；键面以实现文件为权威（样例为
+> 新增时点的子集，后续批次新增键未逐一回写此处）。
+
+```ts
+// frontend/src/locales/zh-CN.ts（auth 段节选）
+export default {
+  // …
+  auth: {
+    wechatLogin: '微信一键登录',
+    orPhoneLogin: '或手机号登录',
+    phonePlaceholder: '请输入手机号',
+    codePlaceholder: '请输入验证码',
+    sendCode: '发送验证码',
+    login: '登录',
+    loginFailed: '登录失败，请重试',
+    invalidPhone: '请输入正确的手机号',
+    smsSent: '验证码已发送',
+    smsSendFailed: '验证码发送失败',
+    fillAllFields: '请填写手机号和验证码',
+    agreementPrefix: '登录即表示同意',
+    userAgreement: '《用户协议》',
+    and: '和',
+    privacyPolicy: '《隐私政策》',
+  },
+  // …
 }
 ```
 
-```json
-// frontend/src/locales/en-US.json（新增）
-{
-  "auth": {
-    "wechatLogin": "Login with WeChat",
-    "orPhoneLogin": "or phone login",
-    "phonePlaceholder": "Enter phone number",
-    "codePlaceholder": "Enter verification code",
-    "sendCode": "Send Code",
-    "login": "Login",
-    "loginFailed": "Login failed, please try again",
-    "invalidPhone": "Please enter a valid phone number",
-    "smsSent": "Verification code sent",
-    "smsSendFailed": "Failed to send verification code",
-    "fillAllFields": "Please fill in phone and code",
-    "agreementPrefix": "By logging in you agree to the",
-    "userAgreement": "Terms of Service",
-    "and": "and",
-    "privacyPolicy": "Privacy Policy"
-  }
+```ts
+// frontend/src/locales/en-US.ts（auth 段节选）
+export default {
+  // …
+  auth: {
+    wechatLogin: 'Login with WeChat',
+    orPhoneLogin: 'or phone login',
+    phonePlaceholder: 'Enter phone number',
+    codePlaceholder: 'Enter verification code',
+    sendCode: 'Send Code',
+    login: 'Login',
+    loginFailed: 'Login failed, please try again',
+    invalidPhone: 'Please enter a valid phone number',
+    smsSent: 'Verification code sent',
+    smsSendFailed: 'Failed to send verification code',
+    fillAllFields: 'Please fill in phone and code',
+    agreementPrefix: 'By logging in you agree to the',
+    userAgreement: 'Terms of Service',
+    and: 'and',
+    privacyPolicy: 'Privacy Policy',
+  },
+  // …
 }
 ```
 
