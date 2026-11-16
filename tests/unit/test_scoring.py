@@ -775,3 +775,173 @@ async def test_multi_game_cross_game_undo_protection(client, auth_headers):
     )
     assert undo_resp.status_code == 400
     assert "不可撤销" in undo_resp.json()["message"]
+
+
+# =====================================================================
+# R2-P1-1（批次H）回归：局分 wire 层契约 — 穿透 mock 的行为性断言
+#
+# 批次B FE-P1-6 假修复形态根源：schema MatchDetail 声明 games_won 两键
+# 但 service 手拼 dict 未给值（10 端点又无 response_model，schema 即摆设），
+# 前端 `?? 0` 兜底恒显 0:0，E2E mock 喂了 games_won 数据故四轮门禁全绿。
+# 本组断言直达 detail dict / score dict / WS 广播 payload 实际内容。
+# =====================================================================
+
+async def _create_bo3_and_play_game1(client, auth_headers) -> tuple[int, dict]:
+    """辅助：创建 bo3 比赛 + 打完第 1 局（user 11:0），返回 (match_id, 最后一球响应)"""
+    resp = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "局分契约对手", "format": "bo3"},
+    )
+    match_id = resp.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+    last = None
+    for _ in range(11):
+        last = await client.post(
+            f"/api/v1/scoring/matches/{match_id}/score",
+            headers=auth_headers,
+            json={"scorer": "user", "score_method": "serve_point"},
+        )
+        assert last.status_code == 200
+    return match_id, last.json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_score_and_detail_expose_games_won_wire_contract(client, auth_headers):
+    """R2-P1-1: bo3 局推进后 score 响应与 detail 响应必须携带局分 1:0
+
+    三路径 wire 修复的行为性回归守卫：
+    - score 响应（前端 doScore 即时消费）
+    - detail 响应（初始加载 loadMatch→fetchMatch 消费——修复前断裂主路径）
+    """
+    match_id, score_data = await _create_bo3_and_play_game1(client, auth_headers)
+
+    # score 响应契约：局推进那一球携带局分 + 既有键不回归
+    assert score_data["games_won_user"] == 1, "第 1 局结束后 score 响应应携带局分 user=1"
+    assert score_data["games_won_opp"] == 0
+    assert score_data["match_finished"] is False
+    assert score_data["game_number"] == 2
+    assert set(score_data.keys()) >= {
+        "sequence", "score", "current_server", "game_number", "is_key_point",
+        "match_status", "should_change_sides", "match_finished",
+        "games_won_user", "games_won_opp",
+    }, "ScoreResponse 全键契约（response_model 校验后防丢键）"
+
+    # detail 响应契约（初始加载路径——修复前 games_won 恒缺失）
+    resp = await client.get(
+        f"/api/v1/scoring/matches/{match_id}", headers=auth_headers
+    )
+    assert resp.status_code == 200
+    detail = resp.json()["data"]
+    assert detail["games_won_user"] == 1, "detail 响应必须携带局分（wire 层主修复点）"
+    assert detail["games_won_opp"] == 0
+    assert detail["current_game"] == 2
+    assert detail["current_score"] == "0:0", "局推进后当前局比分应已清零"
+    assert detail["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_score_update_ws_payload_contains_games_won(client, auth_headers):
+    """R2-P1-1: score_update WS 广播 payload 携带局分 — Redis pubsub 实收断言
+
+    穿透 mock 的行为性验证：订阅 ws:relay:ws:match:{id} 频道，实收
+    ScoringService.score 真实广播的消息体（多设备同步端 applyWsScoreUpdate
+    消费路径——修复前 payload 无局分，局推进后大比分须等 fetchMatch 对账）。
+    """
+    import asyncio
+    import json
+
+    import redis.asyncio as aioredis
+
+    from app.core.config import settings
+
+    # 创建并开始比赛（不发球——先订阅再记分，避免错过广播）
+    resp = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "WS局分对手", "format": "bo3"},
+    )
+    match_id = resp.json()["data"]["match_id"]
+    await client.post(
+        f"/api/v1/scoring/matches/{match_id}/start", headers=auth_headers
+    )
+
+    r = aioredis.from_url(settings.redis_url_computed, decode_responses=True)
+    pubsub = r.pubsub()
+    try:
+        # 先订阅再记分（Redis pubsub 不缓存未订阅期间消息）
+        await pubsub.subscribe(f"ws:relay:ws:match:{match_id}")
+
+        # 打完第 1 局（11:0 → 局推进）
+        for _ in range(11):
+            sc = await client.post(
+                f"/api/v1/scoring/matches/{match_id}/score",
+                headers=auth_headers,
+                json={"scorer": "user", "score_method": "serve_point"},
+            )
+            assert sc.status_code == 200
+
+        # 轮询实收：11 条 score_update，断言致胜球（局推进）那条携带局分
+        # redis-py 7.1 首个 get_message 可能读到 None/subscribe ack，须循环消费
+        deadline = asyncio.get_event_loop().time() + 3.0
+        payloads = []
+        while asyncio.get_event_loop().time() < deadline and len(payloads) < 11:
+            msg = await pubsub.get_message(ignore_subscribe_messages=True)
+            if msg and msg.get("type") == "message":
+                payloads.append(json.loads(msg["data"]))
+            else:
+                await asyncio.sleep(0.05)
+
+        assert len(payloads) == 11, f"应收 11 条广播，实收 {len(payloads)}"
+
+        # 前 10 球（局内）：局分 0:0；第 10 球（10:0）为局点 → 关键分
+        for i, p in enumerate(payloads[:10]):
+            assert p["event"] == "score_update"
+            assert p["data"]["games_won_user"] == 0
+            assert p["data"]["games_won_opp"] == 0
+        assert payloads[9]["data"]["is_key_point"] is True, "10:0 局点应为关键分"
+        # 第 11 球（致胜球）：局推进 → 局分 1:0（11:0 不满足关键分定义——
+        # 仅 10:10 后或恰好 target-1，故 is_key_point=False）
+        final = payloads[-1]
+        assert final["event"] == "score_update"
+        assert final["data"]["games_won_user"] == 1, "致胜球广播应携带局分 user=1"
+        assert final["data"]["games_won_opp"] == 0
+        assert final["data"]["is_key_point"] is False
+    finally:
+        await pubsub.unsubscribe(f"ws:relay:ws:match:{match_id}")
+        await pubsub.aclose()
+        await r.aclose()
+
+
+@pytest.mark.asyncio
+async def test_match_create_and_list_response_model_contract(client, auth_headers):
+    """R2-P1-1: 路由全量 response_model — create/list 响应键契约
+
+    MatchCreateResponse / MatchListResponse 此前无 schema 承载（dict 即
+    线上契约），补齐后断言响应面与 schema 一致（多余键被 model_dump 剔除）。
+    """
+    # create：四键契约
+    resp = await client.post(
+        "/api/v1/scoring/matches",
+        headers=auth_headers,
+        json={"opponent_name": "契约对手", "format": "bo3"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert set(data.keys()) == {
+        "match_id", "status", "current_server", "opponent_playing_style",
+    }, f"MatchCreateResponse 键面漂移: {sorted(data.keys())}"
+    assert data["status"] == "setup"
+    assert data["opponent_playing_style"] is None
+
+    # list：分页四键契约
+    resp2 = await client.get("/api/v1/scoring/matches", headers=auth_headers)
+    assert resp2.status_code == 200
+    ldata = resp2.json()["data"]
+    assert set(ldata.keys()) == {"total", "page", "page_size", "items"}
+    assert set(ldata["items"][0].keys()) == {
+        "id", "opponent_name", "format", "match_type", "status",
+        "current_score_user", "current_score_opp", "is_win", "created_at",
+    }, f"MatchBrief 键面漂移: {sorted(ldata['items'][0].keys())}"

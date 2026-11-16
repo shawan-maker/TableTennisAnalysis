@@ -218,6 +218,12 @@ class ScoringService:
                 "current_score": f"{match.current_score_user}:{match.current_score_opp}",
                 "current_server": match.current_server,
                 "current_game": match.current_game,
+                # R2-P1-1（批次B FE-P1-6 假修复收口）：局分透出——
+                # schema MatchDetail 批次B 已声明两键但本 dict 未提供，
+                # 记分页初始加载（loadMatch→fetchMatch）与 sync_match 均取自
+                # 此处，缺键致 bo 多局大比分恒显 0:0（wire 层断裂三路径之一）
+                "games_won_user": match.games_won_user or 0,
+                "games_won_opp": match.games_won_opp or 0,
                 "is_win": match.is_win,
                 "final_score": match.final_score,
                 "score_sequence": score_sequence,
@@ -310,6 +316,8 @@ class ScoringService:
             await db.commit()
 
             # 8. WS 广播 score_update
+            # R2-P1-1: payload 补局分两键——多设备同步端（applyWsScoreUpdate）
+            # 局推进后可即时刷新大比分，不再依赖 fetchMatch 对账兜底
             ws_message = json.dumps({
                 "event": "score_update",
                 "data": {
@@ -320,6 +328,8 @@ class ScoringService:
                     "score_method": req.score_method,
                     "current_server": current_server,
                     "is_key_point": is_key_point,
+                    "games_won_user": match.games_won_user or 0,
+                    "games_won_opp": match.games_won_opp or 0,
                 },
             })
             try:
@@ -347,6 +357,10 @@ class ScoringService:
                 "should_change_sides": should_change_sides,
                 # R12-SC-1: 本球导致全场结束（前端据此跳转结束页）
                 "match_finished": match_finished,
+                # R2-P1-1: 局分透出（与 detail / WS payload 同源），bo 局推进后
+                # 前端 doScore 响应即可拿到最新大比分
+                "games_won_user": match.games_won_user or 0,
+                "games_won_opp": match.games_won_opp or 0,
             }
 
     @staticmethod

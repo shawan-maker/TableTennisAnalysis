@@ -368,7 +368,7 @@ class Match(Base):
     """记分牌实时比赛实体。"""
     __tablename__ = "match"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=[REDACTED], autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), comment="创建者用户ID")  # R26-P3-26: 移除冗余 index=True（idx_match_user_created 已覆盖）
     opponent_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="对手姓名")
     opponent_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="对手积分")
@@ -521,20 +521,24 @@ class MatchDetail(BaseModel):
     status: str
     current_score_user: int
     current_score_opp: int
+    current_score: Optional[str] = None  # R6-Scoring-2: API §5.3 current_score 字段
     current_server: Optional[str] = None
     current_game: int
+    # R-FE-R1 批次B（FE-P1-6）：局分暴露（bo3/bo5 大比分），R2-P1-1 批次H 起随 detail 响应透出
+    games_won_user: int = 0
+    games_won_opp: int = 0
     is_win: Optional[bool] = None
     final_score: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
 
 
 class ScoreRecordBrief(BaseModel):
     """单条得分记录。"""
-    seq: int
+    sequence: int  # R6-Scoring-1: API §5.3 字段名 sequence（原 seq）
     scorer: str
-    score_method: str
+    score_method: Optional[str] = None
     technique_action: Optional[str] = None
     game_number: int
 
@@ -757,6 +761,7 @@ class ScoringService:
             qs = qs.order_by(Match.created_at.desc())
 
             total, items = await paginate(db, qs, count_qs, query.page, query.page_size)
+            # R2-P1-1（批次H）：路由层已统一 model_validate 形态（见 get_match_detail 注记）
             return {
                 "total": total,
                 "page": query.page,
@@ -777,10 +782,14 @@ class ScoringService:
             )
             records = records_result.scalars().all()
 
+            # R2-P1-1（批次H）：路由层已统一 response_model + 路由内显式
+            # model_validate(...).model_dump()——本样例形态即当前实现形态
+            #（原手拼 dict 形态已废弃：schema 未声明字段无法经 response_model 流出，
+            # 字段漂移在 schema 层拦截——这正是 R2-P1-1 局分丢失的形态根源）
             detail = MatchDetailWithSequence.model_validate(match)
             detail.score_sequence = [
                 ScoreRecordBrief(
-                    seq=r.sequence, scorer=r.scorer,
+                    sequence=r.sequence, scorer=r.scorer,
                     score_method=r.score_method,
                     technique_action=r.technique_action,
                     game_number=r.game_number,
@@ -1009,6 +1018,9 @@ class ScoringService:
                         "event": "score_update",  # R17-P1: type→event，与项目 WS 协议统一
                         "data": {
                             "type": "undo",  # R18-P3: action→type，与 notification data.type 命名统一
+                            # R2-P2-10 批次H 回写：广播须携带 match_id——
+                            # 多比赛并存时订阅方按 match 过滤（否则跨场误更新）
+                            "match_id": match_id,
                             "sequence": max_seq - 1,
                             "score": f"{score_user}:{score_opp}",
                             "current_server": current_server,

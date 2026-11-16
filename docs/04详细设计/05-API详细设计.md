@@ -1559,17 +1559,21 @@
     "id": 2001,
     "opponent_name": "张某",
     "opponent_rating": 1480,
+    "opponent_playing_style": "fast_attack",
     "format": "bo5",
     "match_type": "friendly",
+    "target_score": 11,
     "status": "in_progress",
     "current_score_user": 8,
     "current_score_opp": 5,
     "current_score": "8:5",
     "current_server": "user",
     "current_game": 1,
+    "games_won_user": 1,
+    "games_won_opp": 0,
     "score_sequence": [
-      {"sequence": 1, "scorer": "user", "score_method": "serve_point", "technique_action": "forehand_drive"},
-      {"sequence": 2, "scorer": "opponent", "score_method": "rally_point"}
+      {"sequence": 1, "scorer": "user", "score_method": "serve_point", "technique_action": "forehand_drive", "game_number": 1},
+      {"sequence": 2, "scorer": "opponent", "score_method": "rally_point", "game_number": 1}
     ],
     "created_at": "2026-10-10T14:00:00Z",
     "finished_at": null
@@ -1577,6 +1581,8 @@
   "timestamp": "..."
 }
 ```
+
+> R2-P2-9 批次H 回写：补 `target_score`（21分制批次C）/ `opponent_playing_style`（批次G FE-P2-14）/ `games_won_user/opp`（R2-P1-1 局分透出）/ `score_sequence[].game_number`（逐局明细批次B FE-P2-12 消费）——实现均已返回且前端消费。
 
 #### 错误情况
 
@@ -1612,7 +1618,11 @@
     "current_server": "user",
     "game_number": 1,
     "is_key_point": false,
-    "match_status": "in_progress"
+    "match_status": "in_progress",
+    "should_change_sides": false,
+    "match_finished": false,
+    "games_won_user": 1,
+    "games_won_opp": 0
   },
   "timestamp": "..."
 }
@@ -1629,6 +1639,8 @@
 4. WS push `score_update` 到 `ws:match:{match_id}` 房间
 
 5. 如果达到赛制要求 → 自动触发 finish
+
+> R2-P2-9 批次H 回写：响应补 `should_change_sides`/`match_finished`（批次B FE-P2-8 Toast 消费 + 跳转依据，反幻觉约束 L1661 要求）+ `games_won_user/opp`（R2-P1-1 局分随记分响应透出）。
 
 #### 错误情况
 
@@ -1652,11 +1664,13 @@
   "data": {
     "sequence": 12,
     "score": "7:5",
-    "action": "undo"
+    "type": "undo"
   },
   "timestamp": "..."
 }
 ```
+
+> R2-P2-9 批次H 回写：撤销标记字段为 `type`（R18-P3 由 `action` 改名）；WS `score_update` 广播同步携带 `match_id`。
 
 #### 错误情况
 
@@ -1711,7 +1725,8 @@
     "stats_data": {
       "score_distribution": {"serve_point": 15, "rally_point": 20, "opponent_error": 8},
       "key_points": [{"seq": 20, "score": "10:10", "winner": "user", "method": "rally_point", "timestamp": "2026-10-10T12:04:31+00:00"}],
-      "technique_breakdown": {"forehand_drive": 25, "backhand_drive": 10, "forehand_loop": 8}
+      "technique_breakdown": {"forehand_drive": 25, "backhand_drive": 10, "forehand_loop": 8},
+      "total_points": 43
     }
   },
   "timestamp": "..."
@@ -2895,11 +2910,54 @@
   "message": "success",
   "data": {
     "earned": [
-      {"badge_id": "first_analysis", "name": "首分析", "icon": "📹", "earned_at": "2026-07-10"},
-      {"badge_id": "streak_7", "name": "连续7天", "icon": "🔥", "earned_at": "2026-07-17"}
+      {"badge_id": "first_analysis", "name": "首分析", "icon": "📹", "earned_at": "2026-07-10", "category": "analysis"},
+      {"badge_id": "streak_7", "name": "连续7天", "icon": "🔥", "earned_at": "2026-07-17", "category": "streak"}
     ],
     "locked": [
-      {"badge_id": "streak_30", "name": "连续30天", "icon": "🌟", "progress": 7, "target": 30}
+      {"badge_id": "streak_30", "name": "连续30天", "icon": "🌟", "progress": 7, "target": 30, "category": "streak"}
+    ]
+  },
+  "timestamp": "..."
+}
+```
+
+> R2-P2-1（批次H）回写：响应补 `category`（徽章分类，取 `badge_definition.category`：analysis / match / streak / general，空值兜底 general）——前端 `BADGE_CATEGORY_MAP` 分类标签消费依据。
+
+#### 错误情况
+
+> 通用错误码见 §1.7，无额外业务错误码。
+
+### 10.5 GET /gamification/points-history
+
+**描述**：积分流水（时间倒序分页）——前端积分卡「最近动态」区数据源
+
+**权限**：登录
+
+**限流**：100/minute
+
+> R2-P2-2（批次H）新增：积分流水表 `point_transaction` 落账（`_add_points` 每笔写入），本端点按 `created_at` 倒序分页读取。`event_type` 与加积分入参一致：analysis / match / record / checkin / streak_7 / streak_30 / training_session / share / feedback / badge——前端 `POINTS_SOURCE_MAP` 六来源标签映射，映射外事件由「其他」兜底。
+
+#### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 描述 |
+|------|------|------|------|------|
+| page | query | int | N | 页码，默认 1 |
+| page_size | query | int | N | 每页条数，默认 20，上限 50 |
+
+#### Response Body
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "total": 3,
+    "page": 1,
+    "page_size": 5,
+    "items": [
+      {"id": 3, "event_type": "match", "points": 5, "ref_id": 9, "created_at": "2026-10-10T14:00:00Z"},
+      {"id": 2, "event_type": "analysis", "points": 10, "ref_id": null, "created_at": "2026-10-09T10:00:00Z"},
+      {"id": 1, "event_type": "checkin", "points": 2, "ref_id": null, "created_at": "2026-10-08T08:30:00Z"}
     ]
   },
   "timestamp": "..."

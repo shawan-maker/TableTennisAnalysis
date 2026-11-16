@@ -191,6 +191,7 @@ import Taro from '@tarojs/taro'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { NavBar, Button, Skeleton } from '@nutui/nutui-react'
 import { useMembershipStore } from '@/stores/membershipStore'
+import { MEMBERSHIP_STATUS_MAP } from '@/constants/membership'
 import { useTranslation } from 'react-i18next'
 import './membership.scss'
 
@@ -226,26 +227,20 @@ export default function MembershipCenter() {
     Taro.navigateTo({ url: `/pages/payment/create/index?tier=${tier}` })
   }
 
-  /** 状态显示文案映射 */
+  /** 状态显示文案（MEMBERSHIP_STATUS_MAP，§7 常量） */
   const statusText = (status: string): string => {
-    const map: Record<string, string> = {
-      active: t('membership.statusActive'),
-      expiring_soon: t('membership.statusExpiringSoon'),
-      expired: t('membership.statusExpired'),
-      grace_period: t('membership.statusGracePeriod'),
-      closed: t('membership.statusClosed'),
-      none: t('membership.statusNone'),
-    }
-    return map[status] ?? status
+    const config = MEMBERSHIP_STATUS_MAP[status]
+    return config ? t(config.labelKey) : status
   }
 
-  /** 状态样式类名 */
-  const statusClass = (status: string): string => {
-    if (['active'].includes(status)) return 'status-active'
-    if (['expiring_soon'].includes(status)) return 'status-warning'
-    if (['expired', 'closed'].includes(status)) return 'status-danger'
-    return 'status-default'
-  }
+  /**
+   * 状态 chip 底色（R-FE-R2 批次F FE-P3-35）：改读 MEMBERSHIP_STATUS_MAP.color 内联，
+   * 删 statusClass/scss 状态类双源——修复前两源已实际漂移（grace_period 落 default 灰
+   * 而映射为 accent 橙；closed 落 danger 红而映射为 secondary 灰）。六态色值以 §7
+   * 常量为唯一权威源，未登记状态兜底 secondary。
+   */
+  const statusColor = (status: string): string =>
+    MEMBERSHIP_STATUS_MAP[status]?.color ?? 'var(--color-text-secondary)'
 
   return (
     <View className="membership-page">
@@ -271,7 +266,10 @@ export default function MembershipCenter() {
             <Text className="current-tier-name">
               {t(`membership.tierName.${currentTier}`)}
             </Text>
-            <View className={`current-status ${statusClass(currentStatus)}`}>
+            <View
+              className="current-status"
+              style={{ background: statusColor(currentStatus) }}
+            >
               <Text className="status-text">{statusText(currentStatus)}</Text>
             </View>
           </View>
@@ -496,28 +494,12 @@ export default function MembershipCenter() {
       padding: var(--spacing-xs) 10px;
       border-radius: var(--radius-md);
 
+      /* R-FE-R2 批次F（FE-P3-35）：状态底色改由 MEMBERSHIP_STATUS_MAP.color 经内联
+       * style 注入（statusColor），四个状态类删除消除双源——
+       * FS8-7 口径保持：chip 位于深色头部，纯色底+白字（white on success 5.2:1） */
       .status-text {
         font-size: 12px;
-      }
-
-      &.status-active {
-        background: color-mix(in srgb, var(--color-success) 30%, transparent);
-        .status-text { color: var(--color-success); }
-      }
-
-      &.status-warning {
-        background: color-mix(in srgb, var(--color-accent) 30%, transparent);
-        .status-text { color: var(--color-accent); }
-      }
-
-      &.status-danger {
-        background: color-mix(in srgb, var(--color-primary) 30%, transparent);
-        .status-text { color: var(--color-primary); }
-      }
-
-      &.status-default {
-        background: color-mix(in srgb, var(--color-text-secondary) 20%, transparent);
-        .status-text { color: var(--color-text-secondary); }
+        color: var(--color-text-inverse);
       }
     }
   }

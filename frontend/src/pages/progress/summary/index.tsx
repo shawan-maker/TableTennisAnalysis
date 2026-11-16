@@ -201,7 +201,8 @@ export default function ProgressSummary() {
           {Object.entries(summary.forecast).map(([metric, fc]) => (
             <Cell
               key={metric}
-              title={metric}
+              title={t(`progress.metric.${metric}`)}
+              // R2-P2-3（批次H）：forecast 行同 goal_completion，键走 i18n 映射
               description={`${t('progress.predictedWeeks')}: ${fc.predicted_weeks_to_target ?? '-'}`}
               extra={
                 <Tag

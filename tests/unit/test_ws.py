@@ -125,6 +125,9 @@ def test_ws_subscribe_sends_sync_match(ws_setup, monkeypatch):
     fake_detail = {
         "status": "in_progress",
         "current_score": "7:5",
+        # R2-P1-1（批次H）：sync_match 载荷补局分两键，镜像 fixture 同步
+        "games_won_user": 1,
+        "games_won_opp": 0,
         "score_sequence": [
             {"sequence": 1, "scorer": "user", "score_method": "loop",
              "technique_action": None, "game_number": 1},
@@ -161,6 +164,9 @@ def test_ws_subscribe_sends_sync_match(ws_setup, monkeypatch):
             assert data["match_id"] == 2001
             assert data["status"] == "in_progress"
             assert data["current_score"] == "7:5"
+            # R2-P1-1（批次H）：sync_match 携带局分（重连后大比分不回退 0:0）
+            assert data["games_won_user"] == 1
+            assert data["games_won_opp"] == 0
             assert len(data["score_sequence"]) == 2
             assert data["score_sequence"][0]["scorer"] == "user"
 

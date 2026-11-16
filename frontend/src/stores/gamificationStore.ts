@@ -1,6 +1,7 @@
 /**
  * gamification 状态管理（09-gamification/frontend.md §3）
- * 积分 + 打卡日历 + 徽章列表；doCheckin 成功后联动刷新积分与日历
+ * 积分 + 打卡日历 + 徽章列表 + 积分流水（R2-P2-2 批次H）；
+ * doCheckin 成功后联动刷新积分与日历
  */
 import { create } from 'zustand'
 import * as gamificationApi from '@/services/gamification'
@@ -9,6 +10,7 @@ import type {
   CheckInCalendarData,
   CheckInResult,
   BadgeListData,
+  PointsHistoryData,
 } from '@/services/gamification'
 
 interface GamificationState {
@@ -18,10 +20,13 @@ interface GamificationState {
   calendar: CheckInCalendarData | null
   // 徽章列表
   badges: BadgeListData | null
+  // 积分流水（R2-P2-2 批次H：POINTS_SOURCE_MAP 消费数据源）
+  pointsHistory: PointsHistoryData | null
   // 加载状态
   isLoadingPoints: boolean
   isLoadingCalendar: boolean
   isLoadingBadges: boolean
+  isLoadingHistory: boolean
   // 打卡中
   isCheckingIn: boolean
 
@@ -30,15 +35,19 @@ interface GamificationState {
   fetchCalendar: (year?: number, month?: number) => Promise<void>
   doCheckin: () => Promise<CheckInResult | null>
   fetchBadges: () => Promise<void>
+  /** R2-P2-2（批次H）：拉取积分流水（最近动态默认 5 条） */
+  fetchPointsHistory: (page?: number, pageSize?: number) => Promise<void>
 }
 
 export const useGamificationStore = create<GamificationState>((set, get) => ({
   points: null,
   calendar: null,
   badges: null,
+  pointsHistory: null,
   isLoadingPoints: false,
   isLoadingCalendar: false,
   isLoadingBadges: false,
+  isLoadingHistory: false,
   isCheckingIn: false,
 
   fetchPoints: async () => {
@@ -86,6 +95,17 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
       set({ badges: res.data.data })
     } finally {
       set({ isLoadingBadges: false })
+    }
+  },
+
+  /** R2-P2-2（批次H）：拉取积分流水——打卡/记分等动作后由调用方联动刷新 */
+  fetchPointsHistory: async (page = 1, pageSize = 20) => {
+    set({ isLoadingHistory: true })
+    try {
+      const res = await gamificationApi.getPointsHistory(page, pageSize)
+      set({ pointsHistory: res.data.data })
+    } finally {
+      set({ isLoadingHistory: false })
     }
   },
 }))

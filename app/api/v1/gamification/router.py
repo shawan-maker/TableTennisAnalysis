@@ -3,6 +3,7 @@ app/api/v1/gamification/router.py - 游戏化 API 路由
 
 依据：API 10 / 切片 09-gamification/backend.md 6
 4 个端点：points / checkin-calendar / checkin / badges
++ points-history（R2-P2-2 批次H：积分流水分页——POINTS_SOURCE_MAP 数据源）
 """
 
 from datetime import date
@@ -13,6 +14,7 @@ from app.core.database import async_session_factory
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
+from app.schemas.gamification import PointsHistoryResponse
 from app.services.gamification_service import GamificationService, BadgeService
 
 router = APIRouter(prefix="/gamification", tags=["游戏化/积分徽章"])
@@ -68,6 +70,24 @@ async def checkin(
         data = await GamificationService.checkin(db, user.id)
         await db.commit()
     return success(data=data)
+
+
+@router.get("/points-history", summary="积分流水", response_model=PointsHistoryResponse)
+@limiter.limit("100/minute")
+async def get_points_history(
+    request: Request,
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=50, description="每页条数"),
+    user: User = Depends(get_current_user),
+):
+    """积分流水分页（R2-P2-2 批次H）— 时间倒序，POINTS_SOURCE_MAP 消费端点
+
+    路由层 model_validate 锁定响应契约（与 scoring 路由同口径——统一信封
+    success() 包装 JSONResponse 时 FastAPI 跳过自动过滤）。
+    """
+    async with async_session_factory() as db:
+        data = await GamificationService.get_points_history(db, user.id, page, page_size)
+    return success(data=PointsHistoryResponse.model_validate(data).model_dump())
 
 
 @router.get("/badges", summary="徽章列表")

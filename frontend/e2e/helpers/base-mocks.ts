@@ -58,6 +58,36 @@ export const POINTS = {
   streak_icon: '🔥',
 }
 
+/** GET /gamification/points-history（PointsHistoryData；R2-P2-2 批次H）
+ *  PointsCard 最近动态消费——事件键与 POINTS_SOURCE_MAP 六来源一致，
+ *  含一条 map 外事件（badge）覆盖 sourceOther 兜底渲染。 */
+export const POINTS_HISTORY = {
+  total: 3,
+  page: 1,
+  page_size: 5,
+  items: [
+    { id: 3, event_type: 'match', points: 5, ref_id: 9, created_at: iso(0) },
+    { id: 2, event_type: 'analysis', points: 10, ref_id: null, created_at: iso(-1) },
+    { id: 1, event_type: 'badge', points: 10, ref_id: null, created_at: iso(-2) },
+  ],
+}
+
+/** GET /gamification/badges（BadgeListData；R2-P2-1 批次H）
+ *  earned/locked 均非空且 category 取自后端种子徽章实际值
+ *  （app/services/gamification_service.py BADGE_DEFINITIONS）——
+ *  空数组时 badges 页 badge-category chip（BADGE_CATEGORY_MAP 消费）零渲染，
+ *  a11y 扫描无法覆盖分类标签。 */
+export const BADGES = {
+  earned: [
+    { badge_id: 'first_analysis', name: '首分析', icon: '📹', earned_at: iso(-3), category: 'analysis' },
+    { badge_id: 'streak_7', name: '连续7天', icon: '🔥', earned_at: iso(-1), category: 'streak' },
+  ],
+  locked: [
+    { badge_id: 'match_50', name: '百场对决', icon: '🏆', progress: 4, target: 50, category: 'match' },
+    { badge_id: 'analysis_10', name: '分析10次', icon: '📊', progress: 3, target: 10, category: 'analysis' },
+  ],
+}
+
 /** GET /gamification/checkin-calendar（月历） */
 export function makeCalendar(checkedDates: string[] = []) {
   const y = NOW.getFullYear()
@@ -191,8 +221,10 @@ export function baseMocks(opts: { requiresConsent?: boolean } = {}): MockRoute[]
     },
     { method: 'GET', pattern: '/dashboard/match-records', data: { items: [], total: 0, page: 1, page_size: 20 } },
     { method: 'GET', pattern: '/gamification/points', data: POINTS },
+    // R2-P2-2（批次H）：PointsCard 最近动态——home + checkin-calendar 挂载即请求
+    { method: 'GET', pattern: '/gamification/points-history', data: POINTS_HISTORY },
     { method: 'GET', pattern: '/gamification/checkin-calendar', data: makeCalendar() },
-    { method: 'GET', pattern: '/gamification/badges', data: { earned: [], locked: [] } },
+    { method: 'GET', pattern: '/gamification/badges', data: BADGES },
     { method: 'GET', pattern: '/notification/unread-count', data: { unread_count: 3 } },
     { method: 'GET', pattern: '/notification/list', data: makeNotifications(5, 3) },
     { method: 'GET', pattern: '/video-analysis/reports', data: { items: [REPORT_ITEM], total: 1, page: 1, page_size: 20 } },

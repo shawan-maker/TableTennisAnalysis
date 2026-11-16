@@ -2,7 +2,8 @@
 app/models/gamification.py - 游戏化 ORM 模型
 
 依据：DB 2.15-2.16, 3.1.4-3.1.6 / 切片 09-gamification/backend.md 2
-表：user_points, checkin_record, badge_definition, user_badge, badge_progress
+表：user_points, checkin_record, badge_definition, user_badge, badge_progress,
+    point_transaction（R2-P2-2 批次H：积分流水——POINTS_SOURCE_MAP 数据源）
 """
 
 from datetime import datetime, timezone
@@ -136,4 +137,38 @@ class BadgeProgress(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class PointTransaction(Base):
+    """积分流水（R2-P2-2 批次H）
+
+    设计常量 POINTS_SOURCE_MAP（09-gamification/frontend.md §7）六来源此前
+    零消费——后端无流水表、无历史端点，纯前端方案不可行（Round 2 R2-P2-2）。
+    event_type 与 GamificationService._add_points 入参一致：
+    analysis / match / record / checkin / streak_7 / streak_30 /
+    training_session / share / feedback / badge。
+    """
+
+    __tablename__ = "point_transaction"
+    __table_args__ = (
+        Index("idx_point_txn_user_created", "user_id", "created_at"),
+        Index("idx_point_txn_user_event", "user_id", "event_type"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type = Column(
+        String(32),
+        nullable=False,
+        comment="积分来源：analysis/match/record/checkin/streak_7/streak_30/training_session/share/feedback/badge",
+    )
+    points = Column(Integer, nullable=False, comment="本笔分值（正数）")
+    ref_id = Column(BigInteger, nullable=True, comment="关联业务 ID（如 match.id）")
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
     )

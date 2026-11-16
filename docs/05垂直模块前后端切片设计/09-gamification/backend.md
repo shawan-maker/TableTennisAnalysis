@@ -11,7 +11,7 @@
 ## 1. 切片准备清单
 
 - [ ] 阅读模块详细设计 §2.9（gamification 模块功能规格）
-- [ ] 阅读 API 契约 §10（4 个端点：points / checkin-calendar / checkin / badges）
+- [ ] 阅读 API 契约 §10（5 个端点：points / checkin-calendar / checkin / badges / points-history——后者为 R2-P2-2 批次H 新增，API §10.5）
 - [ ] 阅读 `app/core/redis.py`（Redis 连接工具）
 - [ ] 阅读 `app/core/deps.py`（认证依赖注入）
 - [ ] 确认本切片范围：4 个 API 端点 + 对应 Service 方法 + Redis 连续打卡逻辑
@@ -279,12 +279,33 @@ class BadgeProgress(Base):
         UniqueConstraint("user_id", "badge_id", name="uq_badge_progress"),
         Index("idx_badge_progress_user", "user_id"),  # R18-P2-5: 补充用户进度列表索引（§5/§3.1.6 已定义）
     )
+
+
+# R2-P2-2（批次H）新增——积分流水（DB 设计 §2.35）
+class PointTransaction(Base):
+    """积分流水——GET /gamification/points-history 数据源，_add_points 每笔落账。"""
+    __tablename__ = "point_transaction"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(
+        String(32), nullable=False,
+        comment="积分来源：analysis/match/record/checkin/streak_7/streak_30/training_session/share/feedback/badge",
+    )
+    points: Mapped[int] = mapped_column(Integer, nullable=False, comment="本笔分值（正数）")
+    ref_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="关联业务 ID（如 match.id）")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_point_txn_user_created", "user_id", "created_at"),  # 流水分页（时间倒序）
+        Index("idx_point_txn_user_event", "user_id", "event_type"),   # 按来源统计
+    )
 ```
 
 **实现后必须**：
-- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.gamification import UserPoints, CheckInRecord, BadgeDefinition, UserBadge, BadgeProgress`
+- [ ] 在 `app/models/__init__.py` 中导入：`from app.models.gamification import UserPoints, CheckInRecord, BadgeDefinition, UserBadge, BadgeProgress, PointTransaction`（PointTransaction 为 R2-P2-2 批次H 新增）
 - [ ] 运行 `alembic revision --autogenerate -m "add_gamification_tables"`
-- [ ] 运行 `alembic upgrade head`
+- [ ] 运行 `alembic upgrade head`（PointTransaction 迁移：`d8e9f0a1b2c3_r2_p2_2_point_transaction.py`，R2-P2-2 批次H，downgrade drop_table 无损）
 - [ ] 预置徽章数据（通过 Alembic data migration 或 seed 脚本）：
   - 实际落地（R13-P3 文档同步）：`python scripts/seed_badges.py`（R12-Gam-1）— 调用 `BadgeService.seed_badge_definitions(db)` 幂等 upsert（不存在插入 / 定义漂移按 seed 更新并重置 is_active / 一致跳过），只 flush 不 commit，事务由脚本 `db.commit()` 收口。
 
@@ -371,6 +392,7 @@ class BadgeEarned(BaseModel):
     name: str
     icon: str
     earned_at: str  # ISO date
+    category: Optional[str] = None  # R2-P2-1（批次H）：分类透出（badge_definition.category，空值兜底 general）
 
     model_config = {"from_attributes": True}
 
@@ -382,6 +404,7 @@ class BadgeLocked(BaseModel):
     icon: str
     progress: int
     target: int
+    category: Optional[str] = None  # R2-P2-1（批次H）：同 BadgeEarned
 
     model_config = {"from_attributes": True}
 
@@ -394,9 +417,29 @@ class BadgeListResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# R2-P2-2（批次H）新增——积分流水响应
+class PointTransactionBrief(BaseModel):
+    """积分流水条目。event_type 与 POINTS_SOURCE_MAP 六来源键一致，
+    另含 training_session/share/feedback/badge（前端 sourceOther 兜底）。"""
+    id: int
+    event_type: str
+    points: int
+    ref_id: Optional[int] = None
+    created_at: Optional[str] = None
+
+
+class PointsHistoryResponse(BaseModel):
+    """积分历史分页响应（GET /gamification/points-history，API §10.5）。"""
+    total: int
+    page: int
+    page_size: int
+    items: list[PointTransactionBrief] = []
+
+
 # --- 内部调用说明 ---
 # 其他模块通过 GamificationService.add_points(db, user_id, event_type, ref_id) 直接调用。
 # 不再需要内部调用 Schema（PointsEventRequest 已移除）。
+# add_points 每笔同步落 PointTransaction 流水（R2-P2-2 批次H）。
 ```
 
 ---
@@ -645,6 +688,39 @@ class GamificationService:
             db, user_id, "badge", points, ref_id=badge_id,
         )
 
+    @staticmethod
+    async def get_points_history(
+        db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20
+    ) -> dict:
+        """积分流水分页（R2-P2-2 批次H）— 时间倒序。
+
+        Router 以 PointsHistoryResponse.model_validate(...) 校验返回 dict
+        （response_model 契约锁定，与 scoring 路由同口径）。
+        """
+        count = await db.scalar(
+            select(func.count())
+            .select_from(PointTransaction)
+            .where(PointTransaction.user_id == user_id)
+        ) or 0
+        rows = await db.execute(
+            select(PointTransaction)
+            .where(PointTransaction.user_id == user_id)
+            .order_by(PointTransaction.created_at.desc(), PointTransaction.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        items = [
+            {
+                "id": r.id,
+                "event_type": r.event_type,
+                "points": r.points,
+                "ref_id": r.ref_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows.scalars().all()
+        ]
+        return {"total": count, "page": page, "page_size": page_size, "items": items}
+
     # ===================== 内部方法 =====================
 
     @staticmethod
@@ -725,6 +801,12 @@ class GamificationService:
             record.total_points += points
             record.monthly_points += points
             record.updated_at = datetime.now(timezone.utc)
+
+        # R2-P2-2（批次H）：积分流水落账——GET /gamification/points-history 数据源。
+        # 汇总与明细同一事务写入保证一致；SAVEPOINT 由 add_points 外层提供。
+        db.add(PointTransaction(
+            user_id=user_id, event_type=event_type, points=points, ref_id=ref_id,
+        ))
 
     @staticmethod
     async def _auto_checkin(
@@ -864,6 +946,8 @@ class BadgeService:
                     name=definition.name,
                     icon=definition.icon,
                     earned_at=earned_map[definition.id].earned_at.date().isoformat(),
+                    # R2-P2-1（批次H）：分类透出（model 列已有值，select 即带）
+                    category=definition.category or "general",
                 ))
             else:
                 # 计算当前进度
@@ -879,6 +963,8 @@ class BadgeService:
                     icon=definition.icon,
                     progress=progress,
                     target=target,
+                    # R2-P2-1（批次H）：同 earned
+                    category=definition.category or "general",
                 ))
 
         return BadgeListResponse(earned=earned_list, locked=locked_list)
@@ -1106,7 +1192,8 @@ def reset_monthly_points():
 app/api/v1/gamification/router.py - 游戏化 API 路由
 
 依据：API 10 / 切片 09-gamification/backend.md 6
-4 个端点：points / checkin-calendar / checkin / badges
+5 个端点：points / checkin-calendar / checkin / badges /
+    points-history（R2-P2-2 批次H：积分流水分页，API §10.5）
 """
 
 from datetime import date
@@ -1118,6 +1205,7 @@ from app.core.exceptions import AppException
 from app.core.limiter import limiter
 from app.core.response import success
 from app.models.user import User
+from app.schemas.gamification import PointsHistoryResponse
 from app.services.gamification_service import GamificationService, BadgeService
 
 router = APIRouter(prefix="/gamification", tags=["游戏化/积分徽章"])
@@ -1173,6 +1261,21 @@ async def checkin(
         data = await GamificationService.checkin(db, user.id)
         await db.commit()
     return success(data=data)
+
+
+# R2-P2-2（批次H）：积分流水分页 — response_model 契约锁定（model_validate
+# 校验 service dict，schema 加键而 service 漏给时立即 ValidationError）
+@router.get("/points-history", summary="积分流水", response_model=PointsHistoryResponse)
+@limiter.limit("100/minute")
+async def get_points_history(
+    request: Request,
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=50, description="每页条数"),
+    user: User = Depends(get_current_user),
+):
+    async with async_session_factory() as db:
+        data = await GamificationService.get_points_history(db, user.id, page, page_size)
+    return success(data=PointsHistoryResponse.model_validate(data).model_dump())
 
 
 @router.get("/badges", summary="徽章列表")
@@ -1280,6 +1383,8 @@ if __name__ == "__main__":
 - [ ] Router 已在 `app/api/v1/__init__.py` 中注册
 - [ ] Alembic 迁移已生成并执行
 - [x] 徽章种子数据已预置：`python scripts/seed_badges.py`（幂等 upsert：不存在插入/定义漂移更新/一致跳过，R12-Gam-1）<!-- R13-P3 文档同步 -->
+- [x] R2-P2-1（批次H）：徽章响应携带 `category`（BadgeEarned/BadgeLocked schema + service 透传；`tests/unit/test_gamification.py` locked/earned 分类契约断言通过）
+- [x] R2-P2-2（批次H）：`GET /gamification/points-history` 分页契约（`_add_points` 落流水 + `get_points_history` 倒序分页 + PointsHistoryResponse.model_validate；`tests/unit/test_gamification.py` 落账/分页/手动打卡三用例通过）
 - [ ] Redis streak 键格式正确（`gamification:streak:user:{user_id}` / `gamification:streak:last_date:{user_id}`）
 - [x] 积分规则表完整（analysis +10 / match +5 / record +3 / checkin +2 / streak_7 +20 / streak_30 +100 / training_session +5 / share +2 / feedback +1）<!-- R13-P3 文档同步：补齐实际 POINTS_RULES 全量事件（gamification_service.py:36-46） -->
 - [ ] 连续打卡计算正确（相邻→INCR / 间隔1天→重置1 / 间隔>1天→重置1）

@@ -20,6 +20,7 @@ from app.models.gamification import (
     BadgeDefinition,
     BadgeProgress,
     CheckInRecord,
+    PointTransaction,
     UserBadge,
     UserPoints,
 )
@@ -241,6 +242,40 @@ class GamificationService:
             await db.flush()
         up.total_points += points
         up.monthly_points += points
+        # R2-P2-2（批次H）：积分流水落账——POINTS_SOURCE_MAP 数据源
+        # （GET /gamification/points-history 按时间倒序分页读取）
+        db.add(PointTransaction(
+            user_id=user_id, event_type=event_type, points=points, ref_id=ref_id,
+        ))
+
+    @staticmethod
+    async def get_points_history(
+        db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20
+    ) -> dict:
+        """积分流水分页（R2-P2-2 批次H）— 时间倒序"""
+        count = await db.scalar(
+            select(func.count())
+            .select_from(PointTransaction)
+            .where(PointTransaction.user_id == user_id)
+        ) or 0
+        rows = await db.execute(
+            select(PointTransaction)
+            .where(PointTransaction.user_id == user_id)
+            .order_by(PointTransaction.created_at.desc(), PointTransaction.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        items = [
+            {
+                "id": r.id,
+                "event_type": r.event_type,
+                "points": r.points,
+                "ref_id": r.ref_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows.scalars().all()
+        ]
+        return {"total": count, "page": page, "page_size": page_size, "items": items}
 
     @staticmethod
     async def _auto_checkin(db: AsyncSession, user_id: int, source: str) -> None:
@@ -341,6 +376,8 @@ class BadgeService:
                     "badge_id": d.id,
                     "name": d.name,
                     "icon": d.icon,
+                    # R2-P2-1（批次H）：分类透出（model 列已有值，select 即带）
+                    "category": d.category or "general",
                     "earned_at": earned_map[d.id].earned_at.date().isoformat() if earned_map[d.id].earned_at else "",
                 })
             else:
@@ -351,6 +388,8 @@ class BadgeService:
                     "badge_id": d.id,
                     "name": d.name,
                     "icon": d.icon,
+                    # R2-P2-1（批次H）：同 earned
+                    "category": d.category or "general",
                     "progress": current,
                     "target": target,
                 })

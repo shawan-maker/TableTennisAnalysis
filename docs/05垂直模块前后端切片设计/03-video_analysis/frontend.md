@@ -878,26 +878,32 @@ export default function ReportPage() {
         </View>
       </View>
 
-      {/* 落点九宫格热图 */}
-      {landing && (
+      {/* 落点九宫格热图（R2-P2-6 批次H 回写：随批次G FE-P1-3 实现同步——
+          activeGrid 派生规则：优先 result.landing_heatmap（含对手侧
+          opponent_nine_grid），旧报告回落 result.landing_points.nine_grid；
+          对手侧缺省（旧报告）不渲染 toggle；对手视图不渲染正手使用率 hint
+          ——landing.distribution 属「我的落点」语境） */}
+      {activeGrid && (
         <View className="heatmap-section">
           <View className="section-title">{t('analysis.landingDistribution')}</View>
-          <View className="heatmap-toggle">
-            <View
-              className={`toggle-btn ${landingView === 'mine' ? 'active' : ''}`}
-              onClick={() => setLandingView('mine')}
-            >
-              <Text>{t('analysis.myLanding')}</Text>
+          {oppGrid && (
+            <View className="heatmap-toggle">
+              <View
+                className={`toggle-btn ${landingView === 'mine' ? 'active' : ''}`}
+                onClick={() => setLandingView('mine')}
+              >
+                <Text>{t('analysis.myLanding')}</Text>
+              </View>
+              <View
+                className={`toggle-btn ${landingView === 'opponent' ? 'active' : ''}`}
+                onClick={() => setLandingView('opponent')}
+              >
+                <Text>{t('analysis.opponentLanding')}</Text>
+              </View>
             </View>
-            <View
-              className={`toggle-btn ${landingView === 'opponent' ? 'active' : ''}`}
-              onClick={() => setLandingView('opponent')}
-            >
-              <Text>{t('analysis.opponentLanding')}</Text>
-            </View>
-          </View>
-          <View className="heatmap-grid">
-            {landing.nine_grid.map((row, ri) =>
+          )}
+          <View className="heatmap-grid" role="img" aria-label={t('analysis.landingDistribution')}>
+            {activeGrid.map((row, ri) =>
               row.map((val, ci) => (
                 <View
                   key={`${ri}-${ci}`}
@@ -909,10 +915,13 @@ export default function ReportPage() {
               ))
             )}
           </View>
-          <Text className="heatmap-hint">
-            {/* R23-P2-1: 修正 landingHint i18n 插值契约一致性，仅传入 forehand 参数，资源文件移除 {{side}} 占位符 */}
-            {t('analysis.landingHint', { forehand: (landing.distribution.forehand * 100).toFixed(0) })}
-          </Text>
+          {/* R23-P2-1: 仅传 forehand 参数（资源文件无 {{side}} 占位符）；
+              对手视图不渲染 hint */}
+          {landingView === 'mine' && landing && (
+            <Text className="heatmap-hint">
+              {t('analysis.landingHint', { forehand: (landing.distribution.forehand * 100).toFixed(0) })}
+            </Text>
+          )}
         </View>
       )}
 

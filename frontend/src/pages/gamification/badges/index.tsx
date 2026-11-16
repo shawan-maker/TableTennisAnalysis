@@ -11,7 +11,17 @@ import { Skeleton, Empty } from '@nutui/nutui-react'
 import { useTranslation } from 'react-i18next'
 import { useGamificationStore } from '@/stores/gamificationStore'
 import BadgeUnlockPopup from '@/components/BadgeUnlockPopup'
+// R2-P2-1（批次H）：徽章分类标签消费——后端 BadgeEarned/BadgeLocked
+// schema 已透出 category（constant 首次组件消费，兑现 §7 验证清单
+// 「已获得/未获得正确分类」）
+import { BADGE_CATEGORY_MAP } from '@/constants/gamification'
 import './index.scss'
+
+/** 徽章分类标签文案（未知分类回退 general 桶） */
+export function badgeCategoryLabel(t: (k: string) => string, category?: string | null): string {
+  const key = BADGE_CATEGORY_MAP[category ?? 'general'] ?? BADGE_CATEGORY_MAP.general
+  return t(key)
+}
 
 export default function BadgesPage() {
   const { t } = useTranslation()
@@ -53,6 +63,8 @@ export default function BadgesPage() {
               <View key={badge.badge_id} className="badge-item earned">
                 <Text className="badge-icon">{badge.icon}</Text>
                 <Text className="badge-name">{badge.name}</Text>
+                {/* R2-P2-1（批次H）：分类标签（BADGE_CATEGORY_MAP 消费） */}
+                <Text className="badge-category">{badgeCategoryLabel(t, badge.category)}</Text>
                 <Text className="badge-status">{t('gamification.earnedStatus')}</Text>
                 {badge.earned_at && <Text className="badge-date">{badge.earned_at}</Text>}
               </View>
@@ -78,6 +90,8 @@ export default function BadgesPage() {
               <View key={badge.badge_id} className="badge-item locked">
                 <Text className="badge-icon locked-icon">{badge.icon}</Text>
                 <Text className="badge-name">{badge.name}</Text>
+                {/* R2-P2-1（批次H）：分类标签（BADGE_CATEGORY_MAP 消费） */}
+                <Text className="badge-category">{badgeCategoryLabel(t, badge.category)}</Text>
                 <View className="badge-progress">
                   <View
                     className="progress-bar"

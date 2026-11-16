@@ -11,7 +11,7 @@
 
 - [ ] 阅读前端设计 v2.0 §三 Tab1 首页（训练打卡日历区域）
 - [ ] 阅读前端设计 v2.0 §P5.7 徽章/成就页面
-- [ ] 阅读本模块的 API 契约（§10.1-10.4，4 个端点）
+- [ ] 阅读本模块的 API 契约（§10.1-10.5，5 个端点——10.5 points-history 为 R2-P2-2 批次H 新增）
 - [ ] 阅读设计系统规范（§1.1-1.4，色彩/字体/间距/组件）
 - [ ] 确认本切片范围：积分卡片 + 打卡日历 + 徽章列表页
 
@@ -25,6 +25,8 @@
 > ③ §4.1 PointsCard 本 Sprint 嵌入打卡日历页顶部（streak 上下文关联）；「嵌入首页 Dashboard」归 FS7 首页升级消费；
 > ④ badges 页省略 NavBar（weapp navigateTo 默认导航栏，config 已设标题）；Toast 样例改 Taro.showToast；
 > ⑤ doCheckin 失败向调用方抛出（Error.message 含 40901「今日已打卡」后端文案），成功联动刷新积分与日历。
+>
+> **R2-P2-1/P2-2（批次H）注记——常量消费接线**：`BADGE_CATEGORY_MAP`（§7）由 badges 页分类 chip 消费（后端 BadgeEarned/BadgeLocked 已透出 `category`，未知分类回退 general 桶）；`POINTS_SOURCE_MAP`（§7）由 PointsCard「最近积分动态」区消费（数据源 `GET /gamification/points-history`，R2-P2-2 批次H 后端新增 PointTransaction 流水表 + 端点，API §10.5；映射外事件 training_session/share/feedback/badge 由 `gamification.sourceOther` 兜底）。两常量原「零消费孤儿」状态已闭合。
 
 ```typescript
 // frontend/src/services/gamification.ts
@@ -67,6 +69,8 @@ export interface BadgeEarned {
   name: string
   icon: string
   earned_at: string
+  /** R2-P2-1（批次H）：徽章分类（后端 badge_definition.category 透出） */
+  category?: string | null
 }
 
 /** 未获得徽章 */
@@ -76,12 +80,34 @@ export interface BadgeLocked {
   icon: string
   progress: number
   target: number
+  /** R2-P2-1（批次H）：同 BadgeEarned */
+  category?: string | null
 }
 
 /** 徽章列表 */
 export interface BadgeListData {
   earned: BadgeEarned[]
   locked: BadgeLocked[]
+}
+
+/**
+ * 积分流水条目（镜像后端 PointTransactionBrief，R2-P2-2 批次H）。
+ * event_type 与 POINTS_SOURCE_MAP 六来源键一致，其余由 sourceOther 兜底。
+ */
+export interface PointTransactionItem {
+  id: number
+  event_type: string
+  points: number
+  ref_id?: number | null
+  created_at?: string | null
+}
+
+/** 积分流水分页（GET /gamification/points-history，R2-P2-2 批次H） */
+export interface PointsHistoryData {
+  total: number
+  page: number
+  page_size: number
+  items: PointTransactionItem[]
 }
 
 /**
@@ -116,6 +142,15 @@ export function checkin() {
 export function getBadges() {
   return request.get('/gamification/badges')
 }
+
+/**
+ * 获取积分流水（分页，时间倒序；R2-P2-2 批次H，API §10.5）。
+ * @param page - 页码
+ * @param pageSize - 每页条数
+ */
+export function getPointsHistory(page = 1, pageSize = 20) {
+  return request.get('/gamification/points-history', { page, page_size: pageSize })
+}
 ```
 
 ---
@@ -127,7 +162,7 @@ export function getBadges() {
 import { create } from 'zustand'
 import * as gamificationApi from '@/services/gamification'
 import type {
-  PointsData, CheckInCalendarData, CheckInResult, BadgeListData,
+  PointsData, CheckInCalendarData, CheckInResult, BadgeListData, PointsHistoryData,
 } from '@/services/gamification'
 
 interface GamificationState {
@@ -137,10 +172,13 @@ interface GamificationState {
   calendar: CheckInCalendarData | null
   // 徽章列表
   badges: BadgeListData | null
+  // 积分流水（R2-P2-2 批次H：POINTS_SOURCE_MAP 消费数据源）
+  pointsHistory: PointsHistoryData | null
   // 加载状态
   isLoadingPoints: boolean
   isLoadingCalendar: boolean
   isLoadingBadges: boolean
+  isLoadingHistory: boolean
   // 打卡中
   isCheckingIn: boolean
 
@@ -149,15 +187,19 @@ interface GamificationState {
   fetchCalendar: (year?: number, month?: number) => Promise<void>
   doCheckin: () => Promise<CheckInResult | null>
   fetchBadges: () => Promise<void>
+  /** R2-P2-2（批次H）：拉取积分流水（最近动态默认 5 条） */
+  fetchPointsHistory: (page?: number, pageSize?: number) => Promise<void>
 }
 
 export const useGamificationStore = create<GamificationState>((set, get) => ({
   points: null,
   calendar: null,
   badges: null,
+  pointsHistory: null,
   isLoadingPoints: false,
   isLoadingCalendar: false,
   isLoadingBadges: false,
+  isLoadingHistory: false,
   isCheckingIn: false,
 
   fetchPoints: async () => {
@@ -215,6 +257,17 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
       set({ isLoadingBadges: false })
     }
   },
+
+  /** R2-P2-2（批次H）：拉取积分流水——打卡/记分等动作后由调用方联动刷新 */
+  fetchPointsHistory: async (page = 1, pageSize = 20) => {
+    set({ isLoadingHistory: true })
+    try {
+      const res = await gamificationApi.getPointsHistory(page, pageSize)
+      set({ pointsHistory: res.data.data })
+    } finally {
+      set({ isLoadingHistory: false })
+    }
+  },
 }))
 ```
 
@@ -224,22 +277,57 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
 
 ### 4.1 训练积分卡片（嵌入首页 Dashboard）
 
+> **R2-P2-2（批次H）注记**：PointsCard 新增「最近积分动态」区——`POINTS_SOURCE_MAP`（§7）首次组件消费，数据源 `GET /gamification/points-history`（默认拉 5 条）。相对时间渲染：同日显示 `HH:mm`，非同日显示 `MM-DD`（本地日期构造，防 UTC 跨日）。下方样例已按实现回写（`components/PointsCard.tsx`）。
+
 ```tsx
-// frontend/src/pages/gamification/PointsCard.tsx
+// frontend/src/pages/gamification/components/PointsCard.tsx
 import { useEffect } from 'react'
 import { View, Text } from '@tarojs/components'
 import { Skeleton } from '@nutui/nutui-react'
 import { useGamificationStore } from '@/stores/gamificationStore'
 import { useTranslation } from 'react-i18next'
-import './gamification.scss'
+import { POINTS_SOURCE_MAP } from '@/constants/gamification'
+import './PointsCard.scss'
+
+/** 积分来源标签文案（六来源映射外的事件由 sourceOther 兜底） */
+export function pointsSourceLabel(
+  t: (k: string) => string,
+  eventType: string
+): string {
+  return t(POINTS_SOURCE_MAP[eventType] ?? 'gamification.sourceOther')
+}
+
+/** 相对时间（今日 HH:mm / 非今日 MM-DD，后端 created_at 为 ISO 墙钟） */
+function formatRelativeDate(iso?: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const now = new Date()
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  if (sameDay(d, now)) {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** 最近动态展示条数 */
+const RECENT_LIMIT = 5
 
 export default function PointsCard() {
   const { t } = useTranslation()
-  const { points, isLoadingPoints, fetchPoints } = useGamificationStore()
+  const points = useGamificationStore((s) => s.points)
+  const isLoadingPoints = useGamificationStore((s) => s.isLoadingPoints)
+  const fetchPoints = useGamificationStore((s) => s.fetchPoints)
+  const pointsHistory = useGamificationStore((s) => s.pointsHistory)
+  const fetchPointsHistory = useGamificationStore((s) => s.fetchPointsHistory)
 
   useEffect(() => {
     fetchPoints()
-  }, [fetchPoints])
+    fetchPointsHistory(1, RECENT_LIMIT)
+  }, [fetchPoints, fetchPointsHistory])
 
   if (isLoadingPoints && !points) {
     return (
@@ -251,6 +339,7 @@ export default function PointsCard() {
 
   const streak = points?.current_streak ?? 0
   const showFlame = streak >= 3
+  const recentItems = (pointsHistory?.items ?? []).slice(0, RECENT_LIMIT)
 
   return (
     <View className="points-card">
@@ -272,8 +361,66 @@ export default function PointsCard() {
           <Text className="streak-label">{t('gamification.dayStreak')}</Text>
         </View>
       </View>
+
+      {/* R2-P2-2（批次H）：最近积分动态（POINTS_SOURCE_MAP 消费） */}
+      {recentItems.length > 0 && (
+        <View className="points-recent">
+          <Text className="recent-title">{t('gamification.recentActivity')}</Text>
+          {recentItems.map((item) => (
+            <View key={item.id} className="recent-row">
+              <Text className="recent-source">{pointsSourceLabel(t, item.event_type)}</Text>
+              <Text className="recent-date">{formatRelativeDate(item.created_at)}</Text>
+              <Text className="recent-points">+{item.points}</Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   )
+}
+```
+
+**最近动态样式**（`PointsCard.scss` 节选——`--color-divider` 上边线 + success 色积分值）：
+
+```scss
+.points-card {
+  .points-recent {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-sm-md);
+    border-top: 1px solid var(--color-divider);
+
+    .recent-title {
+      display: block;
+      font-size: var(--fs-small);
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      margin-bottom: var(--spacing-xs);
+    }
+
+    .recent-row {
+      display: flex;
+      align-items: center;
+      padding: var(--spacing-xs) 0;
+
+      .recent-source {
+        flex: 1;
+        font-size: var(--fs-caption);
+        color: var(--color-text-primary);
+      }
+
+      .recent-date {
+        margin-right: var(--spacing-sm);
+        font-size: var(--fs-caption);
+        color: var(--color-text-secondary);
+      }
+
+      .recent-points {
+        font-size: var(--fs-caption);
+        font-weight: 600;
+        color: var(--color-success);
+      }
+    }
+  }
 }
 ```
 
@@ -451,15 +598,23 @@ export default function CheckinCalendar() {
 
 ### 4.3 徽章列表页
 
+> **R2-P2-1（批次H）注记**：徽章条目新增分类标签 chip——`BADGE_CATEGORY_MAP`（§7）首次组件消费，后端 BadgeEarned/BadgeLocked 已透出 `category`（未知分类回退 general 桶）。`badgeCategoryLabel` 为实现导出函数（badges 页消费）。下方样例已按实现回写（`badges/index.tsx`，NavBar 省略见 §2 注记④）。
+
 ```tsx
-// frontend/src/pages/gamification/badges.tsx
+// frontend/src/pages/gamification/badges/index.tsx
 import { useEffect } from 'react'
-import Taro from '@tarojs/taro'
 import { View, Text, ScrollView } from '@tarojs/components'
-import { NavBar, Skeleton, Empty } from '@nutui/nutui-react'
+import { Skeleton, Empty } from '@nutui/nutui-react'
 import { useGamificationStore } from '@/stores/gamificationStore'
 import { useTranslation } from 'react-i18next'
-import './gamification.scss'
+import { BADGE_CATEGORY_MAP } from '@/constants/gamification'
+import './index.scss'
+
+/** 徽章分类标签文案（未知分类回退 general 桶） */
+export function badgeCategoryLabel(t: (k: string) => string, category?: string | null): string {
+  const key = BADGE_CATEGORY_MAP[category ?? 'general'] ?? BADGE_CATEGORY_MAP.general
+  return t(key)
+}
 
 export default function BadgesPage() {
   const { t } = useTranslation()
@@ -505,9 +660,16 @@ export default function BadgesPage() {
               <View key={badge.badge_id} className="badge-item earned">
                 <Text className="badge-icon">{badge.icon}</Text>
                 <Text className="badge-name">{badge.name}</Text>
+                {/* R2-P2-1（批次H）：分类标签（BADGE_CATEGORY_MAP 消费） */}
+                <Text className="badge-category">{badgeCategoryLabel(t, badge.category)}</Text>
                 <Text className="badge-status">{t('gamification.earnedStatus')}</Text>
                 <Text className="badge-date">{badge.earned_at}</Text>
               </View>
+            ))}
+            {earned.length === 0 && (
+              <Empty description={t('gamification.noBadgesYet')} />
+            )}
+          </View>
             ))}
             {earned.length === 0 && (
               <Empty description={t('gamification.noBadgesYet')} />
@@ -528,6 +690,8 @@ export default function BadgesPage() {
               <View key={badge.badge_id} className="badge-item locked">
                 <Text className="badge-icon locked-icon">{badge.icon}</Text>
                 <Text className="badge-name">{badge.name}</Text>
+                {/* R2-P2-1（批次H）：分类标签（BADGE_CATEGORY_MAP 消费） */}
+                <Text className="badge-category">{badgeCategoryLabel(t, badge.category)}</Text>
                 <View className="badge-progress">
                   <View
                     className="progress-bar"
@@ -874,6 +1038,18 @@ export default function BadgesPage() {
         margin-top: var(--spacing-sm);
         font-weight: 500;
       }
+
+      /* R2-P2-1（批次H）：分类标签 chip（BADGE_CATEGORY_MAP 消费） */
+      .badge-category {
+        display: inline-block;
+        margin-top: var(--spacing-xs);
+        padding: 2px var(--spacing-sm);
+        font-size: var(--fs-caption);
+        color: var(--color-primary);
+        background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+        border-radius: var(--radius-sm);
+        line-height: 1.6;
+      }
     }
 
     .empty-state {
@@ -925,7 +1101,12 @@ Taro.navigateTo({ url: '/pages/gamification/badges/index' })
 ```typescript
 // frontend/src/constants/gamification.ts
 
-/** 积分来源标签映射 */
+/**
+ * 积分来源标签映射。
+ * R2-P2-2（批次H）消费接线：PointsCard「最近积分动态」区消费
+ * （pointsSourceLabel，数据源 GET /gamification/points-history）；
+ * 映射外事件（training_session/share/feedback/badge）由 sourceOther 兜底。
+ */
 export const POINTS_SOURCE_MAP: Record<string, string> = {
   analysis: 'gamification.sourceAnalysis',
   match: 'gamification.sourceMatch',
@@ -935,7 +1116,11 @@ export const POINTS_SOURCE_MAP: Record<string, string> = {
   streak_30: 'gamification.sourceStreak30',
 }
 
-/** 徽章分类映射 */
+/**
+ * 徽章分类映射。
+ * R2-P2-1（批次H）消费接线：badges 页分类 chip 消费（badgeCategoryLabel，
+ * 后端 BadgeEarned/BadgeLocked.category 透出；未知分类回退 general 桶）。
+ */
 export const BADGE_CATEGORY_MAP: Record<string, string> = {
   analysis: 'gamification.categoryAnalysis',
   match: 'gamification.categoryMatch',
@@ -972,6 +1157,8 @@ export const BADGE_CATEGORY_MAP: Record<string, string> = {
     "sourceCheckin": "每日打卡",
     "sourceStreak7": "连续7天奖励",
     "sourceStreak30": "连续30天奖励",
+    "sourceOther": "其他",
+    "recentActivity": "最近动态",
     "categoryAnalysis": "分析类",
     "categoryMatch": "比赛类",
     "categoryStreak": "坚持类",
@@ -1010,6 +1197,8 @@ export const BADGE_CATEGORY_MAP: Record<string, string> = {
     "sourceCheckin": "Daily Check-in",
     "sourceStreak7": "7-Day Streak Bonus",
     "sourceStreak30": "30-Day Streak Bonus",
+    "sourceOther": "Other",
+    "recentActivity": "Recent Activity",
     "categoryAnalysis": "Analysis",
     "categoryMatch": "Match",
     "categoryStreak": "Streak",

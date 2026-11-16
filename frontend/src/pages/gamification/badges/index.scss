@@ -105,6 +105,18 @@
           margin-top: var(--spacing-sm);
           font-weight: 500;
         }
+
+        /* R2-P2-1（批次H）：分类标签 chip（BADGE_CATEGORY_MAP 消费） */
+        .badge-category {
+          display: inline-block;
+          margin-top: var(--spacing-xs);
+          padding: 2px var(--spacing-sm);
+          font-size: var(--fs-caption);
+          color: var(--color-primary);
+          background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+          border-radius: var(--radius-sm);
+          line-height: 1.6;
+        }
       }
 
       .empty-state {

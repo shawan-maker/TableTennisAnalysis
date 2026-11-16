@@ -32,6 +32,7 @@ from app.models.gamification import (
     BadgeDefinition,
     BadgeProgress,
     CheckInRecord,
+    PointTransaction,
     UserBadge,
     UserPoints,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "BadgeDefinition",
     "BadgeProgress",
     "CheckInRecord",
+    "PointTransaction",
     "UserBadge",
     "UserPoints",
     "TrainingPlan",

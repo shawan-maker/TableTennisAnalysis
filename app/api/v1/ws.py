@@ -165,6 +165,10 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "match_id": match_id,
                                     "status": detail["status"],
                                     "current_score": detail["current_score"],
+                                    # R2-P1-1: 重连同步补局分——此前只挑三键，
+                                    # 多设备重连后大比分回退 0:0 直至下次 fetchMatch
+                                    "games_won_user": detail["games_won_user"],
+                                    "games_won_opp": detail["games_won_opp"],
                                     "score_sequence": detail["score_sequence"],
                                 },
                             })

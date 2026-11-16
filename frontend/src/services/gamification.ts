@@ -1,6 +1,7 @@
 /**
  * gamification 模块 API Service（09-gamification/frontend.md §2）
- * 端点与后端 app/api/v1/gamification/router.py 逐字一致（4 个）。
+ * 端点与后端 app/api/v1/gamification/router.py 逐字一致（5 个；
+ * points-history 为 R2-P2-2 批次H 新增）。
  */
 import request from './request'
 
@@ -42,6 +43,8 @@ export interface BadgeEarned {
   name: string
   icon: string
   earned_at: string
+  /** R2-P2-1（批次H）：徽章分类（后端 BadgeDefinition.category 已暴露） */
+  category?: string | null
 }
 
 /** 未获得徽章 */
@@ -51,6 +54,8 @@ export interface BadgeLocked {
   icon: string
   progress: number
   target: number
+  /** R2-P2-1（批次H）：同 BadgeEarned */
+  category?: string | null
 }
 
 /** 徽章列表 */
@@ -64,6 +69,27 @@ export interface BadgeUnlockedItem {
   badge_id: string
   name: string
   icon: string
+}
+
+/**
+ * 积分流水条目（镜像后端 app/schemas/gamification.py PointTransactionBrief，
+ * R2-P2-2 批次H）。event_type 与 POINTS_SOURCE_MAP 六来源键一致，
+ * training_session/share/feedback/badge 由 sourceOther 兜底。
+ */
+export interface PointTransactionItem {
+  id: number
+  event_type: string
+  points: number
+  ref_id?: number | null
+  created_at?: string | null
+}
+
+/** 积分流水分页（GET /gamification/points-history，R2-P2-2 批次H） */
+export interface PointsHistoryData {
+  total: number
+  page: number
+  page_size: number
+  items: PointTransactionItem[]
 }
 
 /** 获取训练积分（API §10.1）。 */
@@ -91,4 +117,13 @@ export function checkin() {
 /** 获取徽章列表（已获得/未获得，API §10.4）。 */
 export function getBadges() {
   return request.get<BadgeListData>('/gamification/badges')
+}
+
+/**
+ * 获取积分流水（分页，时间倒序；R2-P2-2 批次H，API §10.5）。
+ * @param page - 页码
+ * @param pageSize - 每页条数
+ */
+export function getPointsHistory(page = 1, pageSize = 20) {
+  return request.get<PointsHistoryData>('/gamification/points-history', { page, page_size: pageSize })
 }

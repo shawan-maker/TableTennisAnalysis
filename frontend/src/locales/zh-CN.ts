@@ -626,7 +626,8 @@ export default {
       landing_forehand_pct: '正手区落点率',
       landing_backhand_pct: '反手区落点率',
       landing_middle_pct: '中路落点率',
-      // R-FE-R2 批次E（FE-P3-30）：forecast goal_completion 键集对齐后端 METRIC_DEFINITIONS 14 键
+      // R-FE-R2 批次E（FE-P3-30）：forecast goal_completion 键集对齐后端 METRIC_DEFINITIONS
+      // R2-P2-3（批次H）：修正口径——后端自 S4（bb06698）起为 18 键，补齐缺失 4 键
       landing_dispersion: '落点分散度',
       avg_rally_length: '平均回合长度',
       max_rally_length: '最长回合长度',
@@ -635,6 +636,11 @@ export default {
       max_ball_speed: '最大球速',
       score_win_rate: '胜率',
       key_point_win_rate: '关键分胜率',
+      // R2-P2-3（批次H）：METRIC_DEFINITIONS 18 键全集补齐（后端 progress_service.py:29-46）
+      serve_point_win_rate: '发球得分率',
+      receive_point_win_rate: '接发球得分率',
+      attack_transition_rate: '攻防转换率',
+      error_rate: '失误率',
     },
     currentPlan: '当前训练方案',
     planVersion: '方案版本',
@@ -731,6 +737,9 @@ export default {
     sourceCheckin: '每日打卡',
     sourceStreak7: '连续7天奖励',
     sourceStreak30: '连续30天奖励',
+    // R2-P2-2（批次H）：points-history 端点落地后的消费键
+    sourceOther: '其他',
+    recentActivity: '最近动态',
     categoryAnalysis: '分析类',
     categoryMatch: '比赛类',
     categoryStreak: '坚持类',

@@ -41,12 +41,16 @@ export interface MatchDetail {
   score_sequence: ScoreRecordItem[]
 }
 
-/** 关键分（镜像后端 _generate_statistics：{seq, score, winner, method}） */
+/** 关键分（镜像后端 _generate_statistics：{seq, score, winner, method, timestamp}——
+ * R-FE-R2 批次G（FE-P2-6）：timestamp 为墙钟 ISO，记分侧无视频参照系；
+ * 统计页暂不渲染（前向交付字段），契约面与后端对齐（R2-P2-7 批次H） */
 export interface KeyPointItem {
   seq: number
   score: string
   winner: 'user' | 'opponent'
   method: string | null
+  /** R-FE-R2 批次G（FE-P2-6）：墙钟 ISO */
+  timestamp: string | null
 }
 
 /** 比赛统计（镜像后端 MatchStatisticResponse） */
@@ -70,6 +74,9 @@ export interface WsScoreUpdateData {
   score_method?: string
   current_server?: 'user' | 'opponent'
   is_key_point?: boolean
+  /** R2-P1-1（批次H）：局分两键（后端 score_update payload 已透出） */
+  games_won_user?: number
+  games_won_opp?: number
   /** undo 广播时携带 type: 'undo' */
   type?: string
 }
@@ -260,8 +267,9 @@ export const useScoringStore = create<ScoringState>((set, get) => ({
   /**
    * WS score_update 乐观更新：立即把广播的比分渲染到 UI，
    * 随后调用方会用 fetchMatch 对账（双路径不冲突，eventCenter 走跨模块通知）。
+   * R2-P1-1（批次H）：广播携带局分两键时同步乐观更新大比分（bo 局推进）。
    */
-  applyWsScoreUpdate: (matchId, data) => {
+  applyWsScoreUpdate: (matchId: number, data: WsScoreUpdateData) => {
     const { currentMatch } = get()
     if (!currentMatch || currentMatch.id !== matchId) return
     const parsed = parseScore(data?.score)
@@ -273,6 +281,10 @@ export const useScoringStore = create<ScoringState>((set, get) => ({
         current_score_opp: parsed.opp,
         current_score: data?.score || currentMatch.current_score || null,
         current_server: data?.current_server || currentMatch.current_server,
+        games_won_user:
+          data?.games_won_user !== undefined ? data.games_won_user : currentMatch.games_won_user,
+        games_won_opp:
+          data?.games_won_opp !== undefined ? data.games_won_opp : currentMatch.games_won_opp,
         status: currentMatch.status, // 状态变化统一由 fetchMatch / match_finished 事件对账
       },
     })

@@ -630,6 +630,11 @@ export default {
       max_ball_speed: 'Max Ball Speed',
       score_win_rate: 'Win Rate',
       key_point_win_rate: 'Key Point Win Rate',
+      // R2-P2-3 (Batch H): complete METRIC_DEFINITIONS 18-key set
+      serve_point_win_rate: 'Serve Point Win Rate',
+      receive_point_win_rate: 'Receive Point Win Rate',
+      attack_transition_rate: 'Attack Transition Rate',
+      error_rate: 'Error Rate',
     },
     currentPlan: 'Current Plan',
     planVersion: 'Plan Version',
@@ -726,6 +731,9 @@ export default {
     sourceCheckin: 'Daily Check-in',
     sourceStreak7: '7-Day Streak Bonus',
     sourceStreak30: '30-Day Streak Bonus',
+    // R2-P2-2（批次H）：points-history 端点落地后的消费键
+    sourceOther: 'Other',
+    recentActivity: 'Recent Activity',
     categoryAnalysis: 'Analysis',
     categoryMatch: 'Match',
     categoryStreak: 'Streak',

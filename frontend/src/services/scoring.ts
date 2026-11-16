@@ -57,6 +57,23 @@ export interface MatchListData {
 }
 
 /**
+ * 记分响应（镜像后端 app/schemas/scoring.py ScoreResponse）。
+ * R2-P1-1（批次H）：后端 score 响应/WS payload 已透出局分两键。
+ */
+export interface ScoreResponse {
+  sequence: number
+  score: string
+  current_server: 'user' | 'opponent'
+  game_number: number
+  is_key_point: boolean
+  match_status: string
+  should_change_sides: boolean
+  match_finished: boolean
+  games_won_user: number
+  games_won_opp: number
+}
+
+/**
  * 创建比赛。
  */
 export function createMatch(params: MatchCreateParams) {
@@ -92,7 +109,7 @@ export function startMatch(id: number) {
  * 记分（得分方 + 得分方式）。
  */
 export function score(matchId: number, params: ScoreParams) {
-  return request.post(`/scoring/matches/${matchId}/score`, params)
+  return request.post<ScoreResponse>(`/scoring/matches/${matchId}/score`, params)
 }
 
 /**

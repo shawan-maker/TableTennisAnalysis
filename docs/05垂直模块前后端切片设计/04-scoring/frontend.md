@@ -152,6 +152,9 @@ export interface MatchDetail {
   current_score_opp: number
   current_server?: 'user' | 'opponent'
   current_game: number
+  // R-FE-R1 批次B（FE-P1-6）：局分——后端 MatchDetail schema games_won_user/opp（bo3/bo5 大比分）
+  games_won_user?: number
+  games_won_opp?: number
   is_win?: boolean
   final_score?: string
   created_at: string
@@ -164,7 +167,15 @@ export interface MatchStatistics {
   match_id: number
   stats_data: {
     score_distribution: Record<string, number>
-    key_points: Array<{ seq: number; scorer: string; method: string }>
+    // R2-P2-7 批次H 回写：对齐实现与后端契约——旧 `scorer` 为文档臆造名，
+    // 实际字段为 winner + score；timestamp 为批次G FE-P2-6 墙钟 ISO（记分侧无视频参照系）
+    key_points: Array<{
+      seq: number
+      score: string
+      winner: 'user' | 'opponent'
+      method: string | null
+      timestamp: string | null
+    }>
     technique_breakdown: Record<string, number>
     total_points: number
   }
@@ -294,7 +305,7 @@ import { View, Text, Picker } from '@tarojs/components'
 import { Cell, Button, Input, Toast } from '@nutui/nutui-react'
 import { useScoringStore } from '@/stores/scoringStore'
 import { useTranslation } from 'react-i18next'
-import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS } from '@/constants/scoring'
+import { FORMAT_OPTIONS, MATCH_TYPE_OPTIONS, OPPONENT_STYLE_OPTIONS, TARGET_SCORE_OPTIONS } from '@/constants/scoring'
 import './setup.scss'
 
 export default function MatchSetup() {
@@ -306,6 +317,8 @@ export default function MatchSetup() {
   const [styleIdx, setStyleIdx] = useState(0)
   const [formatIdx, setFormatIdx] = useState(2) // 默认 bo5
   const [typeIdx, setTypeIdx] = useState(0)     // 默认 friendly
+  // R-FE-R1 批次C（FE-P2-13）：每局目标分 11/21 切换（替代 v1.0 硬编码 11）
+  const [targetScoreIdx, setTargetScoreIdx] = useState(0)   // 默认 11 分制
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
@@ -326,14 +339,14 @@ export default function MatchSetup() {
         opponent_playing_style: styleIdx > 0 ? OPPONENT_STYLE_OPTIONS[styleIdx - 1].value : undefined,
         format: FORMAT_OPTIONS[formatIdx].value,
         match_type: MATCH_TYPE_OPTIONS[typeIdx].value,
-        target_score: 11,
+        target_score: TARGET_SCORE_OPTIONS[targetScoreIdx].value,
       })
       // 跳转到实时记分页
       Taro.navigateTo({ url: `/pages/scoring/scoreboard/index?matchId=${matchId}` })
     } catch (err: any) {
       showToast(err?.message || t('scoring.createFailed'))
     }
-  }, [opponentName, opponentRating, styleIdx, formatIdx, typeIdx, createMatch, t])
+  }, [opponentName, opponentRating, styleIdx, formatIdx, typeIdx, targetScoreIdx, createMatch, t])
 
   return (
     <View className="match-setup">
@@ -380,11 +393,11 @@ export default function MatchSetup() {
       <Cell title={t('scoring.format')}>
         <Picker
           mode="selector"
-          range={FORMAT_OPTIONS.map(o => o.label)}
+          range={FORMAT_OPTIONS.map(o => t(o.labelKey))}
           value={formatIdx}
           onChange={(e: any) => setFormatIdx(parseInt(e.detail.value))}
         >
-          <View className="picker-value">{FORMAT_OPTIONS[formatIdx].label}</View>
+          <View className="picker-value">{t(FORMAT_OPTIONS[formatIdx].labelKey)}</View>
         </Picker>
       </Cell>
 
@@ -392,11 +405,23 @@ export default function MatchSetup() {
       <Cell title={t('scoring.matchType')}>
         <Picker
           mode="selector"
-          range={MATCH_TYPE_OPTIONS.map(o => o.label)}
+          range={MATCH_TYPE_OPTIONS.map(o => t(o.labelKey))}
           value={typeIdx}
           onChange={(e: any) => setTypeIdx(parseInt(e.detail.value))}
         >
-          <View className="picker-value">{MATCH_TYPE_OPTIONS[typeIdx].label}</View>
+          <View className="picker-value">{t(MATCH_TYPE_OPTIONS[typeIdx].labelKey)}</View>
+        </Picker>
+      </Cell>
+
+      {/* 每局目标分（R-FE-R1 批次C FE-P2-13：11/21 切换，替代硬编码 11） */}
+      <Cell title={t('scoring.targetScore')}>
+        <Picker
+          mode="selector"
+          range={TARGET_SCORE_OPTIONS.map((o) => t(o.labelKey))}
+          value={targetScoreIdx}
+          onChange={(e: any) => setTargetScoreIdx(parseInt(e.detail.value, 10))}
+        >
+          <View className="picker-value">{t(TARGET_SCORE_OPTIONS[targetScoreIdx].labelKey)}</View>
         </Picker>
       </Cell>
 
@@ -440,12 +465,18 @@ export default function Scoreboard() {
   const { t } = useTranslation()
   const router = useRouter()
   const matchId = parseInt(router.params.matchId as string)
-  const { currentMatch, fetchMatch, doScore, doUndo, finishMatch, isScoring } = useScoringStore()
+  const {
+    currentMatch, fetchMatch, doScore, doUndo, finishMatch, isScoring,
+    startMatch, abandonMatch, resumeMatch,
+    // R-FE-R1 批次B（FE-P2-8）：换边/关键分 Toast 提示消费（doScore 响应 flags 经 store 透出）
+    lastScoreFlags, consumeScoreFlags,
+  } = useScoringStore()
   const { isConnected } = useMatchSync(matchId)
 
   const [showMethodSheet, setShowMethodSheet] = useState(false)
   const [pendingScorer, setPendingScorer] = useState<'user' | 'opponent'>('user')
   const [showFinishPopup, setShowFinishPopup] = useState(false)
+  const [showAbandonPopup, setShowAbandonPopup] = useState(false)
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
@@ -457,6 +488,17 @@ export default function Scoreboard() {
   useEffect(() => {
     if (matchId) fetchMatch(matchId)
   }, [matchId])
+
+  // X-21：进入记分页若 status=setup 自动 startMatch（startingRef 防重入）
+  // R-FE-R1 批次B（FE-P2-8）：换边/关键分 Toast——score 响应 should_change_sides/is_key_point
+  // 经 store.lastScoreFlags 透出，此处消费一次（局结束换边 / 关键分到达）
+  useEffect(() => {
+    if (!lastScoreFlags) return
+    const { should_change_sides, is_key_point } = lastScoreFlags
+    if (should_change_sides) showToast(t('scoring.changeSides'))
+    if (is_key_point) showToast(t('scoring.keyPoint'))
+    consumeScoreFlags()
+  }, [lastScoreFlags, consumeScoreFlags, t])
 
   /** 点击得分大按钮 */
   const handleScoreClick = useCallback((scorer: 'user' | 'opponent') => {
@@ -499,11 +541,37 @@ export default function Scoreboard() {
     }
   }, [matchId, finishMatch, t])
 
+  /** 放弃比赛（X-26：abandoned → 24h 内可经 resumeMatch 恢复） */
+  const handleAbandon = useCallback(async () => {
+    setShowAbandonPopup(false)
+    try {
+      await abandonMatch(matchId)
+      Taro.navigateBack()
+    } catch (err: any) {
+      showToast(err?.message || t('scoring.abandonFailed'))
+    }
+  }, [matchId, abandonMatch, t])
+
+  /** 恢复已放弃比赛（X-26：abandoned → in_progress；status=abandoned 时记分页仅呈现恢复主按钮） */
+  const handleResume = useCallback(async () => {
+    try {
+      await resumeMatch(matchId)
+    } catch (err: any) {
+      showToast(err?.message || t('scoring.resumeFailed'))
+    }
+  }, [matchId, resumeMatch, t])
+
   if (!currentMatch) {
     return <View className="scoreboard loading"><Skeleton rows={3} animated /></View>
   }
 
   const { current_score_user, current_score_opp, current_server, status } = currentMatch
+
+  // R-FE-R1 批次B（FE-P2-7）：deuce 判定——进行中且双方均达 target-1（10:10 / 20:20，v1.0 L538）
+  const isDeuce =
+    status === 'in_progress' &&
+    current_score_user >= currentMatch.target_score - 1 &&
+    current_score_opp >= currentMatch.target_score - 1
 
   return (
     <View className="scoreboard">
@@ -513,6 +581,21 @@ export default function Scoreboard() {
           {t('scoring.wsDisconnected')}
         </View>
       )}
+      {/* 局数/局分（R-FE-R1 批次B FE-P1-6：bo 多局大比分，v1.0 L509「局1 11:7 1:0」） */}
+      <View className="game-info">
+        <Text className="game-number">{t('scoring.gameNumber', { game: currentMatch.current_game })}</Text>
+        <Text className="games-score">
+          {t('scoring.gamesScore', { user: currentMatch.games_won_user ?? 0, opp: currentMatch.games_won_opp ?? 0 })}
+        </Text>
+      </View>
+
+      {/* deuce 提示条（R-FE-R1 批次B FE-P2-7：10:10 后「需领先 2 分」） */}
+      {isDeuce && (
+        <View className="deuce-hint">
+          {t('scoring.deuceHint')}
+        </View>
+      )}
+
       {/* 比分显示区 */}
       <View className="score-display">
         <View className="score-side score-user">
@@ -567,6 +650,14 @@ export default function Scoreboard() {
           disabled={isScoring}
         >
           {t('scoring.finishMatch')}
+        {/* R-FE-R1 批次B（X-26）：放弃比赛——24h 内可恢复；abandoned 入口经比赛列表重进记分页恢复 */}
+        <Button
+          className="btn-action btn-abandon"
+          size="small"
+          onClick={() => setShowAbandonPopup(true)}
+        >
+          {t('scoring.abandonMatch')}
+        </Button>
         </Button>
       </View>
 
@@ -599,6 +690,15 @@ export default function Scoreboard() {
         onCancel={() => setShowFinishPopup(false)}
       />
 
+      {/* 放弃比赛确认（R-FE-R1 批次B X-26） */}
+      <Popup
+        visible={showAbandonPopup}
+        title={t('scoring.confirmAbandon')}
+        content={t('scoring.confirmAbandonDesc')}
+        onConfirm={handleAbandon}
+        onCancel={() => setShowAbandonPopup(false)}
+      />
+
       <Toast
         visible={toastVisible}
         content={toastMsg}
@@ -613,10 +713,10 @@ export default function Scoreboard() {
 
 ```tsx
 // frontend/src/pages/scoring/statistics.tsx
-import { useEffect } from 'react'
-import { useRouter } from '@tarojs/taro'
+import { useEffect, useMemo, useState } from 'react'
+import Taro, { useRouter } from '@tarojs/taro'
 import { View, Text } from '@tarojs/components'
-import { Cell, Skeleton } from '@nutui/nutui-react'
+import { Cell, Button, Skeleton, Toast } from '@nutui/nutui-react'
 import { useScoringStore } from '@/stores/scoringStore'
 import { useTranslation } from 'react-i18next'
 import './statistics.scss'
@@ -626,6 +726,12 @@ export default function MatchStatistics() {
   const router = useRouter()
   const matchId = parseInt(router.params.matchId as string)
   const { currentMatch, currentStatistics, fetchMatch, fetchStatistics } = useScoringStore()
+  const [toastVisible, setToastVisible] = useState(false)
+  const [toastMsg, setToastMsg] = useState('')
+  const showToast = (msg: string) => {
+    setToastMsg(msg)
+    setToastVisible(true)
+  }
 
   useEffect(() => {
     if (matchId) {
@@ -641,6 +747,34 @@ export default function MatchStatistics() {
   const { stats_data } = currentStatistics
   const { score_distribution, technique_breakdown, key_points, total_points } = stats_data
 
+  // R-FE-R1（FE-P2-12）：逐局比分——score_sequence 按 game_number 分组，
+  // 每条记录为一分，按局计数还原各局比分（bo 多局大比分为局分语义）
+  const gamesDetail = useMemo(() => {
+    const seq = currentMatch.score_sequence || []
+    const byGame = new Map<number, { user: number; opp: number }>()
+    seq.forEach((r) => {
+      const g = byGame.get(r.game_number) || { user: 0, opp: 0 }
+      if (r.scorer === 'user') g.user++
+      else g.opp++
+      byGame.set(r.game_number, g)
+    })
+    return Array.from(byGame.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([game, s]) => ({ game, ...s }))
+  }, [currentMatch.score_sequence])
+
+  // R-FE-R1（FE-P2-9）：分享比赛结果——剪贴板复制战报文本（shareCopied toast）
+  const handleShareResult = () => {
+    const text = `乒乓AI：${currentMatch.is_win ? t('scoring.youWin') : t('scoring.youLose')} ${currentMatch.final_score} (${t('scoring.vs')} ${currentMatch.opponent_name})`
+    Taro.setClipboardData({ data: text })
+    showToast(t('scoring.shareCopied'))
+  }
+
+  // R-FE-R1（FE-P3-28）：关键分聚合——我方拿下的关键分占比（纯前端计算）
+  const kpWon = (key_points || []).filter((kp) => kp.winner === 'user').length
+  const kpTotal = (key_points || []).length
+  const kpPct = kpTotal > 0 ? Math.round((kpWon / kpTotal) * 100) : 0
+
   return (
     <View className="match-stats">
       {/* 比赛结果卡片 */}
@@ -652,6 +786,12 @@ export default function MatchStatistics() {
         <Text className="result-opponent">
           {t('scoring.vs')} {currentMatch.opponent_name}
         </Text>
+        {/* R-FE-R1（FE-P2-12）：逐局比分明细（bo 多局，如 (11-7, 8-11, 11-9)） */}
+        {gamesDetail.length > 1 && (
+          <Text className="result-games-detail">
+            ({gamesDetail.map((g) => `${g.user}-${g.opp}`).join(', ')})
+          </Text>
+        )}
       </View>
 
       {/* 得分分布 */}
@@ -678,20 +818,25 @@ export default function MatchStatistics() {
         </View>
       </View>
 
-      {/* 关键分 */}
+      {/* 关键分（R2-P2-7 批次H：winner/score 契约对齐实现 statistics/index.tsx） */}
       {key_points && key_points.length > 0 && (
         <View className="stats-section">
           <Text className="section-title">{t('scoring.keyPoints')}</Text>
           <View className="key-points-list">
             {key_points.map((kp, idx) => (
-              <View key={idx} className="key-point-item">
+              <View key={`kp-${idx}`} className="key-point-item">
                 <Text className="kp-seq">#{kp.seq}</Text>
-                <Text className="kp-winner">
-                  {kp.scorer === 'user' ? t('scoring.me') : t('scoring.opponent')}
+                <Text className={`kp-winner ${kp.winner}`}>
+                  {kp.winner === 'user' ? t('scoring.me') : t('scoring.opponent')}
                 </Text>
+                <Text className="kp-score">{kp.score}</Text>
               </View>
             ))}
           </View>
+          {/* R-FE-R1 批次B（FE-P3-28）：关键分胜率汇总（won/total/pct） */}
+          <Text className="kp-summary">
+            {t('scoring.keyPointsSummary', { won: kpWon, total: kpTotal, pct: kpPct })}
+          </Text>
         </View>
       )}
 
@@ -699,6 +844,30 @@ export default function MatchStatistics() {
       <View className="total-points">
         <Text>{t('scoring.totalPoints')}: {total_points}</Text>
       </View>
+
+      {/* R-FE-R1 批次B（FE-P2-9/10/11）：赛后动作三件套——分享战报（剪贴板 + shareCopied）、
+          关联视频分析（FE-P2-10 携 matchId 至 upload 页）、查看看板；统计页不再是流程 2 终点 */}
+      <View className="post-match-actions">
+        <Button className="btn-post-match" size="small" onClick={handleShareResult}>
+          {t('scoring.shareResult')}
+        </Button>
+        <Button
+          className="btn-post-match"
+          size="small"
+          onClick={() => Taro.navigateTo({ url: `/pages/video-analysis/upload/index?matchId=${matchId}` })}
+        >
+          {t('scoring.linkVideoAnalysis')}
+        </Button>
+        <Button
+          className="btn-post-match"
+          size="small"
+          onClick={() => Taro.navigateTo({ url: '/pages/dashboard/index' })}
+        >
+          {t('scoring.viewDashboard')}
+        </Button>
+      </View>
+
+      <Toast visible={toastVisible} content={toastMsg} onClose={() => setToastVisible(false)} />
     </View>
   )
 }
@@ -1246,7 +1415,7 @@ export const MATCH_STATUS_MAP: Record<string, { labelKey: string; color: string 
 ### i18n 条目
 
 ```json
-// frontend/src/locales/zh-CN.json（新增 scoring 条目）
+// frontend/src/locales/zh-CN.ts（scoring 域条目——R2-P2-8 批次H：补齐批次B/C/E/G 已交付 23 键，样例为节选，键面以实现文件为准）
 {
   "scoring": {
     "matchSetup": "比赛设置",
@@ -1317,13 +1486,38 @@ export const MATCH_STATUS_MAP: Record<string, { labelKey: string; color: string 
       "forehand_drive": "正手攻球",
       "backhand_drive": "反手拨球",
       "forehand_loop": "正手拉球"
-    }
+    },
+    // R2-P2-8 批次H 回写：以下 23 键为批次B/C/E/G 已交付条目补齐（实现文件为 .ts 模块；
+    // 键面以实现为准，本样例为节选）
+    "yourInfo": "你的信息",
+    "myPoints": "积分",
+    "targetScore": "每局目标分",
+    "targetScore11": "11 分制",
+    "targetScore21": "21 分制",
+    "startFailed": "开始比赛失败",
+    "abandonMatch": "放弃比赛",
+    "resumeMatch": "恢复比赛",
+    "confirmAbandon": "确认放弃比赛？",
+    "confirmAbandonDesc": "放弃后 24 小时内可恢复，超时自动清理",
+    "abandonFailed": "放弃比赛失败",
+    "resumeFailed": "恢复比赛失败",
+    "matchFinished": "比赛已结束",
+    "gameNumber": "第 {{game}} 局",
+    "gamesScore": "局分 {{user}}:{{opp}}",
+    "deuceHint": "当前为平分（deuce），需领先 2 分才能赢得本局",
+    "changeSides": "本局结束，请交换场地",
+    "keyPoint": "关键分！",
+    "shareResult": "分享结果",
+    "linkVideoAnalysis": "关联视频分析",
+    "viewDashboard": "去数据看板",
+    "shareCopied": "比赛结果已复制",
+    "keyPointsSummary": "关键分我方拿下 {{won}}/{{total}}（{{pct}}%）"
   }
 }
 ```
 
 ```json
-// frontend/src/locales/en-US.json（新增 scoring 条目）
+// frontend/src/locales/en-US.ts（scoring domain — R2-P2-8 批次H：补齐 23 键，样例为节选，键面以实现文件为准）
 {
   "scoring": {
     "matchSetup": "Match Setup",
@@ -1394,7 +1588,32 @@ export const MATCH_STATUS_MAP: Record<string, { labelKey: string; color: string 
       "forehand_drive": "Forehand Drive",
       "backhand_drive": "Backhand Drive",
       "forehand_loop": "Forehand Loop"
-    }
+    },
+    // R2-P2-8 批次H 回写：以下 23 键为批次B/C/E/G 已交付条目补齐（实现文件为 .ts 模块；
+    // 键面以实现为准，本样例为节选）
+    "yourInfo": "Your Info",
+    "myPoints": "Points",
+    "targetScore": "Points per Game",
+    "targetScore11": "11 points",
+    "targetScore21": "21 points",
+    "startFailed": "Failed to start match",
+    "abandonMatch": "Abandon",
+    "resumeMatch": "Resume",
+    "confirmAbandon": "Abandon match?",
+    "confirmAbandonDesc": "You can resume within 24 hours",
+    "abandonFailed": "Abandon failed",
+    "resumeFailed": "Resume failed",
+    "matchFinished": "Match finished",
+    "gameNumber": "Game {{game}}",
+    "gamesScore": "Games {{user}}:{{opp}}",
+    "deuceHint": "Deuce! Win by 2 points to take this game",
+    "changeSides": "Game over, please change sides",
+    "keyPoint": "Key point!",
+    "shareResult": "Share Result",
+    "linkVideoAnalysis": "Link Video Analysis",
+    "viewDashboard": "Go to Dashboard",
+    "shareCopied": "Match result copied",
+    "keyPointsSummary": "Key points won {{won}}/{{total}} ({{pct}}%)"
   }
 }
 ```

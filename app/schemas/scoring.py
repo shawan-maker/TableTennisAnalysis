@@ -121,6 +121,13 @@ class ScoreResponse(BaseModel):
     is_key_point: bool
     match_status: str
     should_change_sides: bool = False
+    # R2-P1-1: 本球导致全场结束（前端据此跳转结束页）——service score 返回
+    # dict 已有此键，schema 此前缺失（加 response_model 校验后防漂移必补）
+    match_finished: bool = False
+    # R2-P1-1: 局分随记分响应透出（bo3/bo5 记分后前端无需再 fetchMatch
+    # 即可渲染大比分；与 detail / WS payload 同源 games_won_user/opp）
+    games_won_user: int = 0
+    games_won_opp: int = 0
 
 
 class UndoResponse(BaseModel):
@@ -169,3 +176,29 @@ class MatchStatisticResponse(BaseModel):
 
     match_id: int
     stats_data: dict
+
+
+class MatchCreateResponse(BaseModel):
+    """创建比赛响应
+
+    R2-P1-1: 路由全量 response_model 补齐——此前 create_match 返回
+    dict 无 schema 承载（schema 是摆设、dict 即线上契约的形态根源）。
+    """
+
+    match_id: int
+    status: str = "setup"
+    current_server: str = "user"
+    # R-FE-R2 批次G（FE-P2-14）：对手打法回显
+    opponent_playing_style: Optional[str] = None
+
+
+class MatchListResponse(BaseModel):
+    """比赛列表响应（分页）
+
+    R2-P1-1: 路由全量 response_model 补齐。
+    """
+
+    total: int
+    page: int
+    page_size: int
+    items: list[MatchBrief] = Field(default_factory=list)

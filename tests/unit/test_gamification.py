@@ -145,6 +145,14 @@ async def test_badges_empty(client, auth_headers, auth_user, db_session):
     data = resp.json()["data"]
     assert len(data["earned"]) == 0
     assert len(data["locked"]) == 6
+    # R2-P2-1（批次H）：分类透出契约——locked 条目携带 category（种子里
+    # first_analysis=analysis / first_match=match / streak_7=streak）
+    for b in data["locked"]:
+        assert b["category"] is not None, "locked 徽章必须携带分类（wire 契约）"
+    categories = {b["badge_id"]: b["category"] for b in data["locked"]}
+    assert categories["first_analysis"] == "analysis"
+    assert categories["first_match"] == "match"
+    assert categories["streak_7"] == "streak"
     for b in data["locked"]:
         assert b["progress"] == 0
 
@@ -191,6 +199,68 @@ async def test_badges_after_analysis(client, auth_headers, auth_user, db_session
     earned_ids = [b["badge_id"] for b in data["earned"]]
     assert "first_analysis" in earned_ids
     assert len(data["earned"]) == 1
+    # R2-P2-1（批次H）：earned 徽章分类透出（first_analysis → analysis）
+    assert data["earned"][0]["category"] == "analysis"
+
+
+# =============================================================================
+# R2-P2-2（批次H）：积分流水 — _add_points 落账 + points-history 分页契约
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_points_history_records_ledger_and_pagination(
+    client, auth_headers, auth_user, db_session
+):
+    """add_points 落流水（analysis + 自动打卡 checkin 两笔）+ 端点分页契约
+
+    add_points("analysis") 内部触发 _auto_checkin → 共两笔流水；
+    响应键面 = PointsHistoryResponse {total, page, page_size, items}。
+    """
+    from app.services.gamification_service import GamificationService
+
+    async with async_session_factory() as db:
+        await GamificationService.add_points(db, auth_user["user_id"], "analysis", ref_id=1)
+        await db.commit()
+
+    resp = await client.get("/api/v1/gamification/points-history", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert set(data.keys()) == {"total", "page", "page_size", "items"}
+    assert data["total"] == 2, "analysis + 自动打卡 checkin 共两笔流水"
+
+    pts = {i["event_type"]: i["points"] for i in data["items"]}
+    assert pts["analysis"] == 10
+    assert pts["checkin"] == 2
+    analysis_item = next(i for i in data["items"] if i["event_type"] == "analysis")
+    assert analysis_item["ref_id"] == 1
+    assert set(analysis_item.keys()) == {"id", "event_type", "points", "ref_id", "created_at"}
+    for i in data["items"]:
+        assert i["created_at"], "created_at 必须回传（前端最近动态渲染）"
+
+    # 分页：page_size=1 → 每页 1 条（时间倒序，id 大者在首）
+    resp2 = await client.get(
+        "/api/v1/gamification/points-history",
+        headers=auth_headers,
+        params={"page": 1, "page_size": 1},
+    )
+    assert resp2.status_code == 200
+    d2 = resp2.json()["data"]
+    assert d2["total"] == 2
+    assert len(d2["items"]) == 1
+    assert d2["items"][0]["id"] == data["items"][0]["id"], "倒序分页首页取最新一条"
+
+
+@pytest.mark.asyncio
+async def test_points_history_checkin_manual_flow(client, auth_headers, auth_user):
+    """手动打卡路径同样落流水（checkin + streak bonus 无 → 单笔 2 分）"""
+    resp = await client.post("/api/v1/gamification/checkin", headers=auth_headers)
+    assert resp.status_code == 200
+
+    hist = await client.get("/api/v1/gamification/points-history", headers=auth_headers)
+    data = hist.json()["data"]
+    assert data["total"] == 1
+    assert data["items"][0]["event_type"] == "checkin"
+    assert data["items"][0]["points"] == 2
 
 
 # =============================================================================

@@ -40,6 +40,10 @@ class BadgeEarned(BaseModel):
     name: str
     icon: str
     earned_at: str
+    # R2-P2-1（批次H）：分类透出——数据层 BadgeDefinition.category 早已就绪
+    # （idx_badge_definition_category + 种子），schema 此前不暴露导致前端
+    # BADGE_CATEGORY_MAP 常量零消费（孤儿）、4 个 i18n 分类键无渲染路径
+    category: Optional[str] = None
 
 
 class BadgeLocked(BaseModel):
@@ -48,8 +52,33 @@ class BadgeLocked(BaseModel):
     icon: str
     progress: int
     target: int
+    # R2-P2-1（批次H）：同 BadgeEarned
+    category: Optional[str] = None
 
 
 class BadgeListResponse(BaseModel):
     earned: list[BadgeEarned] = []
     locked: list[BadgeLocked] = []
+
+
+class PointTransactionBrief(BaseModel):
+    """积分流水条目（R2-P2-2 批次H）
+
+    event_type 与 POINTS_SOURCE_MAP 六来源键一致（analysis/match/record/
+    checkin/streak_7/streak_30），另含 training_session/share/feedback/badge。
+    """
+
+    id: int
+    event_type: str
+    points: int
+    ref_id: Optional[int] = None
+    created_at: Optional[str] = None
+
+
+class PointsHistoryResponse(BaseModel):
+    """积分历史分页响应（GET /gamification/points-history，R2-P2-2 批次H）"""
+
+    total: int
+    page: int
+    page_size: int
+    items: list[PointTransactionBrief] = []
