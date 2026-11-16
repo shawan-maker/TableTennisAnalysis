@@ -833,8 +833,9 @@ export default function ReportPage() {
   const rally = result?.rally_analysis
 
   // 九宫格热图颜色深浅（根据值大小）
-  // --color-primary #E63946，JS 中无法直接使用 CSS 变量，统一引用主色 RGB 值
-  const PRIMARY_RGB = '230, 57, 70'
+  // --color-primary #C92738（R2-P3-1 批次I：FS8-7 调色后现值），JS 中无法直接使用
+  // CSS 变量，统一引用主色 RGB 值（与 dashboard LandingHeatmap 同源派生）
+  const PRIMARY_RGB = '201, 39, 56'
   const maxLanding = landing ? Math.max(...landing.nine_grid.flat()) : 1
   const getHeatColor = (val: number) => {
     const ratio = val / maxLanding
@@ -2222,14 +2223,14 @@ cd frontend && npm run build:h5
 
 ### 视觉验证
 - [ ] 上传页拍摄引导卡片布局清晰（角度/距离/光线三卡片）
-- [ ] 上传按钮使用主色 `#E63946`
+- [ ] 上传按钮使用主色 `var(--color-primary)`（R2-P3-1 批次I：FS8-7 调色后现值 #C92738，原 #E63946 为调色前旧值）
 - [ ] 进度页动画效果（球拍弹跳）正常
 - [ ] 步骤列表完成项显示绿色 ✅，当前项显示 ⏳，未开始显示 ○
 - [ ] 报告页九宫格热图颜色深浅正确（高频深色）
 - [ ] 技术环形图图例颜色与数据匹配
 - [ ] 球速显示为范围值（非精确值）
 - [ ] 视频回放组件正常加载和播放
-- [ ] 反馈按钮：准确使用成功色 `#2A9D8F`，不准使用主色 `#E63946`
+- [ ] 反馈按钮：准确使用 NutUI Button `type="success"`、不准使用 `type="danger"`（R2-P3-1 批次I：实现经 NutUI 主题色非裸 token；原清单 #2A9D8F/#E63946 为 FS8-7 调色前旧值）
 - [ ] 分享按钮固定在底部
 - [ ] 节奏曲线折线渲染正确（点数=回合数，低时长点位低）<!-- R-FE-R2 批次G FE-P2-5 -->
 - [ ] 关键分 chip 显示比分+序号+时刻（m:ss）<!-- R-FE-R2 批次G FE-P2-6 -->

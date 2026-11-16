@@ -6,7 +6,10 @@
  * - /users/big-data            userStore.BigData
  * - /users/rating-history      RatingHistoryItem 分页
  * - /video-analysis/tasks/3    TaskDetail（processing 态，扫描进度 UI 真实内容）
- * - /video-analysis/reports/7  ReportDetail（E2E-01 同源载荷）
+ * - /video-analysis/reports/7  ReportDetail（载荷与 E2E-01 同源；唯一刻意差异
+ *   annotated_video_url=null——video 无 track 触发 axe video-caption，见 payload 注。
+ *   R2-P3-22 批次I：score_analysis 已补齐镜像，video-section/marker chips 为
+ *   已知 a11y 盲区，差异口径与 analysis-flow 双侧留痕〔R2-P3-23〕）
  * - /match-data/records/1     MatchRecordDetailItem
  * - /scoring/matches           MatchBrief 分页（match-list 页）
  * - /scoring/matches/1         MatchDetailWithSequence（in_progress 记分牌态）
@@ -101,8 +104,20 @@ export const a11yMocks: MockRoute[] = [
           nine_grid: [[2, 3, 1], [4, 8, 2], [3, 5, 2]],
           opponent_nine_grid: [[3, 1, 2], [5, 2, 4], [2, 6, 1]],
         },
-        technique_stats: { loop: 30, smash: 12, push: 8, block: 10 },
+        // R2-P3-4（批次I）：键集对齐 API §4.6（forehand_drive 等，analysis-flow 同源）
+        technique_stats: { forehand_drive: 45, backhand_drive: 18, forehand_loop: 12, serve: 23 },
         ball_speed: { avg_speed_mps: 12.5, max_speed_mps: 18.2, speed_range: [8.1, 18.2] },
+        // R2-P3-22（批次I）：补 score_analysis 段（E2E-01 同源）——annotated_video_url
+        // 保持 null（防 axe video-caption），video-section（含关键分 marker chips）仍
+        // 不入扫描：已知 a11y 盲区，chips 交互正确性由 analysis-flow 真 URL 流程覆盖
+        // （E2E-01 marker 点击断言）；差异口径双侧留痕见 analysis-flow.spec.ts 对称注记
+        score_analysis: {
+          final_score: '11:8',
+          key_points: [
+            { seq: 20, score: '10:10', winner: 'user', timestamp: 95.4 },
+            { seq: 23, score: '11:10', winner: 'opponent', timestamp: 112.8 },
+          ],
+        },
       },
       report_text: {
         summary: '正手进攻效率不错，反手稳定性待加强',

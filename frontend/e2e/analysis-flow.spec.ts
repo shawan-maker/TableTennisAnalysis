@@ -122,7 +122,9 @@ const analysisMocks: MockRoute[] = [
             [2, 6, 1],
           ],
         },
-        technique_stats: { loop: 30, smash: 12, push: 8, block: 10 },
+        // R2-P3-4（批次I）：键集对齐 API §4.6 契约（forehand_drive 等）——
+        // 旧 loop/smash/push/block 中 loop 无 technique.* 双语键，图例回退渲染键名
+        technique_stats: { forehand_drive: 45, backhand_drive: 18, forehand_loop: 12, serve: 23 },
         ball_speed: { avg_speed_mps: 12.5, max_speed_mps: 18.2, speed_range: [8.1, 18.2] },
         // R-FE-R2 批次G（FE-P2-6）：关键分带视频相对秒（marker seek 消费）
         score_analysis: {
@@ -138,6 +140,8 @@ const analysisMocks: MockRoute[] = [
         issues: ['反手击球点偏晚', '步法移动偏慢'],
         suggestions: ['加强反手推挡多球训练', '组合步法练习提升移动'],
       },
+      // R2-P3-23（批次I）：真 URL 驱动 marker 点击（seek 回放断言）——与 a11y-mocks
+      // null 侧（防 axe video-caption）为同一字段的刻意差异，双侧留痕对称
       annotated_video_url: 'https://cdn.test-videos.local/annotated.mp4',
       cover_image_url: null,
       report_images: null,

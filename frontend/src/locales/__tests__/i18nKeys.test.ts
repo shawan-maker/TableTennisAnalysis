@@ -201,3 +201,76 @@ describe('FS4 域 key 存在性（dashboard.* / progress.*）', () => {
     expect((enUS.common as Record<string, string>).back).toBeTruthy()
   })
 })
+
+/** R2-P3-24（批次I）：批次E/F/G/H 新增键显式域断言。
+ *  结构守卫（zh/en 集合相等 + 值非空）已能拦截单侧缺失，本组把「哪一批、
+ *  哪个域」落成显式清单——回归失败时直接定位缺失键归属，不再依赖全量 diff 排查。
+ *  zh/en 双侧同断（批次新键历史上有过单侧漏配先例，双断收紧）。 */
+const resolve = (obj: Record<string, any>, path: string) =>
+  path.split('.').reduce<any>((acc, seg) => acc?.[seg], obj)
+const expectBatchKeys = (path: string, expected: string[]) => {
+  const zhDom = resolve(zhCN, path) ?? {}
+  const enDom = resolve(enUS, path) ?? {}
+  // 失败时 diff 即缺失键清单（filter 产物），路径归属见用例名
+  expect(expected.filter((k) => !(k in zhDom))).toEqual([])
+  expect(expected.filter((k) => !(k in enDom))).toEqual([])
+}
+
+describe('R-FE-R2 批次E/F/G/H 新键域断言（回归定位提速）', () => {
+  it('批次E home：周训练计数 + 打卡 CTA（FE-P3-20/21，批次H PointsCard 同页消费）', () => {
+    expectBatchKeys('home', ['weeklyCount', 'viewPlan', 'checkinNow', 'todayCheckedIn'])
+  })
+
+  it('批次E scoring.setup：你的信息只读区（FE-P3-27，profile.kqs_rating 契约）', () => {
+    expectBatchKeys('scoring', [
+      'yourInfo', 'myPoints', 'opponentName', 'opponentNamePlaceholder',
+      'opponentRating', 'opponentRatingPlaceholder',
+    ])
+  })
+
+  it('批次E user：注销冷静期横幅键族（FE-P3-33 DeletionCoolingBanner 两页消费）', () => {
+    expectBatchKeys('user', [
+      'deletionCoolingTitle', 'deletionCoolingDesc', 'deletionCountdown',
+      'deletionExecuted', 'cancelDeletion', 'deletionCancelled', 'deletionCancelFailed',
+    ])
+  })
+
+  it('批次E training：plans/detail 调整历史（FE-P3-32，ADJUSTMENT_ACTION_MAP 消费面）', () => {
+    expectBatchKeys('training', ['adjustmentHistory', 'reEvaluate', 'reEvaluateFailed'])
+  })
+
+  it('批次E membership：tiers 失败/空态引导（FE-P3-34）', () => {
+    expectBatchKeys('membership', ['tiersEmpty', 'benefit', 'subscribe'])
+  })
+
+  it('批次G scoring：对手打法四选项（FE-P2-14 OPPONENT_STYLE_OPTIONS labelKey 全集）', () => {
+    expectBatchKeys('scoring', [
+      'opponentPlayingStyle', 'playStyle_unselected', 'playStyle_fast_attack',
+      'playStyle_loop_drive', 'playStyle_chop', 'playStyle_all_round',
+    ])
+  })
+
+  it('批次G analysis：热图双源 / 节奏曲线 / 关键分标记（FE-P1-3/P2-5/P2-6）', () => {
+    expectBatchKeys('analysis', [
+      'myLanding', 'opponentLanding', 'tempoCurve', 'tempoHint', 'keyPoints', 'keyPointSeek',
+    ])
+  })
+
+  it('批次H gamification：积分流水最近动态 + 徽章分类 chip（R2-P2-1/2）', () => {
+    expectBatchKeys('gamification', [
+      'sourceOther', 'recentActivity',
+      'categoryAnalysis', 'categoryMatch', 'categoryStreak', 'categoryGeneral',
+    ])
+  })
+
+  it('批次E/H progress.metric：METRIC_DEFINITIONS 18 键全集（R2-P2-3，progress_service.py:29-46）', () => {
+    expectBatchKeys('progress.metric', [
+      'forehand_ratio', 'backhand_ratio', 'serve_ratio',
+      'landing_forehand_pct', 'landing_backhand_pct', 'landing_middle_pct', 'landing_dispersion',
+      'avg_rally_length', 'max_rally_length', 'rally_frequency',
+      'avg_ball_speed', 'max_ball_speed',
+      'score_win_rate', 'key_point_win_rate',
+      'serve_point_win_rate', 'receive_point_win_rate', 'attack_transition_rate', 'error_rate',
+    ])
+  })
+})

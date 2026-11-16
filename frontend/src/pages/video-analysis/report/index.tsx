@@ -49,7 +49,12 @@ export default function ReportPage() {
   /** 提交反馈 */
   const handleFeedback = async (isCorrect: boolean) => {
     try {
-      await submitFeedback(reportId, isCorrect, feedbackComment || undefined)
+      // R2-P3-3（批次I）：评论仅来自「不准」弹窗输入，「准确」无说明输入路径——
+      // is_correct=true 一律不带 comment：取消弹窗后的残留文字不得随提交
+      // （设计样例 §4.4 清空承诺；准确按钮侧已同步 setFeedbackComment('')，
+      // 此处为行为级兜底——setFeedbackComment 异步更新不阻断当次闭包读值）
+      const comment = isCorrect ? undefined : feedbackComment || undefined
+      await submitFeedback(reportId, isCorrect, comment)
       setFeedbackPopupVisible(false)
       showToast(isCorrect ? t('analysis.feedbackCorrect') : t('analysis.feedbackIncorrect'))
     } catch (err: any) {
@@ -90,8 +95,9 @@ export default function ReportPage() {
   const oppGrid = heatmap?.opponent_nine_grid?.length ? heatmap.opponent_nine_grid : null
   const activeGrid = landingView === 'opponent' ? oppGrid : myGrid
 
-  // 九宫格热图颜色深浅（主色 #E63946 RGB，JS 无法读 CSS 变量）
-  const PRIMARY_RGB = '230, 57, 70'
+  // 九宫格热图颜色深浅（主色 #C92738 RGB，JS 无法读 CSS 变量——与 dashboard
+  // LandingHeatmap 同源派生；R2-P3-1（批次I）：旧 #E63946 残留收敛）
+  const PRIMARY_RGB = '201, 39, 56'
   const maxLanding = activeGrid ? Math.max(...activeGrid.flat()) : 1
   const getHeatColor = (val: number) => {
     const ratio = maxLanding > 0 ? val / maxLanding : 0
@@ -393,7 +399,15 @@ export default function ReportPage() {
           <>
             <Text className="feedback-title">{t('analysis.feedbackPrompt')}</Text>
             <View className="feedback-buttons">
-              <Button type="success" onClick={() => handleFeedback(true)}>
+              {/* R2-P3-3（批次I）：提交前清空 feedbackComment——取消「不准」弹窗后
+                  残留说明文字不得随 is_correct=true 提交（设计样例 §4.4 清空承诺） */}
+              <Button
+                type="success"
+                onClick={() => {
+                  setFeedbackComment('')
+                  handleFeedback(true)
+                }}
+              >
                 👍 {t('analysis.accurate')}
               </Button>
               <Button type="danger" onClick={() => setFeedbackPopupVisible(true)}>

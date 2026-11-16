@@ -206,7 +206,8 @@ ScoreRecordBrief 样例仍 `seq`（实现已改 `sequence`）；MatchDetail 样�
 | P2 | R2-P2-10 | ✅ 已修复 | 04 backend.md 样例族全修：`ScoreRecordBrief.seq`→`sequence`；MatchDetail 样例补 `current_score/games_won_user/opp`（created_at 转 Optional）；get_match_detail 样例改 model_validate 形态 + **形态根源注记**（「手拼 dict 形态已废弃：schema 未声明字段无法经 response_model 流出——这正是 R2-P1-1 局分丢失的形态根源」）；undo WS 广播样例补 `match_id`（多比赛并存按 match 过滤）。**与 R2-P1-1 路由 response_model 加固联动闭环。** |
 | P2 | R2-P2-11 | ✅ 已修复 | 10-membership §4.1 状态 chip 样例改 statusColor 内联形态（statusClass 四类删除），同步承载批次F FE-P3-35 的修复注记（双源漂移修复语义 + grace_period/closed 色值闭合 + FS8-7 对比度口径保持）——报告 L315 承诺「以 R-FE-P3 注记格式回写」兑现。 |
 | **P3** | R2-P3-7 | ✅ 顺带修复 | scoringStore `KeyPointItem` 补 `timestamp: string \| null`（批次G FE-P2-6 墙钟 ISO 注记）+ 类型注释对齐 `_generate_statistics` 五键契约——类型面与 videoAnalysisStore.KeyPoint 双语义注释不对称闭合。 |
-| P3 | R2-P3-1~6/8~27 | ⬜ 未修复（26 项） | 批次H 聚焦 P1+P2 收口，P3 余项未动，处置见 §8.4 后续修复计划。 |
+| P3 | R2-P3-1~6/22/23/24 | ✅ 已修复（批次I 2026-11-16） | 九项全落地：**P3-1** report 页旧主色收敛——`PRIMARY_RGB '230,57,70'→'201,39,56'`（#C92738，与 dashboard LandingHeatmap 同源派生）+ conic 首色 `#E63946→#C92738` + 03 文档 4 处同步（§4 样例 2 处 + §9 验收清单 2 处改 var 现值口径）；**P3-2** DeletionCoolingBanner 配色回归设计口径（warning 10% 琥珀底→primary 8% 底 + 20% 边框 + title/countdown-value 回 primary——批次E 下沉时误 warning 化收口）；**P3-3** feedback「准确」提交前清空 feedbackComment（按钮侧 `setFeedbackComment('')` 镜像设计样例 + handleFeedback 行为级兜底 `is_correct=true` 一律不带 comment——setFeedbackComment 异步更新不阻断当次闭包读值，仅按钮侧清空属假修复）；**P3-4** E2E technique_stats mock 键集对齐 API §4.6（analysis-flow + a11y-mocks 两处 `loop/smash/push/block→forehand_drive/backhand_drive/forehand_loop/serve`，图例不再回退渲染键名）；**P3-5** OverviewCards 批次标记笔误（R-FE-R1 批次C→R-FE-R2 批次B/C）；**P3-6** scoring_service opponent_playing_style 注释修正（「setup 页消费」→「创建后回显、当前无页面渲染消费、前向交付字段」）；**P3-22** a11y-mocks 补 score_analysis 段（E2E-01 同源数据）+ 头注「同源载荷」声明更新为如实差异口径（video-section/marker chips 仍为已知盲区，交互正确性由 E2E-01 覆盖——chips 渲染在 annotated_video_url 门控内，补数据不触 axe video-caption）；**P3-23** annotated_video_url 差异口径双侧留痕对称（analysis-flow 真 URL 侧补注）；**P3-24** i18nKeys.test 新增批次E/F/G/H 九组显式域断言（`expectBatchKeys` zh/en 双侧同断，progress.metric 18 键全集入断言）。批次I 门禁：tsc 0 错 / Jest **294**（+9 域断言）/ E2E 7 spec 2.5m（axe 40 页零违规）/ weapp 1.28MB / 后端 test_scoring 30 passed。 |
+| P3 | R2-P3-8~21/25~27 | ⬜ 未修复（17 项） | 批次J 纯文档注记/回写组，逐项清单见 §8.4 批次J 段（原「16 项」口径以逐项列举为准校正为 17）。 |
 
 ### 8.2 动态门禁实证（核验态实跑）
 
@@ -240,7 +241,7 @@ ScoreRecordBrief 样例仍 `seq`（实现已改 `sequence`）；MatchDetail 样�
 3. constants 注记「history 页」→「PointsCard 最近动态区」（N-P3-2，1 行）。
 4. **H5 dist 重建 + E2E 7 spec 全量回归 + weapp 构建门禁**（src 已改而 dist 陈旧，E2E 必须重建后跑）→ 提交批次H。
 
-**批次I（P3 代码顺手修 + 测试基建，预计 1 天）**：
+**批次I（P3 代码顺手修 + 测试基建，预计 1 天）——✅ 2026-11-16 完成（9/9，修复明细见 §8.1 批次I 行；门禁：tsc 0 错 / Jest 294 / E2E 7 spec 2.5m axe 零违规 / weapp 1.28MB / 后端 test_scoring 30 passed）**：
 - R2-P3-1 report 页旧主色残留（`PRIMARY_RGB='230,57,70'` 九宫格深浅 + conic 首色 → `var(--color-primary)` 派生，同页图例已用 var——双源色值收敛；文档 03:836-837 同步）；
 - R2-P3-2 DeletionCoolingBanner 配色回归（color-mix warning 琥珀底 → 设计口径 primary 8% 底 + 20% 边框，02-user:1365-1413）；
 - R2-P3-3 feedback「准确」按钮提交前清空 feedbackComment（report/index.tsx:396-398）；

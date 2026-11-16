@@ -53,7 +53,8 @@ export default function OverviewCards({ data, loading }: Props) {
       </View>
 
       {/* 连续打卡天数 */}
-      {/* R-FE-R1 批次C（FE-P2-4）：card-sub 补训练频次——需求 v2.0 §三 L227-229
+      {/* R-FE-R2 批次B/C（FE-P2-4，R2-P3-5 批次I：原注记「R-FE-R1 批次C」笔误——
+          fb89a96 落地）：card-sub 补训练频次——需求 v2.0 §三 L227-229
           第三卡承诺「训练频次：每周N次」，frontend.md §4.3 改为连续打卡未注记；
           streak 主数值保留（设计承诺），频次行恢复需求承诺（字段复用 dashboard OverviewData） */}
       <View className="overview-card card-streak">

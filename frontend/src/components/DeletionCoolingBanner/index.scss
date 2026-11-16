@@ -1,9 +1,13 @@
 /* 注销冷静期横幅（公共组件，R-FE-R2 批次E FE-P3-33）
- * 视觉口径取 profile 页既有 banner（warning 底 + countdown 行） */
+ * 视觉口径取 profile 页既有 banner（countdown 行）；
+ * R2-P3-2（批次I）配色回归设计口径：批次E 下沉时误 warning 化——
+ * 02-user §5 设计承诺红色系（primary 8% 底 + 20% 边框，fb89a96 下沉前
+ * profile 横幅 rgba(230,57,70,0.08/0.2) 红底与设计一致），现回 primary 系 */
 .deletion-cooling-banner {
   margin: var(--spacing-sm) var(--spacing-md);
   padding: var(--spacing-md);
-  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
   border-radius: var(--radius-md);
 
   .banner-row {
@@ -18,7 +22,7 @@
     .banner-title {
       font-size: var(--fs-body);
       font-weight: 600;
-      color: var(--color-text-primary);
+      color: var(--color-primary);
     }
   }
 
@@ -44,7 +48,7 @@
       font-size: var(--fs-body);
       font-weight: 700;
       font-variant-numeric: tabular-nums;
-      color: var(--color-warning);
+      color: var(--color-primary);
     }
   }
 }

@@ -132,7 +132,9 @@ class ScoringService:
                 "match_id": match.id,
                 "status": "setup",
                 "current_server": "user",
-                # R-FE-R2 批次G（FE-P2-14）：打法回显（setup 页创建后立即消费）
+                # R-FE-R2 批次G（FE-P2-14）：打法回显（R2-P3-6 批次I 注释修正：
+                # 创建后返回回显、当前全工程无页面渲染消费——setup 页创建成功后
+                # 仅取 match_id 即跳转记分牌；字段为前向交付，存储/返回链完整）
                 "opponent_playing_style": match.opponent_playing_style,
             }
 
