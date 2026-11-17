@@ -301,8 +301,13 @@ export const a11yMocks: MockRoute[] = [
       report_b: { id: Number(query.get('report_b') ?? 7), created_at: iso() },
       comparisons: {
         technique_stats: {
-          loop: { a: 25, b: 30, change: 0.2 },
-          smash: { a: 10, b: 12, change: 0.2 },
+          // Round 4 复审（R2-P3-4 谱系）：键集对齐后端 comparison 契约
+          // progress_service.py:516（forehand_ratio/backhand_ratio/serve_ratio）——
+          // 原 loop/smash 为臆造键，前端 t(`progress.metric.${key}`) 查无此键
+          // 回退渲染裸键名（i18nKeys.test:189 保障的真实键集此前 mock 未提供）
+          forehand_ratio: { a: 25, b: 30, change: 0.2 },
+          backhand_ratio: { a: 10, b: 12, change: 0.2 },
+          serve_ratio: { a: 8, b: 9, change: 0.12 },
         },
         landing: {
           forehand_pct: { a: 52, b: 60, change: 0.15 },

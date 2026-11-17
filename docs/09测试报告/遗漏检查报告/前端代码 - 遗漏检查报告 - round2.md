@@ -272,3 +272,15 @@ ScoreRecordBrief 样例仍 `seq`（实现已改 `sequence`）；MatchDetail 样�
 
 **收敛判定**：Round 3 复审零 P0/P1/P2 新发现 → **连续第一轮零 P2+**。按项目「连续两轮零 P2+」惯例（同后端 R31+R32 先例），待 Round 4 轻量复审零 P2+ 即正式达成收敛、转入常规 CI 门禁态。
 
+### 8.6 Round 4 轻量复审结果（2026-11-17，连续第二轮零 P2+——**收敛正式达成**）
+
+**Round 3 修复回归核验**：5 处 scss 注释替换 grep 复核在位；前端 `#E63946` 仅剩 6 处历史注记类（report L99/177 修复注记、DeletionCoolingBanner L5 历史形态、LandingHeatmap L45 修复前记载、app.scss L13/17 FS8-7 调色历史）——零活代码残留 ✅。
+
+**本轮新发现（P3 ×1，已顺手修复）**：a11y-mocks comparison 段（`GET /progress/comparison`）technique_stats 提供臆造键 `loop/smash`，与后端契约（progress_service.py:516 `_dim(["forehand_ratio", "backhand_ratio", "serve_ratio"])`）不对齐——comparison 页 `t(\`progress.metric.${key}\`)` 查无此键回退渲染裸键名；i18nKeys.test:189 断言保障的真实键集（forehand_ratio/backhand_ratio/serve_ratio）mock 此前反而未提供。属 R2-P3-4 同谱系（臆造 mock 键）：批次I 修复时注记「a11y-mocks L288 comparison 段为另一端点契约未动」判定正确（确属另一端点）但未核验该段键集与后端契约的对齐性，Round 4 深挖暴露。修复：mock 键改对齐后端三键（值结构 {a, b, change} 保持，serve_ratio 补第三键），comparison 段其余维度（landing forehand_pct/backhand_pct/middle_pct、rally 四键）与后端契约逐一核对均一致。同键名双语义甄别：此 comparison technique_stats 为趋势对象（a/b/change），与报告端点计数型 technique_stats（forehand_drive 计数）是两个不同端点契约，互不交叉。
+
+**环境发现（非代码缺陷）**：dist 目录为 weapp 产物（批次J 收尾 weapp 构建门禁覆盖 H5 dist——两构建共写同一 dist 目录的已知陷阱，当时 E2E 门禁在 H5 dist 在位时跑全绿有效，之后 dist 状态未保持）——首次重跑 a11y spec 出现 842 条 html-has-lang 环境级违规，根因为 Playwright 加载的是 weapp 产物非 H5 页面。重建 H5 dist（`npm run build:h5`，webpack 5.91.0 compiled in 12146 ms；首次构建因瞬时内存压力失败，重试成功）后 a11y spec 通过。**教训沉淀：任何 E2E 前必须确认 dist 产物归属（Test-Path dist/index.html），weapp 构建门禁与 E2E 门禁的执行顺序应固定为「E2E → weapp 构建」或构建后校验 dist 归属。**
+
+**Round 4 门禁**：tsc --noEmit 零错误（覆盖 a11y-mocks ts 改动）；a11y.spec 单跑 **1 passed（1.9m）**——40 页 + onboarding 双态 critical/serious 零违规，comparison 页新键集真实渲染（三行翻译文案替代裸键名）通过 axe 扫描。
+
+**收敛判定**：Round 4 零 P0/P1/P2（P3×1 已修）→ **连续两轮零 P2+ 正式达成**（Round 3 + Round 4），round2 前端遗漏检查修复计划全链闭环（批次H/I/J + 复审两轮），按 §七/§8.4 收敛路径**转入常规 CI 门禁态**。范围外遗留 2 项维持原判（后端 dashboard_service.py technique_distribution 旧主色 #E63946 下发——跨栈数据契约漂移归后续批次；DB 设计 §4.2 enums.ts 系谱漂移归 DB 审计批次）。
+
