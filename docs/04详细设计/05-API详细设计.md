@@ -27,6 +27,8 @@
 - 错误：`code` 为 HTTP 状态码，`message` 为中文错误描述
 - 通过 `app/core/response.py` 的 `success()` / `error()` 函数包装
 
+> **R3-P3-14 契约形态全局说明（权威源）**：所有路由一律 `@router.get/post/...("/", response_model=XXXResponse)` + 路由内显式 `model_validate(ORM 对象/字典).model_dump()` 构造 data——**禁止手拼裸 dict 作为响应体**。契约价值：schema 未声明字段无法经 `response_model` 流出（本设计 §3-§13 各端点 Response Body 字段表即 schema 契约），字段漂移在 schema 层拦截而非靠人工对表。该形态源于 R2-P1-1 根治（原手拼 dict 曾致 MatchDetail 局分字段静默丢失，形态样例见 `04-scoring/backend.md` R2-P1-1 注记）——本节为全局权威源，各切片 backend.md 中「与 scoring 同口径」类引用均指向本条。
+
 ### 1.2 分页格式
 
 ```json
@@ -166,25 +168,30 @@
 
 #### Response Body
 
+> **R3-P3-13 样例重建**：本样例 data.access_token / data.refresh_token 两行原为初始撰写时显示层脱敏标记的字面写入（全 git 历史无干净基线，40 候选哈希爆破未中原值）——按 §2.4 同构模板镜像恢复为 JWT 形态示例值，仅示意非真实令牌。
+
 ```json
 {
   "code": 200,
   "message": "登录成功",
   "data": {
-    "access_token": "[REDACTED:sha256:4ce9353e2d8d]",
-    "refresh_token": "[REDACTED]",
+    "access_token": "eyJhbGciOiJIUzI1NiJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiJ9...",
     "expires_in": 7200,
     "requires_consent": false,
     "user": {
       "id": 123,
       "nickname": "Eric",
       "avatar_url": "https://...",
-      "has_profile": false
+      "has_profile": false,
+      "created_at": "2026-11-17T09:00:00Z"
     }
   },
   "timestamp": "2026-10-10T12:00:00.000000Z"
 }
 ```
+
+> **R3-P1-1 回写**：`user` 块补 `created_at`（ISO 8601，注册时间）——前端 onboarding 门控消费（注册 <24h 判定，home/onboarding 两页）。修复前该键仅存在于 E2E mock 单侧臆造，后端从未下发，生产 onboarding 检测从首页永不触发。
 
 > **P2 回写**：新增 `requires_consent` 字段（boolean），表示用户是否需要签署隐私政策同意书。`true` 表示当前用户尚未签署最新版隐私政策（consent_log 表无对应 policy_version 记录），前端应跳转同意页面；`false` 表示已签署或无需签署。
 
@@ -379,11 +386,14 @@
     "avatar_url": "https://...",
     "has_profile": true,
     "membership_tier": "member",
-    "membership_expire_at": "2026-11-10T12:00:00Z"
+    "membership_expire_at": "2026-11-10T12:00:00Z",
+    "created_at": "2026-11-17T09:00:00Z"
   },
   "timestamp": "..."
 }
 ```
+
+> **R3-P1-1 回写**：me 响应补 `created_at`（同登录 user 块——onboarding 门控数据源，schema CurrentUserResponse 已同步加键）。
 
 #### 错误情况
 
@@ -939,6 +949,34 @@
 | HTTP | 条件 | 消息 |
 |------|------|------|
 | 409 | 用户未处于注销待执行状态 | 无待执行的注销申请 |
+
+### 3.10.1 GET /users/account/deletion-status
+
+> **R3-P2-6 回写**：新增查询注销状态端点。前端 settings/user-profile 页挂载预查询依赖（14-tab-pages/settings.md:15/93 设计承诺）；R19-fix 曾因本端点缺位移除前端调用，冷静期内重启后倒计时横幅与撤销入口丢失（PIPL 注销撤销权可达性缺口）——本端点补齐后前端已恢复预查询。
+
+**描述**：查询当前用户注销状态（含冷静期剩余信息）
+**权限**：登录（`pending_deletion` 态可访问）
+
+#### Response Body
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "status": "pending_deletion",
+    "requested_at": "2026-11-17T09:00:00Z",
+    "expires_at": "2026-11-20T09:00:00Z"
+  },
+  "timestamp": "..."
+}
+```
+
+> `status` 为 `active`/`pending_deletion`；非冷静期时 `requested_at`/`expires_at` 为 `null`。`requested_at` 取 `user.updated_at`（onupdate 自动刷新的提交时刻近似），`expires_at` 即 `scheduled_deletion_at`（72h 冷静期截止 = 注销执行时刻）。
+
+#### 业务规则
+1. `pending_deletion` 态返回 `requested_at` + `expires_at`，供前端倒计时横幅与撤销入口渲染
+2. `active` 态返回空时间字段（前端 `deletionState` 置空，不显横幅）
 
 ### 3.11 GET /users/quota
 
@@ -1951,10 +1989,10 @@
   "message": "success",
   "data": {
     "technique_distribution": [
-      {"name": "正手攻球", "value": 45, "color": "#E63946"},
+      {"name": "正手攻球", "value": 45, "color": "#C92738"},
       {"name": "反手拨球", "value": 18, "color": "#1D3557"},
-      {"name": "正手拉球", "value": 12, "color": "#F4A261"},
-      {"name": "发球", "value": 23, "color": "#2A9D8F"}
+      {"name": "正手拉球", "value": 12, "color": "#9C5618"},
+      {"name": "发球", "value": 23, "color": "#1F7A6D"}
     ]
   },
   "timestamp": "..."

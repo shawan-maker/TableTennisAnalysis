@@ -60,8 +60,12 @@ export interface TargetScoreOption {
 }
 
 export const TARGET_SCORE_OPTIONS: TargetScoreOption[] = [
-  { value: 11, labelKey: '[REDACTED:sha256:e8d3ff06e978]' },
-  { value: 21, labelKey: '[REDACTED:sha256:1abb7c04fb17]' },
+  // R3-P3-13：脱敏标记字面写入污染修复（fb89a96 批次B/C 引入，生产 setup 页
+  // Picker 渲染过字面垃圾文本）——原值经 display-mask 哈希逆向精确恢复
+  //（sha256[:12]：'scoring.targetScore11'→e8d3ff06e978、
+  // 'scoring.targetScore21'→1abb7c04fb17），双语键 zh-CN:307-308 / en-US:302-303 在位。
+  { value: 11, labelKey: 'scoring.targetScore11' },
+  { value: 21, labelKey: 'scoring.targetScore21' },
 ]
 
 /**

@@ -40,12 +40,17 @@ const analysisMocks: MockRoute[] = [
       expire_at: iso(),
     },
   },
-  { method: 'POST', pattern: '/video-analysis/upload-complete', data: { file_id: 42, status: 'uploaded' } },
-  // 创建分析任务（CreateTaskResult 镜像）
+  // R3-P2-2：镜像后端 UploadCompleteResponse 4 真键（video_analysis_service.py
+  // + schemas/video_analysis.py:66-71——file_id/ready/actual_size/duration_sec；
+  // 原 {file_id, status:'uploaded'} 为臆造形状。confirmUpload 当前零消费
+  // 响应体无行为影响，保真防未来消费 ready 时的回归）
+  { method: 'POST', pattern: '/video-analysis/upload-complete', data: { file_id: 42, ready: true, actual_size: 1048576, duration_sec: 125 } },
+  // 创建分析任务（CreateTaskResult 镜像；R3-P3-8：创建时刻 status 为 queued
+  // ——video_analysis_service.py:198，processing 由轮询首查返回）
   {
     method: 'POST',
     pattern: '/video-analysis/tasks',
-    data: { task_id: 3, task_uuid: 'e2e-task-3', status: 'processing', estimated_wait_minutes: 2 },
+    data: { task_id: 3, task_uuid: 'e2e-task-3', status: 'queued', estimated_wait_minutes: 2 },
   },
   // 任务详情：REST 轮询对账——首查 processing（进度条/步骤 UI），次查 completed
   //（自动 redirectTo 报告页，processing/index.tsx useEffect）

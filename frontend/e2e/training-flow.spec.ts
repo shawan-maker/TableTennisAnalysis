@@ -39,9 +39,11 @@ test('E2E-04 训练闭环：建议→模板守卫升级引导→方案→训练�
     page.getByText('正手拉冲多球训练：每组 30 球，共 3 组，固定高点期击球')
   ).toBeVisible()
   await expect(page.locator('.method-name').filter({ hasText: '多球训练' })).toBeVisible()
-  // 推荐模板（training_plan_template=quick_improvement；section 标题收紧防 desc 子串误中）
+  // 推荐模板（training_plan_template=TPL_BACKHAND_IMPROVE——R3-P3-3 同谱系收口：
+  // base-mocks 已改后端唯一种子真值（init_knowledge_base.py:98），本断言随动；
+  // section 标题收紧防 desc 子串误中）
   await expect(page.locator('.template-recommend-section .section-title')).toHaveText('📋 训练方案模板')
-  await expect(page.locator('.recommend-code')).toHaveText('quick_improvement')
+  await expect(page.locator('.recommend-code')).toHaveText('TPL_BACKHAND_IMPROVE')
 
   // ── 模板列表：免费用户 → 40300 会员守卫 Empty 升级引导分支 ──
   await gotoPage(page, '/pages/training/templates/index')

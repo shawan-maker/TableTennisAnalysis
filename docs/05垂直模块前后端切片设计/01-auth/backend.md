@@ -229,9 +229,12 @@ class UserBrief(BaseModel):
     nickname: str
     avatar_url: Optional[str] = None
     has_profile: bool = False
+    created_at: Optional[str] = None  # R3-P1-1：onboarding 门控（注册 <24h 判定）
     model_config = {"from_attributes": True}
 
 class LoginResponse(BaseModel):
+    # R3-P3-13：token 两字段注解原为脱敏标记字面写入（初始提交即污染，无干净基线），
+    # 按 app/schemas/auth.py 实现逐字镜像恢复为 str
     access_token: str
     refresh_token: str
     expires_in: int = 7200  # 120 分钟
@@ -254,6 +257,7 @@ class CurrentUserResponse(BaseModel):
     has_profile: bool = False
     membership_tier: Optional[str] = None
     membership_expire_at: Optional[str] = None
+    created_at: Optional[str] = None  # R3-P1-1：同 UserBrief，me 响应 onboarding 数据源
 ```
 
 ---
@@ -363,6 +367,7 @@ class AuthService:
                     nickname=user.nickname,
                     avatar_url=user.avatar_url,
                     has_profile=user.kqs_rating is not None,
+                    created_at=user.created_at.isoformat(),  # R3-P1-1：onboarding 门控
                 ),
                 requires_consent=requires_consent,
             )
@@ -407,6 +412,7 @@ class AuthService:
                     nickname=user.nickname,
                     avatar_url=user.avatar_url,
                     has_profile=user.kqs_rating is not None,
+                    created_at=user.created_at.isoformat(),  # R3-P1-1：onboarding 门控
                 ),
                 requires_consent=requires_consent,  # R22-P1-1: phone_login 补 requires_consent（与 wechat_login L339 对称）
             )
@@ -789,6 +795,7 @@ async def get_me(
         # P3 文档同步（R12）：实现为 None 保护（无订阅时返回 null，防止 AttributeError）
         "membership_tier": membership.tier if membership else None,
         "membership_expire_at": membership.expire_at if membership else None,
+        "created_at": user.created_at.isoformat(),  # R3-P1-1：onboarding 门控（schema 同步加键）
     })
 
 @router.post("/h5-token", summary="生成 H5 降级临时 Token")

@@ -2,9 +2,9 @@
  * 设置页（14-tab-pages/settings.md §2）
  * 通知开关 + 隐私（导出/注销）+ 账号信息 + 关于
  *
- * 注：设计样例含 fetchDeletionStatus() 调用，但该方法已被 R19-fix 从
- * userStore 移除（GET /users/account/deletion-status 未在后端 API 契约中
- * 定义）；deletionState 仅由用户主动提交注销后由 store 写入，本页不预查询。
+ * R3-P2-6: 后端已补 GET /users/account/deletion-status，恢复挂载预查询
+ * fetchDeletionStatus()（R19-fix 曾因端点缺位移除）——冷静期内重启后
+ * 倒计时横幅与撤销入口仍可达（PIPL 注销撤销权，settings.md:15/93）。
  */
 import { useEffect, useState } from 'react'
 import Taro from '@tarojs/taro'
@@ -26,6 +26,7 @@ export default function SettingsPage() {
     exportTask, exportLoading, requestExport, pollExportStatus,
     // 用户注销
     deletionState, deletionLoading, requestDeletion, cancelDeletion,
+    fetchDeletionStatus,
   } = useUserStore()
 
   const [toastVisible, setToastVisible] = useState(false)
@@ -54,7 +55,9 @@ export default function SettingsPage() {
       states[item.storageKey] = stored === '' ? item.defaultOn : stored === 'true'
     })
     setNotifStates(states)
-    // R19-fix: 不预查询注销状态（deletionState 仅由 requestDeletion 写入）
+    // R3-P2-6: 恢复挂载预查询注销状态（后端端点已补）——冷静期内重启后
+    // 横幅+撤销入口可达性；store 内 best-effort 静默失败
+    fetchDeletionStatus()
   }, [])
 
   /** 切换通知开关 */

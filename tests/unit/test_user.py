@@ -185,6 +185,53 @@ async def test_cancel_deletion_without_pending(client, auth_headers):
     assert resp.status_code == 409
 
 
+@pytest.mark.asyncio
+async def test_deletion_status_active(client, auth_headers):
+    """R3-P2-6 契约断言：active 态注销状态查询（时间字段为 null）"""
+    resp = await client.get(
+        "/api/v1/users/account/deletion-status",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "active"
+    assert data["requested_at"] is None
+    assert data["expires_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_deletion_status_pending(client, auth_headers):
+    """R3-P2-6 契约断言：冷静期态——settings/user-profile 挂载预查询依赖
+    （重启后横幅+撤销入口可达，PIPL 注销撤销权）。pending_deletion 态
+    token 仍可访问（get_current_user_allow_pending，与 cancel-deletion 一致）"""
+    # 提交注销
+    resp1 = await client.request(
+        "DELETE",
+        "/api/v1/users/account",
+        headers=auth_headers,
+        json={"reason": "不再使用", "confirmation": "DELETE_ACCOUNT_CONFIRM"},
+    )
+    assert resp1.status_code == 200
+
+    # 预查询：冷静期信息齐全
+    resp = await client.get(
+        "/api/v1/users/account/deletion-status",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "pending_deletion"
+    assert data["requested_at"] is not None
+    assert data["expires_at"] is not None
+    # expires_at ≈ requested_at + 72h（DELETION_COOLDOWN_HOURS）
+    from datetime import datetime
+
+    req = datetime.fromisoformat(data["requested_at"].replace("Z", "+00:00"))
+    exp = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+    cooldown_hours = (exp - req).total_seconds() / 3600
+    assert 71.9 <= cooldown_hours <= 72.1
+
+
 # =================================================================
 # 数据导出（新增端点）
 # =================================================================

@@ -422,6 +422,29 @@ class UserService:
             "cancelled_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    @staticmethod
+    async def get_deletion_status(user: User) -> dict:
+        """查询注销状态（R3-P2-6 跨栈批新增）
+
+        设计承诺（14-tab-pages/settings.md:15/93）：settings 页挂载时预查询，
+        冷静期内（重启后）仍显示倒计时横幅与撤销入口——PIPL 注销撤销权可达性。
+        修复前该端点缺位，前端 R19-fix 移除 fetchDeletionStatus 后 deletionState
+        仅存内存态，重启即丢横幅。
+
+        契约键（round3 报告裁定）：status / requested_at / expires_at。
+        requested_at 取 updated_at（onupdate 自动刷新，注销提交时刻近似）。
+        """
+        is_pending = user.status == "pending_deletion"
+        return {
+            "status": user.status,
+            "requested_at": user.updated_at.isoformat() if is_pending else None,
+            "expires_at": (
+                user.scheduled_deletion_at.isoformat()
+                if is_pending and user.scheduled_deletion_at
+                else None
+            ),
+        }
+
     # =================================================================
     # 数据导出（PIPL 数据可携带权）
     # =================================================================

@@ -77,6 +77,14 @@ export function cancelDeletion() {
 }
 
 /**
+ * 查询注销状态（R3-P2-6 跨栈批：后端已补端点，settings 挂载预查询——
+ * 冷静期内重启后倒计时横幅与撤销入口可达性，PIPL 注销撤销权）。
+ */
+export function getDeletionStatus() {
+  return request.get('/users/account/deletion-status')
+}
+
+/**
  * 发起个人数据导出（PIPL 数据可携带权）。
  */
 export function exportData() {

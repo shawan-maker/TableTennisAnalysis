@@ -29,11 +29,15 @@ CACHE_TTL_TECHNIQUE = 3600
 CACHE_TTL_HEATMAP = 3600
 
 # 技术统计色彩映射
+# R3-P2-5（跨栈批）：色值对齐 FS8-7 深化现值（frontend/src/styles/app.scss 唯一权威源，
+# --color-primary/--color-accent/--color-success）。修复前三色为调色前旧值，前端
+# TechniqueStats 直接渲染后端下发 hex（conic-gradient + 图例圆点）造成运行时
+# 跨栈色值漂移；契约文档（API §6.3 / 06 切片 backend/frontend）同步回写。
 TECHNIQUE_COLORS = {
-    "forehand_drive": ("正手攻球", "#E63946"),
-    "backhand_drive": ("反手拨球", "#1D3557"),
-    "forehand_loop": ("正手拉球", "#F4A261"),
-    "serve": ("发球", "#2A9D8F"),
+    "forehand_drive": ("正手攻球", "#C92738"),   # --color-primary
+    "backhand_drive": ("反手拨球", "#1D3557"),   # secondary 未深化，保持
+    "forehand_loop": ("正手拉球", "#9C5618"),   # --color-accent（环形图浅背景下取深琥珀）
+    "serve": ("发球", "#1F7A6D"),              # --color-success
 }
 
 

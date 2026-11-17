@@ -747,8 +747,9 @@ export default function LandingHeatmap({ data, loading }: Props) {
   const maxVal = Math.max(...flatValues)
 
   // 根据值计算颜色深浅（红→浅红→白）
-  // --color-primary #E63946，JS 中无法直接使用 CSS 变量，统一引用主色 RGB 值
-  const PRIMARY_RGB = '230, 57, 70'
+  // --color-primary #C92738（R3-P2-5：FS8-7 深化现值；原文档 #E63946 为调色前旧值），
+  // JS 中无法直接使用 CSS 变量，统一引用主色 RGB 值
+  const PRIMARY_RGB = '201, 39, 56'
   const getCellColor = (val: number) => {
     if (maxVal === 0) return `rgba(${PRIMARY_RGB}, 0)`
     const intensity = val / maxVal
@@ -1443,8 +1444,8 @@ cd frontend && npm run build:h5
 - [ ] 概览卡片布局为 2×2 网格，每个卡片有独立主色
 - [ ] 胜率卡片显示趋势箭头（↑ 绿色 / ↓ 红色 / → 灰色）
 - [ ] 训练提醒横幅显示在卡片区域底部，橙色左边框
-- [ ] 战绩趋势折线图使用主色 `#E63946`，支持时间范围切换
-- [ ] 技术统计环形图色彩与 API 返回的 color 字段一致
+- [ ] 战绩趋势折线图使用主色 `#C92738`（R3-P2-5：FS8-7 深化现值），支持时间范围切换
+- [ ] 技术统计环形图色彩与 API 返回的 color 字段一致（后端 TECHNIQUE_COLORS 已同步 FS8-7 现值，R3-P2-5）
 - [ ] 落点热图九宫格颜色深浅正确反映数值大小
 - [ ] 比赛记录列表胜场左边框绿色、负场红色
 - [ ] 空状态正确显示引导文字

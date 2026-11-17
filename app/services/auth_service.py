@@ -134,6 +134,7 @@ class AuthService:
                     nickname=user.nickname,
                     avatar_url=user.avatar_url,
                     has_profile=user.kqs_rating is not None,
+                    created_at=user.created_at.isoformat(),  # R3-P1-1：onboarding 门控
                 ),
                 requires_consent=requires_consent,
             )
@@ -283,6 +284,7 @@ class AuthService:
                     nickname=user.nickname,
                     avatar_url=user.avatar_url,
                     has_profile=user.kqs_rating is not None,
+                    created_at=user.created_at.isoformat(),  # R3-P1-1：onboarding 门控
                 ),
                 requires_consent=requires_consent,
             )

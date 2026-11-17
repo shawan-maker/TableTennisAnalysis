@@ -606,17 +606,20 @@ import { useVideoAnalysisStore } from '@/stores/videoAnalysisStore'
 import { useTranslation } from 'react-i18next'
 import './progress.scss'
 
+// R3-P3-13：本数组样例原含 key 字段且其值为脱敏标记字面写入（初始提交即污染，
+// 全 git 历史无干净基线、哈希爆破未中）——按实现 processing/index.tsx:19-30 逐字
+// 镜像重写：实现无 key 属性（React .map 用 idx 作 key），label/icon 十项一致。
 const PIPELINE_STEPS = [
-  { key: '[REDACTED:sha256:5bc8f2cdf343]', label: 'analysis.step.videoUpload', icon: '✅' },
-  { key: '[REDACTED:sha256:45018a2c9d26]', label: 'analysis.step.transcode', icon: '🎬' },
-  { key: '[REDACTED:sha256:66cd6aabc946]', label: 'analysis.step.ballDetect', icon: '🎯' },
-  { key: '[REDACTED:sha256:3f9533572692]', label: 'analysis.step.speedEstimate', icon: '⚡' },
-  { key: '[REDACTED]', label: 'analysis.step.ballTrack', icon: '📈' },
-  { key: '[REDACTED:sha256:af2a0008e72b]', label: 'analysis.step.actionRecognize', icon: '🏓' },
-  { key: '[REDACTED:sha256:330930dfe848]', label: 'analysis.step.landingAnalyze', icon: '📍' },
-  { key: '[REDACTED:sha256:93b0c4b66dcc]', label: 'analysis.step.rallySplit', icon: '📊' },
-  { key: '[REDACTED:sha256:12feb22cb69a]', label: 'analysis.step.statistics', icon: '🔢' },
-  { key: '[REDACTED:sha256:28db12d4bfe5]', label: 'analysis.step.report', icon: '📝' },
+  { label: 'analysis.step.videoUpload', icon: '✅' },
+  { label: 'analysis.step.transcode', icon: '🎬' },
+  { label: 'analysis.step.ballDetect', icon: '🎯' },
+  { label: 'analysis.step.speedEstimate', icon: '⚡' },
+  { label: 'analysis.step.ballTrack', icon: '📈' },
+  { label: 'analysis.step.actionRecognize', icon: '🏓' },
+  { label: 'analysis.step.landingAnalyze', icon: '📍' },
+  { label: 'analysis.step.rallySplit', icon: '📊' },
+  { label: 'analysis.step.statistics', icon: '🔢' },
+  { label: 'analysis.step.report', icon: '📝' },
 ]
 
 export default function ProgressPage() {
@@ -692,11 +695,20 @@ export default function ProgressPage() {
       </View>
 
       {/* 进度条 */}
-      <View className="progress-bar-section">
+      <View className="progress-bar-section" aria-live="polite">
+        {/* R3-P3-12：percent（非 percentage，NutUI 2.x 真实 API）+ strokeWidth 字符串
+            * + progressbar aria 全套——与实现 processing/index.tsx:83-92 逐字对齐
+            *（原 percentage/strokeWidth={12}/无 aria 为 R2-P3-14 审计引用面遗漏的
+            * 同谱系漏网，上传页样例已按 2.x 回写而本处未随动） */}
         <Progress
-          percentage={progressPct}
+          percent={progressPct}
           color="var(--color-primary)"
-          strokeWidth={12}
+          strokeWidth="12px"
+          role="progressbar"
+          aria-label={`${progressPct}%`}
+          aria-valuenow={progressPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
         />
         <Text className="progress-text">{progressPct}%</Text>
       </View>

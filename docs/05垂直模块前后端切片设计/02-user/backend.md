@@ -741,6 +741,26 @@ class UserService:
         return {"status": "active", "cancelled_at": datetime.now(timezone.utc).isoformat()}
 
     @staticmethod
+    async def get_deletion_status(user: User) -> dict:
+        """查询注销状态（R3-P2-6 跨栈批新增）。
+
+        设计承诺（14-tab-pages/settings.md:15/93）：settings/user-profile 挂载
+        预查询——冷静期内（重启后）倒计时横幅与撤销入口仍可达（PIPL 注销
+        撤销权）。契约键 status/requested_at/expires_at；requested_at 取
+        updated_at（onupdate 自动刷新，注销提交时刻近似）。
+        """
+        is_pending = user.status == "pending_deletion"
+        return {
+            "status": user.status,
+            "requested_at": user.updated_at.isoformat() if is_pending else None,
+            "expires_at": (
+                user.scheduled_deletion_at.isoformat()
+                if is_pending and user.scheduled_deletion_at
+                else None
+            ),
+        }
+
+    @staticmethod
     async def export_data(user: User, db: AsyncSession) -> ExportCreateResponse:
         """发起个人数据导出（PIPL 数据可携带权）。"""
         # P3 文档同步（R12 复验批次 1）：实现与样例的 3 处差异，以实现为准（user_service.py export_data）—
@@ -921,6 +941,18 @@ async def cancel_deletion(
 ):
     data = await UserService.cancel_deletion(user, db)
     return success(data=data, message="注销已撤销，账号恢复正常")
+
+
+# R3-P2-6 跨栈批新增：settings/user-profile 挂载预查询（PIPL 注销撤销权——
+# 冷静期内重启后横幅+撤销入口可达；前端 fetchDeletionStatus 恢复，见 frontend.md）
+@router.get("/account/deletion-status", summary="查询注销状态")
+@limiter.limit(RateLimits.DEFAULT)
+async def get_deletion_status(
+    request: Request,
+    user: User = Depends(get_current_user_allow_pending),
+):
+    data = await UserService.get_deletion_status(user)
+    return success(data=data)
 
 
 @router.post("/export-data", summary="发起个人数据导出（PIPL）")

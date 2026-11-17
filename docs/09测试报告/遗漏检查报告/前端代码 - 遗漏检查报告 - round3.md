@@ -9,6 +9,7 @@
 
 ## 一、汇总统计
 
+
 | 维度 | P0 | P1 | P2 | P3 | 小计 |
 |------|----|----|----|----|------|
 | 回归核验（REG×2，42 项基线） | 0 | 0 | 0 | 1 | 1 |
@@ -151,6 +152,31 @@ mock 四处（`a11y-mocks.ts:273/290/292/331`）+ `a11y.spec.ts:62` `?metric=loo
 - **新维度暴露**：E2E mock 契约可信度首次全量清点即暴露 16 项不对齐（含 1 项 P1 生产死路径）——**这不是修复回归，而是测试基建的存量欠账首次被系统性看见**；此前「连续两轮零 P2+」的收敛判定在设计→实现维度成立，在 mock 契约维度不适用（该维度此前未全量扫描）；
 - **谱系方法论沉淀**：①「E2E 全绿」的可信度以「mock 数据与后端契约逐字对齐」为前提，mock 臆造键应作为常规审查维度固化（建议进 XSTK 常设检查项）；②前端消费后端字段前必须先核后端契约是否真有该字段（R3-P1-1 的教训：类型声明仅前端单侧即易误信）；
 - **下一步**：按 §七 顺序执行修复批次；跨栈批完成后重跑受影响域 pytest + E2E；全部完成后执行 Round 4 轻量复审（聚焦 mock 契约回归 + P2 闭环），若连续两轮零 P2+ 则再次确认常规 CI 门禁态。
+
+---
+
+## 九、修复记录（2026-11-17 执行，按 §七 顺序三批 + 全仓污染清零）
+
+**跨栈批（3 项，动后端 + 联调门禁）**：
+- **R3-P1-1 ✅**：`app/schemas/auth.py` UserBrief + CurrentUserResponse 补 `created_at: Optional[str]`；`app/services/auth_service.py` 两处 UserBrief 构造 + `auth/router.py` get_me dict 补 `created_at=user.created_at.isoformat()`；test_auth 新增 2 条契约断言（me + phone-login user block），20 passed；API §3.2 user/me 样例 + 01-auth/backend.md（schema + 2 service + me dict）同步。
+- **R3-P2-5 ✅**：`dashboard_service.py` TECHNIQUE_COLORS → `#C92738/#1D3557/#9C5618/#1F7A6D`（FS8-7 现值）；API §6.3 + 06-data_dashboard backend.md（断言 + dict）+ frontend.md（PRIMARY_RGB + 检查清单）三处同步；test_dashboard 20 passed。
+- **R3-P2-6 ✅（全链）**：后端 `user_service.get_deletion_status`（status/requested_at/expires_at 按报告裁定键——requested_at 取 updated_at onupdate 近似、expires_at 取 scheduled_deletion_at 72h）+ `GET /users/account/deletion-status`（get_current_user_allow_pending）；前端 services/user.ts + userStore.fetchDeletionStatus（best-effort 静默失败）+ settings + user/profile 预查询恢复；base-mocks 补路由；API §3.10.1 新契约节 + 02-user backend/frontend 文档同步；test_user 新增 2 测试（active 空 + pending 72h 冷静期差值），21 passed。**注意**：实现首版曾自拟 scheduled_deletion_at 双名键，重读报告 §3.10 裁定后修正——修复执行必须回查报告裁定字段。
+
+**mock 契约对齐批（16 项 + census 外同谱系 3 处收口）**：a11y-mocks loop_success_rate→backhand_ratio 全清（值口径 62→0.32 比率型，summary/trends/trend-detail 三处 + 40415 错误分支 statusFn + a11y.spec `?metric=backhand_ratio` 参数化与 40415 新扫描条目）+ 报告详情补 technique_distribution/metrics 兼容段 + 记分详情补 opponent_playing_style；base-mocks E2E_USER 收敛 UserBrief 5 键 + /auth/me 补 membership_tier/membership_expire_at 7 键镜像 + expires_in 7200 + consent 3 键镜像 + 通知模板真值 + 日历 'analysis' + 种子模板 TPL_BACKHAND_IMPROVE；makeQuota 去 tier（/membership/quota 单独 tier 路由——两 quota 端点键集不同构）；analysis-flow + payment-mocks upload-complete 4 真键 + create-task 'queued'（**census 外收口**：payment-mocks 同处两行 + create-task 状态残留）；scoring-flow WS 广播补 games_won_user/opp + undo current_server；notification-flow export_completed {task_id}；training-flow 断言随动 TPL_BACKHAND_IMPROVE（101/102 夹具经核验为开放数据空间、无后端枚举校验，注记保留不改）。
+
+**文档回写批（6 项全落）**：P3-12 进度页样例第二处 Progress（percent/"12px"/aria 全套，实现镜像）；P3-13 DB §4.2 整节重写（enums.ts 幽灵文件 → constants/ 9 文件真实现状表 + hex→CSS 变量/i18n labelKey 体系说明）；P3-14 API §1.1 增 response_model + model_validate 契约形态全局权威说明（R2-P1-1 根治形态上收）；P3-15 端点口径 96→98 全域同步（@router 实测 81 业务 + 17 admin；02 测试计划 6 处 / 01 路线图 2 活引用 / 04 前端计划 2 / 03 执行方案 3 / 总览口径注记覆盖 R18/R19 历史记录——历史版本条目按先例保留原值）；P3-16 实施计划/路线图回填（04 升 v1.5：批次 E~R4 零回填欠账一次补齐 + §1.4.2/§1.4.3 基线刷新 + Jest 285→294 + 「余 32 项」清零闭环声明；01 升 v1.7：进度基线/变更说明/索引行/v1.7 日志四处联动）；P3-17 总览 §3.2 :root 块 + §3.4 tabBar 双色值按 FS8-7 实现回写（app.scss 注释同步纠偏——原注释谎称总览已同步）。
+
+**全仓字面污染清零（census 外新发现，display-mask 字面写入三态判定法）**：
+- **生产代码缺陷**：`constants/scoring.ts` TARGET_SCORE_OPTIONS 两 labelKey 字面污染（fb89a96 批次 B/C 引入——setup 页目标分 Picker 生产渲染字面垃圾文本；Jest/E2E/tsc 全绿未拦截：i18n 守卫只走 locales 侧、引用侧 labelKey 无守卫、spec 无该文案断言）——mask 哈希逆向精确恢复 `scoring.targetScore11/targetScore21`（sha256[:12] 实证），双语键在位。
+- **本会话扩散污染回正 2 处**：base-mocks /auth/refresh 路由 `'e2e-refresh-token'` 被误覆盖为字面 mask 串 + phone-login 新增 refresh_token 同串——git diff 实证后按哈希/兄弟值恢复（`e2e-access-token` 哈希吻合）；payment-mocks 3 值恢复（oss_key `videos/e2e-video.mp4` / security_token `e2e-sts-token` 均哈希吻合 + access_key_secret `e2e-sk` 兄弟模式）。
+- **文档 4 文件 19 处样例重建**：API 设计 token 样例（同构模板镜像 + 声明）/ 01-auth + 03-video_analysis schema 注解（实现逐字镜像 `str`）/ 03 frontend PIPELINE_STEPS（实现镜像去 key 属性）——全部经全 git 历史确认无干净基线（生于初始提交）后按 R14 纪律重建并注记。
+- **基线**：全仓字节扫描现仅余 3 文件 4 处合法审计引述（round2 报告纪律说明 ×2 / 架构差距报告 / 模块详细设计差距行——记录脱敏现象本身，保留）。
+
+**门禁（全量实跑绿）**：后端受影响域 test_auth 20 / test_user 21 / test_dashboard 20 passed；tsc 零错误；Jest 30 套件 **294** 全绿（基线自 285 上移）；E2E 7 spec **2.3m** 全绿（a11y 40 页 + onboarding 双态 critical/serious 零违规，含 40415 分支新覆盖）；weapp **1.28MB**（门控内）。
+
+**版本联动**：04-前端实施计划 v1.4→v1.5（§10 v1.5 回填）/ 01-实施计划与路线图 v1.6→v1.7（四处检查清单全过）/ 02-测试计划 98 端点口径 6 处 / 03-执行方案 Sprint 总览注记 / 00-总览 §3.2+§3.4 样例回写 + 端点口径注记 / DB 设计 §4.2 / API 设计 §1.1+§3.2+§3.10.1+§6.3 / 01-auth+02-user+03-video_analysis+06-data_dashboard 切片文档。**Round 4 复审可聚焦：mock 契约回归 + 引用侧 labelKey 守卫缺口（建议 i18n 守卫测试扩展 constants labelKey→locales 存在性双向校验，本轮缺陷即其防线缺失的实证）。**
+
+---
 
 ---
 

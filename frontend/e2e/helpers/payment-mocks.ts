@@ -67,11 +67,14 @@ export function createPaymentMocks() {
       pattern: '/video-analysis/upload-token',
       data: {
         file_id: 42,
-        oss_key: '[REDACTED:sha256:c92dd3e7c7b7]',
+        // R3-P3-13：脱敏标记字面写入污染收口——oss_key/security_token 经 display-mask
+        // 哈希逆向恢复（sha256[:12]：'videos/e2e-video.mp4'→c92dd3e7c7b7、
+        // 'e2e-sts-token'→deff2daef65b）；access_key_secret 无哈希按 'e2e-ak' 兄弟模式补
+        oss_key: 'videos/e2e-video.mp4',
         sts_credentials: {
           access_key_id: 'e2e-ak',
-          access_key_secret: '[REDACTED]',
-          security_token: '[REDACTED:sha256:deff2daef65b]',
+          access_key_secret: 'e2e-sk',
+          security_token: 'e2e-sts-token',
           expiration: iso(),
           bucket: 'e2e-bucket',
           endpoint: 'https://oss.example.com',
@@ -80,7 +83,9 @@ export function createPaymentMocks() {
         expire_at: iso(),
       },
     },
-    { method: 'POST', pattern: '/video-analysis/upload-complete', data: { file_id: 42, status: 'uploaded' } },
+    // R3-P2-2 同谱系收口：镜像 UploadCompleteResponse 4 真键（analysis-flow 同修；
+    // 原 {file_id, status:'uploaded'} 为臆造形状）
+    { method: 'POST', pattern: '/video-analysis/upload-complete', data: { file_id: 42, ready: true, actual_size: 1048576, duration_sec: 125 } },
     // 步骤 2/8：创建任务——免费态 429/42910（后端消息逐字），会员态放行
     {
       method: 'POST',
@@ -88,7 +93,9 @@ export function createPaymentMocks() {
       statusFn: () => (state.paid ? 200 : 429),
       envelopeCode: 42910,
       errorMessage: '今日免费分析次数已用完，升级会员可无限分析',
-      dynamic: () => ({ task_id: 3, task_uuid: 'e2e-task-3', status: 'processing', estimated_wait_minutes: 2 }),
+      // R3-P3-8 同谱系收口：创建时刻 status 为 queued（video_analysis_service.py:198；
+      // processing 由轮询首查返回——下方 GET tasks/* 静态 processing 载荷）
+      dynamic: () => ({ task_id: 3, task_uuid: 'e2e-task-3', status: 'queued', estimated_wait_minutes: 2 }),
     },
     // 进度页对账（步骤 8 断言 processing 态；静态 processing 载荷，报告全流程归 E2E-01）
     {

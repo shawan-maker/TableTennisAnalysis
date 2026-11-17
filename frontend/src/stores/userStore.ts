@@ -87,6 +87,7 @@ interface UserState {
   // X-23: 用户注销
   requestDeletion: (reason: string) => Promise<void>
   cancelDeletion: () => Promise<void>
+  fetchDeletionStatus: () => Promise<void>
 
   // X-24: 数据导出
   requestExport: () => Promise<void>
@@ -190,10 +191,30 @@ export const useUserStore = create<UserState>((set, get) => ({
     }
   },
 
-  // R19-fix: 移除 fetchDeletionStatus 方法
-  // 原因：GET /users/account/deletion-status 端点未在后端 API 契约中定义
-  // 修改后：deletionState 由 requestDeletion 提交注销后写入 store
-  //       页面加载时不再预查询注销状态（用户提交注销后自然进入冷静期）
+  // R3-P2-6: 恢复 fetchDeletionStatus（R19-fix 曾因端点缺位移除；后端现已补
+  // GET /users/account/deletion-status，契约键 status/requested_at/expires_at）。
+  // settings 页挂载时预查询——冷静期内重启后倒计时横幅与撤销入口仍可达
+  // （PIPL 注销撤销权，settings.md:15/93 设计承诺）。预查询为 best-effort：
+  // 失败静默不抛错（横幅仅在有冷静期状态时显示，无横幅即正常态）。
+  fetchDeletionStatus: async () => {
+    try {
+      const res = await userApi.getDeletionStatus()
+      const data = res.data.data
+      if (data?.status === 'pending_deletion') {
+        set({
+          deletionState: {
+            status: 'cooling',
+            scheduled_at: data.requested_at,
+            cooling_ends_at: data.expires_at,
+          },
+        })
+      } else {
+        set({ deletionState: null })
+      }
+    } catch (error) {
+      console.error('fetchDeletionStatus failed', error)
+    }
+  },
 
   cancelDeletion: async () => {
     set({ deletionLoading: true })

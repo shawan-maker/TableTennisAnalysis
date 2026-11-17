@@ -88,6 +88,10 @@ class UserBrief(BaseModel):
     nickname: str
     avatar_url: Optional[str] = None
     has_profile: bool = False
+    # R3-P1-1（跨栈批）：前端 onboarding 门控消费（注册 <24h 判定），
+    # home/index.tsx:53 / onboarding/index.tsx:45 依赖——修复前仅 E2E mock 单侧
+    # 臆造此键，生产 onboarding 检测从首页永不触发（mock 让 E2E 全绿）
+    created_at: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -126,6 +130,8 @@ class CurrentUserResponse(BaseModel):
     has_profile: bool = False
     membership_tier: Optional[str] = None
     membership_expire_at: Optional[str] = None
+    # R3-P1-1（跨栈批）：同 UserBrief.created_at——onboarding 门控依赖
+    created_at: Optional[str] = None
 
 
 class ConsentResponse(BaseModel):

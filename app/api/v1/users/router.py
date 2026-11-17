@@ -126,6 +126,18 @@ async def cancel_deletion(
     return success(data=data, message="注销已撤销，账号恢复正常")
 
 
+@router.get("/account/deletion-status", summary="查询注销状态")
+@limiter.limit(RateLimits.DEFAULT)
+async def get_deletion_status(
+    request: Request,
+    user: User = Depends(get_current_user_allow_pending),
+):
+    """查询注销状态（R3-P2-6：settings 挂载预查询——冷静期内重启后横幅+撤销入口
+    可达性，PIPL 注销撤销权；pending 时返回 scheduled_deletion_at 供倒计时）"""
+    data = await UserService.get_deletion_status(user)
+    return success(data=data)
+
+
 @router.post("/export-data", summary="发起个人数据导出（PIPL）")
 @limiter.limit(RateLimits.DEFAULT)
 async def export_data(

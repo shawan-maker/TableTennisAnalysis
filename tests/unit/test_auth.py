@@ -94,6 +94,10 @@ async def test_get_me(client, auth_headers, test_user):
     data = resp.json()["data"]
     assert data["id"] == test_user.id
     assert data["nickname"] == "测试用户"
+    # R3-P1-1 契约断言：me 响应必须含 created_at（前端 onboarding 门控依赖，
+    # 修复前该键仅存在于 E2E mock 臆造——本断言防 schema/dict 再次漂移）
+    assert "created_at" in data
+    assert data["created_at"] is not None
 
 
 @pytest.mark.asyncio
@@ -205,6 +209,10 @@ async def test_phone_login_success(client, db_session):
     assert "access_token" in data
     assert "refresh_token" in data
     assert data["user"]["nickname"].startswith("球友")
+    # R3-P1-1 契约断言：登录响应 user 块必须含 created_at（UserBrief 补键，
+    # 前端 authStore 登录后填充 user——onboarding 门控数据源）
+    assert "created_at" in data["user"]
+    assert data["user"]["created_at"] is not None
 
 
 @pytest.mark.asyncio

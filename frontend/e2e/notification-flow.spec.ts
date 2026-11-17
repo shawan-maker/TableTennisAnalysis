@@ -39,8 +39,10 @@ test('E2E-05 通知交互：铃铛角标→三态筛选→标记已读→全部�
   await expect(page.locator('.notif-bell-badge')).toHaveText('2', { timeout: 15_000 })
 
   // ── export_completed WS → 幂等刷新未读数（角标不变，断言 unread-count 拉取）──
+  // R3-P3-11：data 镜像后端推送体 {task_id}（tasks/user.py:216）——
+  // 前端 handleBuiltinEvent set({exportTask: data})，空对象弱化空态判定
   const unreadRefresh = page.waitForRequest((r) => r.url().includes('/notification/unread-count'))
-  await pushWsMessage(page, { event: 'export_completed', data: {} })
+  await pushWsMessage(page, { event: 'export_completed', data: { task_id: 'e2e-task-1' } })
   await unreadRefresh
   await expect(page.locator('.notif-bell-badge')).toHaveText('2')
 

@@ -296,10 +296,30 @@ export const useUserStore = create<UserState>((set, get) => ({
     }
   },
 
-  // R19-fix: 移除 fetchDeletionStatus 方法
-  // 原因：GET /users/account/deletion-status 端点未在后端 API 契约中定义
-  // 修改后：deletionState 由 requestDeletion 提交注销后写入 store
-  //       页面加载时不再预查询注销状态（用户提交注销后自然进入冷静期）
+  // R3-P2-6: 恢复 fetchDeletionStatus（R19-fix 曾因端点缺位移除；后端现已补
+  // GET /users/account/deletion-status，契约键 status/requested_at/expires_at）。
+  // settings/user-profile 挂载时预查询——冷静期内重启后倒计时横幅与撤销入口
+  // 仍可达（PIPL 注销撤销权，14-tab-pages/settings.md:15/93）。best-effort：
+  // 失败静默不抛错（无横幅即正常态）。
+  fetchDeletionStatus: async () => {
+    try {
+      const res = await userApi.getDeletionStatus()
+      const data = res.data.data
+      if (data?.status === 'pending_deletion') {
+        set({
+          deletionState: {
+            status: 'cooling',
+            scheduled_at: data.requested_at,
+            cooling_ends_at: data.expires_at,
+          },
+        })
+      } else {
+        set({ deletionState: null })
+      }
+    } catch (error) {
+      console.error('fetchDeletionStatus failed', error)
+    }
+  },
 
   cancelDeletion: async () => {
     set({ deletionLoading: true })
@@ -408,9 +428,8 @@ export default function ProfilePage() {
 
   useEffect(() => {
     fetchProfile()
-    // R19-fix: 移除 fetchDeletionStatus() 调用
-    // 原因：GET /users/account/deletion-status 端点未在后端 API 契约中定义
-    // deletionState 仅由用户主动提交注销请求后由 store 写入
+    // R3-P2-6: 恢复注销状态预查询（后端端点已补）——冷静期重启后横幅可达
+    fetchDeletionStatus()
   }, [])
 
   // X-23: 注销冷静期倒计时——R2-P3-21（批次J）：倒计时 effect 已随批次E 抽取

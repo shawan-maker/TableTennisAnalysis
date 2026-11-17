@@ -101,6 +101,7 @@ async def get_me(
             "has_profile": user.kqs_rating is not None,
             "membership_tier": membership.tier if membership else None,
             "membership_expire_at": membership.expire_at if membership else None,
+            "created_at": user.created_at.isoformat(),  # R3-P1-1：onboarding 门控（schema 同步加键）
         }
     )
 

@@ -59,7 +59,10 @@ const PAGES: Array<[string, string]> = [
   ['/pages/training/templates/detail/index', '?id=101'],
   ['/pages/progress/comparison/index', '?report_a=6&report_b=7'],
   ['/pages/progress/summary/index', ''],
-  ['/pages/progress/trend-detail/index', '?metric=loop_success_rate'],
+  // R3-P2-1：真实指标键（后端 METRIC_DEFINITIONS 18 键之一；原臆造键
+  // loop_success_rate 生产必走 40415，成功分支不可达）+ 40415 错误分支补扫
+  ['/pages/progress/trend-detail/index', '?metric=backhand_ratio'],
+  ['/pages/progress/trend-detail/index', '?metric=fabricated_metric_40415'],
   ['/pages/gamification/badges/index', ''],
   ['/pages/gamification/checkin-calendar/index', ''],
   ['/pages/membership/index', ''],

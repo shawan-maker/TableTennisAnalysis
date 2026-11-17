@@ -120,6 +120,11 @@ test('E2E-02 记分牌全流程：创建→记分→多设备WS同步→撤销�
       score_method: 'opponent_error',
       current_server: m.current_server,
       is_key_point: false,
+      // R3-P3-9：镜像后端 score_update 广播体 9 键（scoring_service.py:323-335
+      // 含局分两键——R2-P1-1 即时刷新分支 applyWsScoreUpdate 消费；
+      // 缺键时 bo 多局大比分走 fetchMatch 对账兜底，即时刷新分支 E2E 未覆盖）
+      games_won_user: 0,
+      games_won_opp: 0,
     },
   })
   // B 乐观更新 + fetchMatch 对账 → 比分与 A 一致（2:1，序号一致）
@@ -133,7 +138,15 @@ test('E2E-02 记分牌全流程：创建→记分→多设备WS同步→撤销�
   // 撤销也广播（后端 undo 推 score_update type:'undo'）→ B 对账回退
   await pushWsMessage(pageB, {
     event: 'score_update',
-    data: { match_id: m.id, sequence: m.seq, score: `${m.score_user}:${m.score_opp}`, type: 'undo' },
+    // R3-P3-10：镜像后端 undo 广播体（scoring_service.py:438-447——含
+    // current_server；撤销后发球权回退由该键承载）
+    data: {
+      match_id: m.id,
+      sequence: m.seq,
+      score: `${m.score_user}:${m.score_opp}`,
+      type: 'undo',
+      current_server: m.current_server,
+    },
   })
   await expect(pageB.locator('.score-opp .score-number')).toHaveText('0', { timeout: 10_000 })
 

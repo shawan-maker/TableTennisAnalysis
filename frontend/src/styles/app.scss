@@ -12,7 +12,8 @@ page {
    * FS8-7 WCAG AA 无障碍调色：primary/accent/success/text-secondary 四 token
    * 由 #E63946/#F4A261/#2A9D8F/#6C757D 深化至对比度 ≥4.5:1（axe color-contrast
    * 全量修复，同时对"白字于彩色背景"与"彩字于浅背景"双向成立）。
-   * 设计文档 §3.2 调色板已同步（R-FS8-P3 注记）。
+   * 设计文档调色板同步：界面设计 §1.2（R-FS8-P3 注记）+ 垂直切片总览 §3.2
+   * :root 样例块与 §3.4 tabBar 样例（R3-P3-17 回写，修复前仅前者同步）。
    */
   --color-primary: #C92738;        /* 主色（红色，FS8-7 由 #E63946 深化） */
   --color-secondary: #1D3557;     /* 深蓝 */

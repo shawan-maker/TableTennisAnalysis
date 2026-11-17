@@ -64,6 +64,10 @@ export function createTrainingMocks() {
 
   const routes: MockRoute[] = [
     // 模板列表（API §8.3，会员功能；免费态 403/40300 会员守卫）
+    // 注（R3-P3-3 同谱系核验）：101/102 为会员区列表流测夹具——template_code
+    // 为知识库开放数据空间（后端无枚举校验，admin 可增），键集/形状镜像契约；
+    // advice CTA 侧的 training_plan_template 真值（TPL_BACKHAND_IMPROVE，唯一种子）
+    // 由 base-mocks 承载（spec :44 断言随动），与本列表夹具无流程交集。
     {
       method: 'GET',
       pattern: '/training/templates',

@@ -106,6 +106,11 @@ export const a11yMocks: MockRoute[] = [
         },
         // R2-P3-4（批次I）：键集对齐 API §4.6（forehand_drive 等，analysis-flow 同源）
         technique_stats: { forehand_drive: 45, backhand_drive: 18, forehand_loop: 12, serve: 23 },
+        // R3-P3-7：dashboard 兼容段镜像后端下发（ai_pipeline/report_generator.py:155-160
+        // —technique_distribution 与 technique_stats 同值、metrics 三落点键取
+        // landing_points.distribution 值；报告页不消费，前向交付保真）
+        technique_distribution: { forehand_drive: 45, backhand_drive: 18, forehand_loop: 12, serve: 23 },
+        metrics: { landing_forehand_pct: 0.6, landing_backhand_pct: 0.25, landing_middle_pct: 0.15 },
         ball_speed: { avg_speed_mps: 12.5, max_speed_mps: 18.2, speed_range: [8.1, 18.2] },
         // R2-P3-22（批次I）：补 score_analysis 段（E2E-01 同源）——annotated_video_url
         // 保持 null（防 axe video-caption），video-section（含关键分 marker chips）仍
@@ -217,6 +222,10 @@ export const a11yMocks: MockRoute[] = [
       id: Number(params[0]),
       opponent_name: '王教练',
       opponent_rating: 1550,
+      // R3-P3-6：批次G 字段回显（schemas/scoring.py:86 + scoring_service.py:213
+      // —MatchDetail 下发 opponent_playing_style；取值 Literal 四枚举之一，
+      // detail 页渲染零消费为前向交付，mock 补齐保真）
+      opponent_playing_style: 'loop_drive',
       format: 'bo3',
       match_type: 'friendly',
       target_score: 11,
@@ -270,13 +279,16 @@ export const a11yMocks: MockRoute[] = [
       overall_progress: 'improving',
       metric_trends: [
         {
-          metric: 'loop_success_rate',
-          metric_name: '正手拉冲成功率',
-          current_value: 62,
-          previous_value: 55,
-          change_rate: 0.127,
+          // R3-P2-1：loop_success_rate 为臆造键（后端 METRIC_DEFINITIONS 18 键
+          // 无此键，progress_service.py:28-47），改真实键 backhand_ratio——
+          // summary 页 t(`progress.metric.${key}`) 渲染，值口径为比率 0-1
+          metric: 'backhand_ratio',
+          metric_name: '反手使用率',
+          current_value: 0.32,
+          previous_value: 0.28,
+          change_rate: 0.143,
           trend: 'up',
-          target: 70,
+          target: 0.35,
           target_progress: 0.45,
           persistence_count: 3,
         },
@@ -287,9 +299,9 @@ export const a11yMocks: MockRoute[] = [
         plan_version: 2,
         last_adjustment: iso(),
         adjustment_reason: '连续 3 次分析无改善，下调训练强度',
-        goal_completion: { loop_success_rate: '45%' },
+        goal_completion: { backhand_ratio: '45%' },
       },
-      forecast: { loop_success_rate: { predicted_weeks_to_target: 4, confidence: 'medium', r_squared: 0.72 } },
+      forecast: { backhand_ratio: { predicted_weeks_to_target: 4, confidence: 'medium', r_squared: 0.72 } },
     },
   },
   // 报告对比（ComparisonData；report_a/report_b query 透传）
@@ -328,13 +340,14 @@ export const a11yMocks: MockRoute[] = [
     data: {
       metrics: [
         {
-          metric: 'loop_success_rate',
-          metric_name: '正手拉冲成功率',
-          current_value: 62,
-          previous_value: 55,
-          change_rate: 0.127,
+          // R3-P2-1：臆造键 loop_success_rate → 真实键 backhand_ratio（同 summary）
+          metric: 'backhand_ratio',
+          metric_name: '反手使用率',
+          current_value: 0.32,
+          previous_value: 0.28,
+          change_rate: 0.143,
           trend: 'up',
-          target: 70,
+          target: 0.35,
           target_progress: 0.45,
           persistence_count: 3,
         },
@@ -345,19 +358,27 @@ export const a11yMocks: MockRoute[] = [
   {
     method: 'GET',
     pattern: '/progress/technique-trends/*',
+    // R3-P2-1：未知 metric 镜像后端 40415 分支（progress_service.py:409-410
+    // AppException("指标不存在", 404, code=40415)）——a11y 补扫错误分支
+    // （修复前 spec 参数用臆造键 loop_success_rate，mock 恒返回成功体，
+    // 40415 错误态 render 零 axe 覆盖）
+    statusFn: ({ params }) =>
+      ['backhand_ratio', 'forehand_ratio', 'serve_ratio'].includes(params[0]) ? 200 : 404,
+    envelopeCode: 40415,
+    errorMessage: '指标不存在',
     dynamic: ({ params }) => ({
       metric: params[0],
-      metric_name: '正手拉冲成功率',
-      current_value: 62,
-      target_value: 70,
+      metric_name: '反手使用率',
+      current_value: 0.32,
+      target_value: 0.35,
       target_progress: 0.45,
       trend: 'up',
-      change_rate: 0.127,
+      change_rate: 0.143,
       persistence_count: 3,
       history: [
-        { date: '2026-10-20', value: 55 },
-        { date: '2026-11-01', value: 58 },
-        { date: '2026-11-08', value: 62 },
+        { date: '2026-10-20', value: 0.28 },
+        { date: '2026-11-01', value: 0.3 },
+        { date: '2026-11-08', value: 0.32 },
       ],
     }),
   },

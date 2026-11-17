@@ -136,7 +136,7 @@ async def test_get_technique_stats_success(dashboard_data):
     dist = result["technique_distribution"]
     assert len(dist) == 4
     assert dist[0]["name"] == "正手攻球"
-    assert dist[0]["color"] == "#E63946"
+    assert dist[0]["color"] == "#C92738"  # R3-P2-5：FS8-7 深化现值（--color-primary）
 
 @pytest.mark.asyncio
 async def test_get_landing_heatmap_success(dashboard_data):
@@ -336,11 +336,13 @@ CACHE_TTL_TECHNIQUE = 3600    # 1 h
 CACHE_TTL_HEATMAP = 3600      # 1 h
 
 # 技术统计色彩映射
+# R3-P2-5（跨栈批）：色值对齐 FS8-7 深化现值（app.scss 权威源；契约即旧值，
+# 本字典与 API §6.3 样例同步回写——修复前前端 TechniqueStats 直接渲染后端 hex 漂移）
 TECHNIQUE_COLORS = {
-    "forehand_drive": ("正手攻球", "#E63946"),
-    "backhand_drive": ("反手拨球", "#1D3557"),
-    "forehand_loop": ("正手拉球", "#F4A261"),
-    "serve": ("发球", "#2A9D8F"),
+    "forehand_drive": ("正手攻球", "#C92738"),   # --color-primary
+    "backhand_drive": ("反手拨球", "#1D3557"),   # secondary 未深化，保持
+    "forehand_loop": ("正手拉球", "#9C5618"),   # --color-accent
+    "serve": ("发球", "#1F7A6D"),              # --color-success
 }
 
 class DashboardService:

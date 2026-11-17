@@ -418,9 +418,11 @@ class FeedbackRequest(BaseModel):
 # --- 响应 Schema ---
 
 class StsCredentials(BaseModel):
+    # R3-P3-13：secret/token 两字段注解原为脱敏标记字面写入（初始提交即污染），
+    # 按 app/schemas/video_analysis.py 实现逐字镜像恢复为 str
     access_key_id: str
-    access_key_secret: [REDACTED]
-    security_token: [REDACTED]
+    access_key_secret: str
+    security_token: str
     expiration: str
     # R13-P3 文档同步（VA-9）：补 bucket/endpoint — 客户端 OSS 直传必需
     # （实现见 app/schemas/video_analysis.py StsCredentials）

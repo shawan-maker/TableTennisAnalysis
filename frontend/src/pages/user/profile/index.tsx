@@ -23,6 +23,7 @@ export default function ProfilePage() {
     profile, fetchProfile, updateRating,
     // X-23: 注销
     deletionState, deletionLoading, requestDeletion, cancelDeletion,
+    fetchDeletionStatus,
     // X-24: 数据导出
     exportTask, exportLoading, requestExport, pollExportStatus,
   } = useUserStore()
@@ -42,10 +43,10 @@ export default function ProfilePage() {
     //（修复前未登录 fetchProfile 必 401，只能靠 request 拦截器被动 reLaunch 登录页）
     if (useAuthStore.getState().isAuthenticated) {
       fetchProfile()
+      // R3-P2-6: 恢复注销状态预查询（后端端点已补）——本页与 settings
+      // 同为 DeletionCoolingBanner 消费方，冷静期重启后横幅可达
+      fetchDeletionStatus()
     }
-    // R19-fix: 移除 fetchDeletionStatus() 调用
-    // 原因：GET /users/account/deletion-status 端点未在后端 API 契约中定义
-    // deletionState 仅由用户主动提交注销请求后由 store 写入
   }, [])
 
   // X-24: 导出轮询清理
