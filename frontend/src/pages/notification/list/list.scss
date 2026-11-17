@@ -35,7 +35,7 @@
 
   &.unread {
     background: color-mix(in srgb, var(--color-primary) 4%, transparent);
-    border-left: 3px solid var(--color-primary); /* #E63946 */
+    border-left: 3px solid var(--color-primary); /* #C92738 */
   }
 
   /* R-FE-R1 批次C（FE-P3-15）：已读态灰化区分（设计 L839；修复前仅 .unread
@@ -101,7 +101,7 @@
   right: 4px;
   width: 8px;
   height: 8px;
-  background: var(--color-primary); /* #E63946 */
+  background: var(--color-primary); /* #C92738 */
   border-radius: 50%;
 }
 

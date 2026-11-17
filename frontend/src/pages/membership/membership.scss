@@ -155,7 +155,7 @@
       .quota-number {
         font-size: 32px;
         font-weight: bold;
-        color: var(--color-primary); // #E63946
+        color: var(--color-primary); // #C92738
       }
 
       .quota-divider {
@@ -186,7 +186,7 @@
 
       .quota-progress-bar {
         height: 100%;
-        background: var(--color-primary); // #E63946
+        background: var(--color-primary); // #C92738
         border-radius: var(--radius-sm);
         transition: width 0.3s;
       }
@@ -271,7 +271,7 @@
       &.tier-cell {
         &.current {
           .tier-name {
-            color: var(--color-primary); // #E63946
+            color: var(--color-primary); // #C92738
             font-weight: bold;
           }
         }

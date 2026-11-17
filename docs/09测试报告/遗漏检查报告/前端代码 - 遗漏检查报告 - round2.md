@@ -255,3 +255,20 @@ ScoreRecordBrief 样例仍 `seq`（实现已改 `sequence`）；MatchDetail 样�
 **批次J（纯文档注记/回写批量，预计 0.5 天）——✅ 2026-11-16 完成（17/17 + 2 项伴生代码修复 R2-P3-1 漏执行补齐/NotificationBell 注释；修复明细见 §8.1 批次J 行）**：R2-P3-8~21、25~27 共 16 项（逐项列举 17）——03 时序组 7 项（tempo 派生定义/选择器/i18n 键集/清单顺序/验收口径自洽/NutUI 偏移注记/契约缺键）、04 组 2 项（NutUI 偏移族/redirectTo 注记）、00-home 资产承载、settings webviewFallback 键、community-tab TabBar 约束过时、DeletionCoolingBanner 公共组件回写（02-user/settings 两处）、01-auth 组 2 项（.json 样例格式/登录契约 needsConsent——防按文档重实现复现 P1 缺陷，报告建议优先）、界面设计 vs 总览背景/分割线双基准 + h5-bridge 39→40 口径、round1 报告批次归属表述（R2-P3-8）。
 
 **收敛路径**：批次H 收尾提交 → 批次I → 批次J → **Round 3 轻量复审**（聚焦：批次H/G/H 收尾回归 + 本轮 P2 全量闭环验证 + N 系缺口清零核验；按 §七 建议 Round 3 后若两轮零 P2+ 可转入常规 CI 门禁态）。
+
+### 8.5 Round 3 轻量复审结果（2026-11-17，基线 HEAD `05a9a51` 工作区零改动，复审全程只读）
+
+**三项聚焦核验全部通过**：
+
+| 核验维度 | 结果 | 证据要点 |
+|------|------|------|
+| 批次H/G 收尾回归 | ✅ 零残留 | 旧主色活代码残留为零：`230,57,70` 仅 DeletionCoolingBanner/index.scss L4-5 历史注记（描述 fb89a96 下沉前形态）；`#E63946` 10 处命中中 8 处为修复历史注记（report L99/L177「旧值收敛」、LandingHeatmap L45「修复前」、app.scss L13/17 FS8-7 深化历史+活值 #C92738），R2-P1-1 局分键后端 13 处（service 7+router 1+ws 1+schemas 2+model 1）+ 前端 13 处（store 镜像/applyWsScoreUpdate 乐观更新/services/scoreboard 渲染）全在位；批次I 修复点复核：conic 首色 #C92738（report/index.tsx:179，批次J 补齐经受住检验）、DeletionCoolingBanner color-mix primary 8%/20%（index.scss:9-10）、feedback 行为守卫 `isCorrect ? undefined`（report/index.tsx:56）、E2E technique_stats 真键（analysis-flow:127 + a11y-mocks:108） |
+| P2 全量闭环验证 | ✅ 11/11 | P2-1 category schema:46/56+透传 service:380/392+badgeCategoryLabel 消费（badges/index.tsx:21/67/94）；P2-2 后端全链（model:143+__init__ 导出+router:75+schema+service 落账:247/分页:258-264）+前端 POINTS_SOURCE_MAP/PointsCard 消费（PointsCard.tsx:25/100）；P2-3 summary:204 t()+locales 4 键双侧（zh:640-643/en:634-637）+18 键断言（i18nKeys:266-273）；P2-4 总览 L501（20/页、50/页实测口径+豁免复评触发条件）；P2-5 总览 L458（36 处/47 处引号感知探针口径+134 失真说明）；P2-6 03 activeGrid 派生（frontend.md:871-876+995 注记）；P2-7 04 key_points 契约（:171-177 winner/score/timestamp+:810/874/882 statistics 消费）；P2-8 04 import 行（:308 四常量+:342/443/447 Picker 消费）；P2-9 API §5 样例族（:1585/1643 两处批次H 回写注记+target_score/game_number/should_change_sides/total_points）；P2-10 04 backend sequence（:539）+model_validate 形态注记（:764-789）；P2-11 10-membership statusColor 内联（:242/271+238/498 双源删除断言） |
+| N 系缺口清零核验 | ✅ 5/5 | N-P2-1 API §10.5（:2930）；N-P2-2 DB §2.35 表定义（:1110-1127）+表数 40 口径（:439-442）+索引两条（:3034-3035）+model 样例（:2926-2929）；N-P2-3 09-gamification backend/frontend 双文档 34 处命中（端点清单 5+PointsCard 最近动态区样例+badges 分类 chip+i18n+验证清单）；N-P3-1 base-mocks 路由注册（:225）+badges 非空种子带 category（:82-86）；N-P3-2 constants 注记「PointsCard 最近动态区」+原失实注记如实标注（constants/gamification.ts:9-12） |
+
+**轻量动态门禁**：tsc --noEmit 零错误；i18nKeys.test 26 用例全绿（九组批次E/F/G/H 域断言全部通过）。
+
+**本轮新发现（P3 ×1，已顺手修复）**：membership.scss L158/189/274 + notification/list.scss L38/104 共 5 处行内注释仍标注旧色值 `#E63946`（调色前参考注释，活值均走 `var(--color-primary)` 行为零影响，注释与当前 var 解析值失实）——已替换为 `#C92738`，grep 复核 5/5 确认、E63946 残留清零。
+
+**收敛判定**：Round 3 复审零 P0/P1/P2 新发现 → **连续第一轮零 P2+**。按项目「连续两轮零 P2+」惯例（同后端 R31+R32 先例），待 Round 4 轻量复审零 P2+ 即正式达成收敛、转入常规 CI 门禁态。
+
