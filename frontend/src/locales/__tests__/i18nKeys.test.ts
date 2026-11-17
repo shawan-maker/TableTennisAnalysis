@@ -274,3 +274,54 @@ describe('R-FE-R2 批次E/F/G/H 新键域断言（回归定位提速）', () => 
     ])
   })
 })
+
+/**
+ * 引用侧守卫（Round 4 复审落地，round3 报告 §九建议）：
+ * constants/*.ts 全部 labelKey 引用 ←→ locales 双语键存在性校验。
+ *
+ * 守卫背景：R3-P3-13 发现 TARGET_SCORE_OPTIONS 两 labelKey 被 display-mask
+ * 字面写入污染（'[REDACTED:sha256:...]'），生产 setup 页目标分 Picker 渲染
+ * 字面垃圾文本——而当时全门禁绿：本文件既有断言只验「locales 侧键存在」
+ * （显式键清单），对「常量侧引用了哪些键」不设防；引用侧污染/漂移
+ * 只有页面渲染才暴露。本守卫从 constants 源码提取全部 labelKey 引用，
+ * 逐键校验 zh/en 双语存在性，并防御脱敏标记字面形态（R3-P3-13 谱系）。
+ */
+import * as fs from 'fs'
+import * as path from 'path'
+
+describe('引用侧守卫：constants 全部 labelKey 引用必须存在于双语 locales（R3 §九建议）', () => {
+  const zhKeySet = new Set(flattenKeys(zhCN))
+  const enKeySet = new Set(flattenKeys(enUS))
+  const constantsDir = path.resolve(__dirname, '../../constants')
+  const files = fs.readdirSync(constantsDir).filter((f) => f.endsWith('.ts'))
+
+  const refs: Array<{ file: string; key: string }> = []
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(constantsDir, f), 'utf-8')
+    for (const m of src.matchAll(/labelKey:\s*'([^']+)'/g)) {
+      refs.push({ file: f, key: m[1] })
+    }
+  }
+
+  it('扫描面基线：≥9 个 constants 文件 + ≥50 处 labelKey 引用（防扫描空转）', () => {
+    expect(files.length).toBeGreaterThanOrEqual(9)
+    expect(refs.length).toBeGreaterThanOrEqual(50)
+  })
+
+  it('全部 labelKey 引用在 zh-CN 存在', () => {
+    const missing = refs.filter((r) => !zhKeySet.has(r.key)).map((r) => `${r.file}: ${r.key}`)
+    expect(missing).toEqual([])
+  })
+
+  it('全部 labelKey 引用在 en-US 存在', () => {
+    const missing = refs.filter((r) => !enKeySet.has(r.key)).map((r) => `${r.file}: ${r.key}`)
+    expect(missing).toEqual([])
+  })
+
+  it('引用键值非脱敏标记/污染形态（R3-P3-13 谱系防御）', () => {
+    const polluted = refs
+      .filter((r) => r.key.startsWith('[') || r.key.toUpperCase().includes('REDACTED'))
+      .map((r) => `${r.file}: ${r.key}`)
+    expect(polluted).toEqual([])
+  })
+})

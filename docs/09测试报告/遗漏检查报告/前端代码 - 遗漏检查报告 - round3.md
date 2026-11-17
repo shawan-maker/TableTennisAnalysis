@@ -178,6 +178,28 @@ mock 四处（`a11y-mocks.ts:273/290/292/331`）+ `a11y.spec.ts:62` `?metric=loo
 
 ---
 
+## 十、Round 4 复审记录（2026-11-17 同日，§八预定动作执行）
+
+**复审范围**：R3 修复批全量回归——基线 9f75a4d..d6faff7（38 文件 +543/-167），聚焦 §八预定两项：mock 契约回归（19 处修复逐项）+ P2 闭环验证（P1-1/P2-1~6 全链）。
+
+**回归核验结论（全过，零 P2+ 新发现）**：
+- **P1-1 / P2-1~6 闭环** ✅：created_at（schemas/auth.py + auth_service 两构造 + router dict + test_auth 双断言）、TECHNIQUE_COLORS 四色值、deletion-status 全链（user_service.get_deletion_status + 前端 services/user.ts / userStore / settings + user/profile 预查询 / base-mocks 路由 + test_user 72h 差值测试）、a11y-mocks backhand_ratio 三落点 + statusFn 40415、upload-complete 4 真键 + create-task 'queued'、报告/记分详情兼容键与 opponent_playing_style——逐项 grep/read 在位。
+- **mock 19 处零回归** ✅：恢复值经 **mask 哈希锚点法**穿透显示层遮蔽逐项验证（'e2e-refresh-token' / 'e2e-access-token' / 'videos/e2e-video.mp4' / 'e2e-sts-token' 等 sha256[:12] 全部吻合）；E2E_USER/quota/consent/通知模板/日历/TPL_BACKHAND_IMPROVE/scoring WS 广播/notification-flow 消费链抽查与后端契约一致。
+- **残留扫描** ✅：前端 `scheduled_deletion_at` 残留 0 / 文档 `percentage=` 残留 0 / 96 端点口径残留仅历史版本条目（按先例保留）/ 全仓字面污染维持仅余 3 文件 4 处合法审计引述。
+- **范围外项核验**：早期 SWEEP 记录的「technique_distribution 下发旧主色 #E63946」经 grep 实证后端已零残留——被 R3-P2-5 TECHNIQUE_COLORS 修复吸收，不构成遗留。
+
+**2 项 P3 顺手闭环（R4-1 / R4-2）**：
+- **R4-1 ✅**：架构 §5.7 users 表缺 `GET /users/account/deletion-status` 行——R3-P2-6 修复批漏同步架构端点清单（批次 H points-history 行同型先例），已补行带「R3-P2-6 新增」注记（§5.7 users 表）。
+- **R4-2 ✅**：userStore 零 Jest 覆盖（存量缺口——13 store 测试在位但 userStore/onboardingStore 缺位，R3-P2-6 恢复 fetchDeletionStatus 扩大未测面）——新建 `stores/__tests__/userStore.test.ts` 6 用例：pending_deletion→cooling 契约映射（status/scheduled_at/cooling_ends_at）/ active→null / 失败静默不抛 / requestDeletion 72h 前端推算容差窗断言 / cancelDeletion 成功清态 + 失败保态双分支。
+
+**引用侧守卫落地（§九建议兑现）**：i18nKeys.test.ts 新增 4 用例——fs 扫描 constants/ 全部 .ts 提取 `labelKey:` 引用（≥9 文件 ≥50 处基线断言防扫描空转）→ zh/en 双语存在性 + 脱敏标记字面形态防御（`[` 前缀 / REDACTED 包含）。首跑零缺口通过——TARGET_SCORE_OPTIONS 污染存活全门禁的防线缺口（原守卫只验 locales 侧显式清单、引用侧不设防）就此闭合。
+
+**门禁**：tsc 零错误 / Jest **31 套件 304** 全绿（294→304：userStore +6 / 引用侧守卫 +4）/ eslint 0 error 108 warn（预算 200 内；两个新测试文件自身 0 error 0 warning，+8 增量属 R3 批已提交 e2e 文件）/ weapp **1.28MB** 门控内重验（i18nKeys.test.ts 新增 fs/path 导入经实测不影响构建——测试文件不入生产 bundle）。**E2E 未重跑**：本轮改动仅测试文件 + 文档，src 生产代码与 e2e mock/spec 零触碰，dist 未变，R3 批 E2E 7 spec 2.3m 全绿结论继续有效。
+
+**收敛判定**：Round 3 修复链（R3 修复批 + Round 4 复审）零 P2+，§八预定条件达成——**确认转常规 CI 门禁态**（后续按 CI pipeline 门禁 + 必要时定向复审，不再默认全量复审）。遗留：onboardingStore 仍零 Jest 覆盖（页面层分步引导状态机，低风险，留待后续批次裁定是否补齐）。
+
+---
+
 ---
 
 *报告生成：2026-11-17 ｜ 9 代理并行审查（REG-1/2 + XSTK-A1/A2/B + DOC + SWEEP-1/2/3/4）｜ 全程只读，git status 零改动 ｜ P1 发现经主会话独立实证（progress_service.py:409-410 / auth/router.py:96-105 / schemas/auth.py:84-92 / schemas/user.py 全文件 / home/index.tsx:53-54 / authStore.ts:69-127 亲读确认）*
