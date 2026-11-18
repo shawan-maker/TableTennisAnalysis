@@ -196,7 +196,7 @@ mock 四处（`a11y-mocks.ts:273/290/292/331`）+ `a11y.spec.ts:62` `?metric=loo
 
 **门禁**：tsc 零错误 / Jest **31 套件 304** 全绿（294→304：userStore +6 / 引用侧守卫 +4）/ eslint 0 error 108 warn（预算 200 内；两个新测试文件自身 0 error 0 warning，+8 增量属 R3 批已提交 e2e 文件）/ weapp **1.28MB** 门控内重验（i18nKeys.test.ts 新增 fs/path 导入经实测不影响构建——测试文件不入生产 bundle）。**E2E 未重跑**：本轮改动仅测试文件 + 文档，src 生产代码与 e2e mock/spec 零触碰，dist 未变，R3 批 E2E 7 spec 2.3m 全绿结论继续有效。
 
-**收敛判定**：Round 3 修复链（R3 修复批 + Round 4 复审）零 P2+，§八预定条件达成——**确认转常规 CI 门禁态**（后续按 CI pipeline 门禁 + 必要时定向复审，不再默认全量复审）。遗留：onboardingStore 仍零 Jest 覆盖（页面层分步引导状态机，低风险，留待后续批次裁定是否补齐）。
+**收敛判定**：Round 3 修复链（R3 修复批 + Round 4 复审）零 P2+，§八预定条件达成——**确认转常规 CI 门禁态**（后续按 CI pipeline 门禁 + 必要时定向复审，不再默认全量复审）。遗留：onboardingStore 仍零 Jest 覆盖（页面层分步引导状态机，低风险，留待后续批次裁定是否补齐）→ **已闭环（同日补遗批）**：新建 `stores/__tests__/onboardingStore.test.ts` 14 用例（新用户双条件判定 / 进度持久化往返 / nextStep-goToStep-complete-skip 状态机 / storage 损坏 JSON 与抛错静默防御；STORAGE_KEY 经 store 内部闭环断言不引用键字面量），Jest 304→318 / 32 套件，**15 Store 测试全覆盖**——R3 修复链遗留项全部清零。
 
 ---
 
