@@ -1,6 +1,6 @@
 # 部署手册 — 乒乓智能分析平台
 
-> 版本：v1.0 | 更新日期：2026-10-22 | 适用范围：S1+ 后端开发环境
+> 版本：v1.1 | 更新日期：2026-11-18 | 适用范围：S1+ 后端开发环境 / 单机 Docker 全栈部署与真机联调
 
 ## 架构概览
 
@@ -26,6 +26,7 @@
 | [02-PG-Redis部署.md](02-PG-Redis部署.md) | Docker Compose 部署 PG 15 + Redis 7 | 数据库/缓存部署 |
 | [03-本机开发环境配置.md](03-本机开发环境配置.md) | Python venv、依赖安装、.env 配置 | 本机开发环境搭建 |
 | [04-验证与测试.md](04-验证与测试.md) | 连接验证、uvicorn、Alembic、pytest | 部署后验证 |
+| [05-Docker全栈部署.md](05-Docker全栈部署.md) | 后端 api+worker+beat 容器化、迁移种子、真机联调 | 单机全栈部署 / 真机预览与体验版联调 |
 
 ## 脚本目录
 
@@ -35,6 +36,9 @@
 | [scripts/test_connectivity.py](scripts/test_connectivity.py) | 测试本机到虚拟机的 PG/Redis 连接 | 本机 |
 | [scripts/verify_db.py](scripts/verify_db.py) | 验证数据库表和索引 | 本机 |
 | [scripts/docker-compose.vm.yml](scripts/docker-compose.vm.yml) | 虚拟机上的 Docker Compose 配置 | 虚拟机 /root/tta-dev/ |
+| [scripts/vm_fullstack_deploy.py](scripts/vm_fullstack_deploy.py) | 一键部署后端全栈容器（api/worker/beat）到虚拟机 | 本机（仓库根目录） |
+| [../../Dockerfile.backend](../../Dockerfile.backend) | 后端镜像定义（python:3.11-slim） | 仓库根（构建于虚拟机） |
+| [../../docker-compose.app.yml](../../docker-compose.app.yml) | api/worker/beat/migrate 编排（host 网络） | 虚拟机 /root/tta-app/ |
 
 ## 快速部署（已有虚拟机）
 
@@ -47,6 +51,10 @@ python docs/08部署手册/scripts/test_connectivity.py
 
 # 3. 本机执行：生成迁移并测试
 # （详见 04-验证与测试.md）
+
+# 单机 Docker 全栈（api + worker + beat）：本机仓库根目录执行
+.venv\Scripts\python.exe docs\08部署手册\scripts\vm_fullstack_deploy.py
+# 部署后真机联调指引见 05-Docker全栈部署.md §5
 ```
 
 ## 环境要求

@@ -1,0 +1,18 @@
+# 构建上下文瘦身 + 密钥防注入（.env 经 compose env_file 从宿主机注入，绝不入镜像）
+.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+htmlcov
+logs
+tmp
+tests
+frontend
+docs
+nginx
+*.log
+.coverage
+.env
+.env.*
+**/__pycache__

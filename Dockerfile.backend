@@ -1,0 +1,35 @@
+# =============================================================================
+# Dockerfile.backend — 乒乓智能分析平台后端镜像（单机 Docker 全栈部署）
+# 依据：docs/08部署手册/05-Docker全栈部署.md
+# 构建：docker compose -f docker-compose.app.yml build
+# 注意：.env 不入镜像（密钥防泄漏），由 compose env_file 从宿主机注入
+# =============================================================================
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+# tzdata：Celery beat 时区 Asia/Shanghai 依赖系统 zoneinfo
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# 依赖层（单独 COPY 利用构建缓存；PIP_INDEX_URL 可构建时覆盖）
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+COPY requirements.txt .
+RUN pip install --index-url ${PIP_INDEX_URL} -r requirements.txt
+
+# 应用代码层（.dockerignore 已排除 .env / frontend / docs / tests 等）
+COPY alembic.ini .
+COPY alembic/ ./alembic/
+COPY app/ ./app/
+COPY scripts/ ./scripts/
+
+EXPOSE 8000
+
+# api 默认命令；worker / beat / migrate 由 compose command 覆盖
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
