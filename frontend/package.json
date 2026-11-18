@@ -23,8 +23,8 @@
     "test": "jest"
   },
   "browserslist": [
-    "defaults and fully supports es6-module",
-    "maintained node versions"
+    "ios >= 9",
+    "android >= 5"
   ],
   "author": "",
   "dependencies": {
