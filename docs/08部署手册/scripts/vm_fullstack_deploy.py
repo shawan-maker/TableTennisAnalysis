@@ -117,6 +117,7 @@ def main():
 
         # ---- Step 2: SFTP 传输 ----
         step(2, "Transfer (code + .env via SFTP)")
+        run_cmd(ssh, f"mkdir -p {APP_DIR}")  # 首次部署时目录尚不存在，先建
         sftp = ssh.open_sftp()
         sftp.put(LOCAL_TARBALL, REMOTE_TARBALL)
         print(f"  uploaded: {REMOTE_TARBALL}")

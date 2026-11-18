@@ -69,4 +69,6 @@ services:
     network_mode: host
     env_file: .env
     profiles: ["tools"]
-    command: sh -c "alembic upgrade head && python scripts/init_knowledge_base.py && python scripts/seed_badges.py"
+    # PYTHONPATH=/app：scripts/ 下部分脚本无 sys.path 前置（如 seed_badges），
+    # 显式注入工作目录避免 ModuleNotFoundError
+    command: sh -c "alembic upgrade head && PYTHONPATH=/app python scripts/init_knowledge_base.py && PYTHONPATH=/app python scripts/seed_badges.py"
