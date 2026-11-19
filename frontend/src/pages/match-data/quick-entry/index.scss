@@ -60,6 +60,11 @@
   .score-input-number {
     width: 80px;
     height: 64px;
+    /* bug2：Taro 原生 input 直挂样式，padding 归零 + line-height 保证
+       大字号数字（--fs-h1）垂直居中且不被原生默认内边距挤压。 */
+    padding: 0;
+    box-sizing: border-box;
+    line-height: 60px;
     text-align: center;
     font-size: var(--fs-h1);
     font-weight: bold;

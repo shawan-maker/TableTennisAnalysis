@@ -22,7 +22,14 @@ export default defineConfig<'webpack5'>(async (merge, _ctx) => {
     sourceRoot: 'src',
     outputRoot: 'dist',
     plugins: [
-      '@tarojs/plugin-generator'
+      '@tarojs/plugin-generator',
+      // weapp 真机渲染修复（bug1）：NutUI React Taro 2.7.14 组件内部用 HTML div 标签
+      // 包裹 children（button > div.nut-button-wrap > div > 文字）。Taro 默认不转换
+      // HTML 标签，微信真机渲染层丢弃未知标签子树 → 按钮背景正常、文字零像素
+      // （真机截图实证：#2A7A6D 绿块 / #C4293A 红块内部无任何文字像素）。
+      // H5 端浏览器原生支持 div 故 E2E 全绿，此问题仅 weapp 真机暴露。
+      // plugin-html 编译时将 div/span 等映射为 view/text，文字恢复渲染。
+      '@tarojs/plugin-html'
     ],
     defineConstants: {
     },

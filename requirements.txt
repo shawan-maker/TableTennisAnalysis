@@ -23,6 +23,11 @@ redis[hiredis]==5.0.1
 
 # ---------- Celery ----------
 celery==5.3.6
+# kombu 钉 5.3 系：celery 5.3.6 放开上限 <6.0 会让 pip 解析到 kombu 5.5+，
+# 而 kombu 5.5+ 的 Redis transport 硬要求 redis-py>=6.1.0，与本文件钉死的
+# redis 5.0.1 冲突（VM 部署实测 VersionMismatch → worker/beat 反复重启；
+# 本地测试 celery eager 模式不真连 broker，故本地全绿掩盖了该漂移）。
+kombu==5.3.7
 
 # ---------- Auth / Security ----------
 python-jose[cryptography]==3.3.0

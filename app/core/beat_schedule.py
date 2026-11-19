@@ -18,7 +18,7 @@ def configure_beat(celery_app: Celery) -> None:
             "schedule": crontab(minute=0),  # 每小时
             "options": {"queue": "infra"},
             # R13-P3: 描述与 file_management.md §6.2 契约对齐（uploading 超 1h → abandoned）
-            "description": "清理上传超时孤儿文件（status=uploading 超 1h → 删 OSS 对象 → abandoned）",
+            # description: 清理上传超时孤儿文件（status=uploading 超 1h → 删 OSS 对象 → abandoned）
         },
         # R15-User-N2: 补齐软删文件 OSS 物理删除断链（原注释声称由清理任务
         # 承担但任务未注册）— file_management.md §4「24h 后 OSS 物理删除」契约
@@ -26,7 +26,7 @@ def configure_beat(celery_app: Celery) -> None:
             "task": "app.tasks.file_management.cleanup_deleted_files",
             "schedule": crontab(minute=30),  # 每小时偏移 30 分（避开孤儿清理 :00）
             "options": {"queue": "infra"},
-            "description": "软删文件 OSS 物理清理（status=deleted 超 24h → 删 OSS 对象 → purged）",
+            # description: 软删文件 OSS 物理清理（status=deleted 超 24h → 删 OSS 对象 → purged）
         },
         # ---------- 记分牌 ----------
         "scoring-cleanup-abandoned": {
@@ -34,27 +34,27 @@ def configure_beat(celery_app: Celery) -> None:
             "schedule": crontab(minute=5),  # 每小时偏移 5 分
             "options": {"queue": "default"},
             # R13-P3: 描述与 app/tasks/scoring.py 实现对齐（abandoned 24h 收尾，非"释放 Redis 序号"）
-            "description": "abandoned 超 24h 比赛自动收尾（finished + 回填比分 + MatchStatistic 占位）",
+            # description: abandoned 超 24h 比赛自动收尾（finished + 回填比分 + MatchStatistic 占位）
         },
         # ---------- 会员 ----------
         "membership-expiry-check": {
             "task": "app.tasks.membership.check_expiry",
             "schedule": crontab(minute=30, hour=0),  # 每天 00:30
             "options": {"queue": "default"},
-            "description": "会员到期检测：active→expiring_soon→grace_period→expired→closed",
+            # description: 会员到期检测：active→expiring_soon→grace_period→expired→closed
         },
         # ---------- 通知 ----------
         "notification-old-cleanup": {
             "task": "app.tasks.notification.cleanup_old_notifications",
             "schedule": crontab(minute=0, hour=2, day_of_month=1),  # 每月 1 日 02:00
             "options": {"queue": "infra"},
-            "description": "清理过期通知（删除 90 天前已读 + 180 天前未读）",
+            # description: 清理过期通知（删除 90 天前已读 + 180 天前未读）
         },
         "notification-training-reminder": {
             "task": "app.tasks.notification.training_reminder",
             "schedule": crontab(hour=19, minute=0),  # 每天 19:00
             "options": {"queue": "default"},
-            "description": "训练提醒推送：查询 >3 天未训练用户并推送 WS + 微信订阅消息",
+            # description: 训练提醒推送：查询 >3 天未训练用户并推送 WS + 微信订阅消息
         },
         # ---------- AI 推理健康检查 ----------
         "ai-inference-health-check": {
@@ -62,21 +62,21 @@ def configure_beat(celery_app: Celery) -> None:
             "schedule": crontab(minute="*/5"),  # 每 5 分钟
             "options": {"queue": "default"},
             # R13-P3: 描述与 app/tasks/ai_inference_health.py 实现对齐（Redis 可用/告警标记，非"熔断器状态+延迟采集"）
-            "description": "AI 推理服务健康探测（GET /health → Redis 可用标记/告警标记，供 ai_pipeline 降级判断）",
+            # description: AI 推理服务健康探测（GET /health → Redis 可用标记/告警标记，供 ai_pipeline 降级判断）
         },
         # ---------- 游戏化 ----------
         "gamification-monthly-points-reset": {
             "task": "app.tasks.gamification.reset_monthly_points",
             "schedule": crontab(minute=0, hour=0, day_of_month=1),  # 每月 1 日 00:00
             "options": {"queue": "default"},
-            "description": "游戏化月度积分重置（保留总积分，重置月度榜）",
+            # description: 游戏化月度积分重置（保留总积分，重置月度榜）
         },
         # ---------- 用户 ----------
         "user-account-deletion": {
             "task": "app.tasks.user.process_account_deletions",
             "schedule": crontab(minute=15),  # 每小时偏移 15 分
             "options": {"queue": "default"},
-            "description": "处理用户注销请求（72h 冷静期后删除用户数据）",
+            # description: 处理用户注销请求（72h 冷静期后删除用户数据）
         },
         # ---------- 审计日志 ----------
         "audit-log-cleanup": {
@@ -84,7 +84,7 @@ def configure_beat(celery_app: Celery) -> None:
             "schedule": crontab(minute=0, hour=3),  # 每天 03:00
             "options": {"queue": "infra"},
             # R12-Admin-3: 保留期口径修正 — PIPL 审计日志保留 3 年（原 180 天描述与 DB 设计不符）
-            "description": "清理超期审计日志（保留 3 年，PIPL 个人信息处理记录合规）",
+            # description: 清理超期审计日志（保留 3 年，PIPL 个人信息处理记录合规）
         },
         # ---------- 导出 ----------
         "export-cleanup-old-tasks": {
@@ -92,6 +92,6 @@ def configure_beat(celery_app: Celery) -> None:
             "schedule": crontab(minute=0, hour=3),  # 每天 03:00
             "options": {"queue": "infra"},
             # R12-BeatTasks-1: 保留期口径统一 — 设计 02-user/backend.md §6 为 90 天
-            "description": "清理过期导出任务记录（保留 90 天，删除 completed/failed 状态记录）",
+            # description: 清理过期导出任务记录（保留 90 天，删除 completed/failed 状态记录）
         },
     }

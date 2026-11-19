@@ -54,6 +54,7 @@
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.5",
     "@tarojs/cli": "4.3.2",
     "@tarojs/plugin-generator": "4.3.2",
+    "@tarojs/plugin-html": "^4.3.2",
     "@tarojs/taro-loader": "4.3.2",
     "@tarojs/webpack5-runner": "4.3.2",
     "@types/jest": "^29.5.14",

@@ -4,7 +4,7 @@
  */
 import { useState, useCallback } from 'react'
 import Taro from '@tarojs/taro'
-import { View, Text, Picker } from '@tarojs/components'
+import { View, Text, Picker, Input as TaroInput } from '@tarojs/components'
 import { Cell, Button, Input, Toast } from '@nutui/nutui-react'
 import { useMatchDataStore } from '@/stores/matchDataStore'
 import { useTranslation } from 'react-i18next'
@@ -136,28 +136,35 @@ export default function QuickEntry() {
       />
 
       {/* 比分输入（数字键盘，双列居中） */}
+      {/* bug2 修复：NutUI Input 的 .nut-input-native 直接 color 规则（继承永远输
+          给直接规则）覆盖 .score-input-number 的 var(--color-primary)，真机实测
+          数字渲染为 NutUI 默认黑 #1a1a1a 且大字号下原生层出现碎裂伪影（第二位
+          数字顶部块+空洞+斜楔三段式）。改用 Taro 原生 Input：className 直接挂
+          在原生 input 上，color/text-align/font-size 全部直达生效，且去除
+          NutUI 包裹层。注意 Taro Input 事件为 onInput（weapp bindinput 实时），
+          长度属性为 maxlength（全小写），取值 e.detail.value。 */}
       <View className="score-input-section">
         <View className="score-input-side">
           <Text className="score-input-label">{t('matchData.myScore')}</Text>
-          <Input
+          <TaroInput
             className="score-input-number"
             type="number"
             placeholder="0"
             value={myScore}
-            maxLength={2}
-            onChange={(val: string) => setMyScore(val)}
+            maxlength={2}
+            onInput={(e: any) => setMyScore(e.detail.value)}
           />
         </View>
         <Text className="score-input-colon">:</Text>
         <View className="score-input-side">
           <Text className="score-input-label">{t('matchData.oppScore')}</Text>
-          <Input
+          <TaroInput
             className="score-input-number"
             type="number"
             placeholder="0"
             value={oppScore}
-            maxLength={2}
-            onChange={(val: string) => setOppScore(val)}
+            maxlength={2}
+            onInput={(e: any) => setOppScore(e.detail.value)}
           />
         </View>
       </View>
